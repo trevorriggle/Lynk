@@ -1,10 +1,9 @@
 "use client";
-import { useState } from "react";
-import Header from "../components/Header";
-import LeftStack from "../components/LeftStack";
-import RightPanel from "../components/RightPanel";
-import Chat from "../components/Chat";
-import DraggableModelButton from "../components/DraggableModelButton";
+import Header from "./components/Header";
+import LeftStack from "./components/LeftStack";
+import RightPanel from "./components/RightPanel";
+import Chat from "./components/Chat";
+import DraggableModelButton from "./components/DraggableModelButton";
 
 export default function Page() {
   const [active, setActive] = useState("Commands");
