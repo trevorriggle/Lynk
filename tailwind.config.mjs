@@ -7,13 +7,31 @@ export default {
   ],
   theme: {
     extend: {
+      colors: {
+        lynk: {
+          bg: "#FFFFFF",          // overall background
+          panel: "#C7EBEA",       // left panel backdrop
+          panelBubble: "#176A82", // left panel bubbles
+          agent: "#C7EBEA",       // agent message bubble
+          user: "#D9D9D9",        // "You" bubble
+          ink: "#1F2937",         // dark neutral text
+        },
+      },
       fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],      // Montserrat
-        display: ["var(--font-display)", "var(--font-sans)", "sans-serif"], // Poppins
+        sans: ["var(--font-poppins)", "system-ui", "sans-serif"],   // Poppins for body
+        display: ["var(--font-poppins)", "system-ui", "sans-serif"],// Poppins Black for headings
+      },
+      fontWeight: {
+        black: "900", // used for headings
+      },
+      borderRadius: {
+        xl: "0.9rem",
+        "2xl": "1.25rem",
+      },
+      boxShadow: {
+        soft: "0 1px 3px rgba(0,0,0,0.06)",
       },
     },
   },
   plugins: [],
-};
-
 };

@@ -2,8 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-body { @apply bg-zinc-950 text-zinc-100 antialiased min-h-dvh; }
+/* Global reset */
+:root {
+  color-scheme: light;
+  background-color: #FFFFFF;
+}
 
-html { scroll-behavior: smooth; }
-::selection { background: #4f46e5; color: white; }
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* === Brand Helpers === */
+.brand-heading {
+  @apply font-display font-black text-lynk-panelBubble;
+}
+
+.brand-body {
+  @apply font-sans text-lynk-ink;
+}
+
+.brand-panel {
+  @apply bg-lynk-panel;
+}
+
+.brand-panelBubble {
+  @apply bg-lynk-panelBubble text-white;
+}
+
+.brand-agent {
+  @apply bg-lynk-agent text-lynk-ink rounded-xl p-3;
+}
+
+.brand-user {
+  @apply bg-lynk-user text-lynk-ink rounded-xl p-3;
+}
