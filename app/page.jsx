@@ -1,9 +1,10 @@
 "use client";
-import Header from "app/components/Header";
-import LeftStack from app"/components/LeftStack";
-import RightPanel from "app/components/RightPanel";
-import Chat from "app/components/Chat";
-import DraggableModelButton from "app/components/DraggableModelButton";
+
+import Header from "./components/Header";
+import LeftStack from "./components/LeftStack";
+import RightPanel from "./components/RightPanel";
+import Chat from "./components/Chat";
+import DraggableModelButton from "./components/DraggableModelButton";
 
 
 export default function Page() {
