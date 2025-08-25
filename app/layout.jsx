@@ -1,6 +1,6 @@
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import TopBar from "../components/TopBar"; // relative path, no "@"
+import TopBar from "./components/TopBar"; // note: "./components/TopBar"
 
 const poppins = Poppins({
   subsets: ["latin"],
