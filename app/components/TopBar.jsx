@@ -10,7 +10,7 @@ export default function TopBar() {
       <div className="mx-auto flex h-20 items-center gap-3 px-4 sm:px-6 lg:px-8">
         {/* Logo only (no text label) */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
-          <Image src="/lynk-logo.png" alt="Lynk" width={80} height={80} priority />
+          <Image src="/lynk-logo.png" alt="Lynk" width={200} height={200} priority />
         </Link>
 
         <div className="flex-1" />
