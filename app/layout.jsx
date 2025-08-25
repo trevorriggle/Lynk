@@ -1,7 +1,9 @@
+export const metadata = { title: "Lynk" };
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, fontFamily: "sans-serif", padding: 40 }}>
+      <body style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
         {children}
       </body>
     </html>
