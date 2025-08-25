@@ -1,11 +1,11 @@
-export const metadata = { title: "Lynk" };
+import "./globals.css";
+
+export const metadata = { title: "Lynk", description: "Lynk — research & build hub" };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
