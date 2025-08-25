@@ -1,11 +1,10 @@
-// app/layout.jsx
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import TopBar from "@/components/TopBar"; // change to a relative path if your alias "@" isn't set
+import TopBar from "../components/TopBar"; // relative path, no "@"
 
 const poppins = Poppins({
   subsets: ["latin"],
-  weight: ["400", "500", "700", "900"], // includes Black
+  weight: ["400", "500", "700", "900"],
   variable: "--font-poppins",
 });
 
