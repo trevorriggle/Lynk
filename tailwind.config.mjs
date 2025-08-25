@@ -8,13 +8,12 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        // Fredoka Variable from Adobe Fonts
-        sans: ["fredoka-variable", "system-ui", "sans-serif"],
-        // If you want a separate "display" family you can alias it here,
-        // otherwise both body and headings can just use sans.
-        display: ["fredoka-variable", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],      // Montserrat
+        display: ["var(--font-display)", "var(--font-sans)", "sans-serif"], // Poppins
       },
     },
   },
   plugins: [],
+};
+
 };
