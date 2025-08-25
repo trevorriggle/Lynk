@@ -1,7 +1,7 @@
-// app/layout.tsx
+// app/layout.jsx
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import TopBar from "@/components/TopBar";
+import TopBar from "@/components/TopBar"; // change to a relative path if your alias "@" isn't set
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -9,16 +9,11 @@ const poppins = Poppins({
   variable: "--font-poppins",
 });
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body
-        className={`${poppins.variable} font-sans bg-lynk-bg text-lynk-ink`}
-      >
-        {/* Global top navigation */}
+      <body className={`${poppins.variable} font-sans bg-lynk-bg text-lynk-ink`}>
         <TopBar />
-
-        {/* Page content */}
         {children}
       </body>
     </html>
