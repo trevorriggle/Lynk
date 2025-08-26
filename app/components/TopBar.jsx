@@ -18,15 +18,14 @@ function Magnifier({ className = "h-4 w-4" }) {
 }
 
 export default function TopBar() {
-  // Adjust these two to change visual size:
-  const logoSizeClass = "h-10"; // h-8 / h-9 / h-10 / h-11 ...
-  const headerHeight = "h-14";  // if you go to h-16, also set <div className="pt-16"> in app/layout.jsx
+  // Adjust the logo size here: h-8 (default) / h-9 / h-10, etc.
+  const logoSizeClass = "h-10";
 
   return (
-    <header className={`sticky top-0 z-[100] w-full bg-[#E6E8EA]`}>
+    <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
-        {/* OUTER ROW */}
-        <div className={`flex ${headerHeight} items-center gap-3`}>
+        {/* OUTER ROW (no justify-between to avoid phantom gap) */}
+        <div className="flex h-14 items-center gap-3">
           {/* LEFT: logo + workspace (prevent shrinking) */}
           <div className="flex items-center gap-4 shrink-0">
             <img
