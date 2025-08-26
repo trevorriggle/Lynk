@@ -23,7 +23,7 @@ export default function DraggableModelButton({ model, setModel }) {
   // Drag state
   const wrapperRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-  const [pos, setPos] = useState({ x: 24, y: 24 });
+  const [pos, setPos] = useState({ x: 24, y: 100 });
   const pressOffset = useRef({ x: 0, y: 0 });
 
   // Persist position
