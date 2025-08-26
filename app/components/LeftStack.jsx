@@ -7,8 +7,8 @@ function Section({ title, defaultOpen = true, children }) {
   return (
     <div className="mb-3">
       <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-teal-700 text-white shadow-sm"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-brand-teal text-white shadow-sm"
       >
         <span className="font-semibold">{title}</span>
         <span
@@ -20,9 +20,9 @@ function Section({ title, defaultOpen = true, children }) {
       </button>
 
       <div
-        className={`transition-all overflow-hidden ${open ? "max-h-[600px] mt-2" : "max-h-0"} `}
+        className={`transition-all overflow-hidden ${open ? "max-h-[600px] mt-2" : "max-h-0"}`}
       >
-        <div className="rounded-xl border border-teal-200 bg-white p-2">
+        <div className="rounded-xl border border-brand-aqua/60 bg-white p-2">
           {children}
         </div>
       </div>
@@ -34,7 +34,9 @@ function Row({ label, onClick, muted = false }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-2 rounded-lg hover:bg-teal-50 active:bg-teal-100 border border-transparent hover:border-teal-200 ${muted ? "text-slate-500 italic" : "text-slate-800"}`}
+      className={`w-full text-left px-3 py-2 rounded-lg hover:bg-brand-aqua/30 active:bg-brand-aqua/50 border border-transparent hover:border-brand-aqua/60 ${
+        muted ? "text-slate-500 italic" : "text-slate-800"
+      }`}
     >
       {label}
     </button>
@@ -47,9 +49,8 @@ function Row({ label, onClick, muted = false }) {
  */
 export default function LeftStack({ onActivate }) {
   return (
-    <aside className="h-full w-full lg:w-64 p-3 bg-teal-100/60">
+    <aside className="h-full w-full lg:w-64 p-3 bg-brand-aqua">
       <Section title="Context Files">
-        {/* example items from the mock */}
         <Row
           label="sys-prompt.txt"
           onClick={() => onActivate?.({ type: "file", key: "sys-prompt.txt" })}
@@ -69,7 +70,6 @@ export default function LeftStack({ onActivate }) {
       </Section>
 
       <Section title="Commands">
-        {/* keyword-triggered functions you listed (e.g., flinn?, carolina?, fort-rapids?) */}
         <Row
           label="Carolina?"
           onClick={() => onActivate?.({ type: "command", key: "carolina?" })}
