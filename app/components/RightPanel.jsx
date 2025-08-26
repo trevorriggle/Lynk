@@ -1,25 +1,28 @@
 "use client";
 
-export default function RightPanel({ panelTitle, panelSummary, state = "Inactive" }) {
-  const active = state !== "Inactive";
+export default function RightPanel({ active = false, activeContext = null }) {
+  const state = active ? "Active" : "Inactive";
   return (
-    <aside className="hidden w-80 shrink-0 border-l border-zinc-800 p-4 lg:block">
-      <div className="rounded-2xl border border-zinc-800 p-4">
-        <div className="mb-2 text-xs text-zinc-400">State</div>
+    <aside className="hidden w-80 shrink-0 p-4 lg:block">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="mb-2 text-xs text-slate-500">State</div>
         <div
           className={
             "mb-4 rounded-lg px-3 py-2 text-sm " +
-            (active ? "bg-emerald-900/20 border border-emerald-700/30" : "bg-zinc-900")
+            (active ? "bg-emerald-50 border border-emerald-200 text-emerald-800"
+                    : "bg-slate-50 border border-slate-200 text-slate-600")
           }
         >
           {state}
         </div>
 
-        <div className="text-sm text-zinc-300 font-medium">
-          {panelTitle || "Panel"}
+        <div className="text-sm text-slate-800 font-medium">
+          {activeContext?.type ? "Panel" : "Panel"}
         </div>
-        <p className="mt-2 text-xs leading-5 text-zinc-500">
-          {panelSummary || "This inspector lights up when you pick a Project/Command or attach Context Files."}
+        <p className="mt-2 text-xs leading-5 text-slate-600">
+          {activeContext
+            ? JSON.stringify(activeContext)
+            : "This inspector lights up when you pick a Project/Command or attach Context Files."}
         </p>
       </div>
     </aside>
