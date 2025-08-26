@@ -51,7 +51,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+   <div className="flex min-h-[calc(100vh-56px)] flex-col">
 <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-0 pb-3 space-y-4">
         {messages.map((m, i) => {
           const isUser = m.role === "user";
@@ -64,7 +64,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
         {sending && <div className="max-w-xl brand-agent">Thinking…</div>}
       </div>
 
-      <form onSubmit={handleSubmit} className="sticky bottom-0 border-t bg-white/95 backdrop-blur px-4 py-3">
+      <form onSubmit={handleSubmit} className="mt-auto border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
