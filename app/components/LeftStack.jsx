@@ -34,12 +34,14 @@ function Row({ label, onClick, muted = false }) {
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "w-full text-left px-3 py-2 rounded-lg",
-        "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50",
-        "border border-transparent hover:!border-[#C7EBEA]/60",
-        muted ? "text-slate-500 italic" : "text-slate-800",
-      ].join(" ")}
+      "className":[
+  "w-full text-left px-3 py-2.5 rounded-lg",
+  "ring-1 ring-black/5",
+  "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50",
+  "hover:!border-[#C7EBEA]/60", // keep hover border accent
+  …
+].join(" ")
+
     >
       {label}
     </button>
