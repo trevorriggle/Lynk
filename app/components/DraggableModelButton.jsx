@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Model list from the Lynk UI doc */
+// your model list—edit to taste
 const MODELS = [
   "GPT-4o",
   "GPT-4",
@@ -17,16 +17,18 @@ const MODELS = [
 ];
 
 export default function DraggableModelButton({ model, setModel }) {
-  const [current, setCurrent] = useState(model || "GPT-4o");
+  // keep SSR safe defaults
+  const defaultModel = useMemo(() => model || "GPT-4o", [model]);
+  const [current, setCurrent] = useState(defaultModel);
   const [open, setOpen] = useState(false);
 
-  // Drag state
+  // ---- drag state
   const wrapperRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-  const [pos, setPos] = useState({ x: 24, y: 100 });
+  const [pos, setPos] = useState({ x: 24, y: 100 }); // visible by default
   const pressOffset = useRef({ x: 0, y: 0 });
 
-  // Persist position
+  // persist position between sessions
   useEffect(() => {
     try {
       const saved = localStorage.getItem("lynk_pill_pos");
@@ -39,24 +41,23 @@ export default function DraggableModelButton({ model, setModel }) {
     } catch {}
   }, [pos]);
 
-  // Propagate selection to parent if provided
+  // propagate selection up
   useEffect(() => {
     if (setModel) setModel(current);
   }, [current, setModel]);
 
-  // Close on outside click
+  // close when clicking outside
   useEffect(() => {
-    function onDocClick(e) {
+    function onDocDown(e) {
       if (!wrapperRef.current) return;
       if (!wrapperRef.current.contains(e.target)) setOpen(false);
     }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  // Pointer (mouse/touch) drag handlers
   function onPointerDown(e) {
-    if (e.button === 2) return;
+    if (e.button === 2) return; // ignore right-click
     setDragging(true);
     const rect = wrapperRef.current?.getBoundingClientRect();
     pressOffset.current = {
@@ -65,6 +66,7 @@ export default function DraggableModelButton({ model, setModel }) {
     };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
+
   function onPointerMove(e) {
     if (!dragging) return;
     const w = wrapperRef.current?.offsetWidth ?? 0;
@@ -73,6 +75,7 @@ export default function DraggableModelButton({ model, setModel }) {
     const ny = Math.min(Math.max(8, e.clientY - pressOffset.current.y), window.innerHeight - h - 8);
     setPos({ x: nx, y: ny });
   }
+
   function onPointerUp(e) {
     setDragging(false);
     e.currentTarget.releasePointerCapture?.(e.pointerId);
@@ -81,25 +84,26 @@ export default function DraggableModelButton({ model, setModel }) {
   return (
     <div
       ref={wrapperRef}
-      className="fixed z-50 select-none"
+      className="fixed z-[9999] select-none"
       style={{ left: pos.x, top: pos.y }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      {/* Pill */}
+      {/* pill */}
       <button
         type="button"
+        aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => !dragging && setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full px-3 py-1.5 shadow-md"
+        className="flex items-center gap-2 rounded-full px-3 py-1.5 shadow-md focus:outline-none"
         style={{
-          backgroundColor: "#176A82",      // teal (spec)
+          backgroundColor: "#176A82",   // teal
           color: "white",
-          border: "2px solid #094858",     // darker teal stroke
+          border: "2px solid #094858",  // darker teal stroke
         }}
       >
-        {/* Left circular logo slot */}
+        {/* left logo circle */}
         <span
           className="flex items-center justify-center rounded-full bg-white"
           style={{ border: "2px solid #094858", width: 28, height: 28 }}
@@ -107,10 +111,10 @@ export default function DraggableModelButton({ model, setModel }) {
           <Image src="/OpenAI-Logo.png" alt="" width={24} height={24} />
         </span>
 
-        {/* Text */}
+        {/* model text */}
         <span className="font-medium tracking-wide text-sm">{current}</span>
 
-        {/* Right hamburger */}
+        {/* right hamburger icon */}
         <span className="ml-1">
           <Image
             src={open ? "/hamburger_expanded.png" : "/hamburger.png"}
@@ -121,28 +125,28 @@ export default function DraggableModelButton({ model, setModel }) {
         </span>
       </button>
 
-      {/* Dropdown */}
+      {/* dropdown */}
       {open && (
         <div
+          role="listbox"
           className="mt-2 w-56 rounded-2xl overflow-hidden shadow-xl"
-          style={{
-            backgroundColor: "#176A82",
-            border: "2px solid #094858",
-          }}
+          style={{ backgroundColor: "#176A82", border: "2px solid #094858" }}
         >
           {MODELS.map((m, i) => (
             <button
+              role="option"
+              aria-selected={m === current}
               key={m}
               type="button"
               onClick={() => {
                 setCurrent(m);
                 setOpen(false);
               }}
-              className="block w-full text-left px-4 py-2 text-white"
+              className="block w-full text-left px-4 py-2 text-white hover:bg-white/10 text-sm"
               style={{
                 fontWeight: m === current ? 700 : 500,
                 borderBottom:
-                  i < MODELS.length - 1 ? "1px dotted rgba(199,235,234,0.75)" : "none", // dotted sep
+                  i < MODELS.length - 1 ? "1px dotted rgba(199,235,234,0.75)" : "none",
               }}
             >
               {m}
