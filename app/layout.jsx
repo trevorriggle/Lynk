@@ -1,22 +1,22 @@
 // app/layout.jsx
-import { Poppins } from "next/font/google";
 import "./globals.css";
-import TopBar from "./components/TopBar"; // Option B path
+import { Poppins } from "next/font/google";
 
 const poppins = Poppins({
   subsets: ["latin"],
-  weight: ["400", "500", "700", "900"],
+  weight: ["400", "900"], // 400 = Regular, 900 = Black
   variable: "--font-poppins",
 });
 
+export const metadata = {
+  title: "HubAI",
+  description: "…",
+};
+
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className={`${poppins.variable} font-sans bg-lynk-bg text-lynk-ink`}>
-        {/* Single, white header only */}
-        <TopBar />
-        {children}
-      </body>
+    <html lang="en" className={poppins.variable}>
+      <body>{children}</body>
     </html>
   );
 }

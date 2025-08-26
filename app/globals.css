@@ -14,27 +14,37 @@ html, body {
   padding: 0;
 }
 
-/* === Brand Helpers === */
-.brand-heading {
-  @apply font-display font-black text-lynk-panelBubble;
-}
+/* === Brand Helpers ===
+   Uses classes defined in tailwind.config.js:
+   - colors: brand.teal (#196A82), brand.aqua (#C9EEED)
+   - fonts:  font-heading (Poppins), font-body (Poppins)
+*/
+@layer components {
+  .brand-heading {
+    @apply font-heading font-black text-brand-teal;
+  }
 
-.brand-body {
-  @apply font-sans text-lynk-ink;
-}
+  .brand-body {
+    @apply font-body font-normal text-slate-800;
+  }
 
-.brand-panel {
-  @apply bg-lynk-panel;
-}
+  /* Left panel backdrop */
+  .brand-panel {
+    @apply bg-brand-aqua;
+  }
 
-.brand-panelBubble {
-  @apply bg-lynk-panelBubble text-white;
-}
+  /* Teal chat bubble (model pill / system bubble) */
+  .brand-panelBubble {
+    @apply bg-brand-teal text-white;
+  }
 
-.brand-agent {
-  @apply bg-lynk-agent text-lynk-ink rounded-xl p-3;
-}
+  /* Assistant bubble (white, dark ink) */
+  .brand-agent {
+    @apply bg-white text-slate-800 rounded-xl p-3;
+  }
 
-.brand-user {
-  @apply bg-lynk-user text-lynk-ink rounded-xl p-3;
+  /* User bubble (spec grey D9D9D9) */
+  .brand-user {
+    @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3;
+  }
 }
