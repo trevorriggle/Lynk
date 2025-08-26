@@ -18,22 +18,23 @@ function Magnifier({ className = "h-4 w-4" }) {
 }
 
 export default function TopBar() {
-  // make logo bigger by changing this class: h-8 / h-10 / h-12
-  const logoSize = "h-10";
+  // Adjust the logo size here: h-8 (default) / h-9 / h-10, etc.
+  const logoSizeClass = "h-10";
 
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
-        {/* OUTER ROW */}
+        {/* OUTER ROW (no justify-between to avoid phantom gap) */}
         <div className="flex h-14 items-center gap-3">
-          {/* LEFT */}
+          {/* LEFT: logo + workspace (prevent shrinking) */}
           <div className="flex items-center gap-4 shrink-0">
             <img
               src="/lynk-logo.png"
               alt="Lynk"
-              className={`${logoSize} w-auto select-none`}
+              className={`${logoSizeClass} w-auto select-none`}
               draggable="false"
             />
+
             <div className="hidden items-center gap-2 sm:flex text-gray-600">
               <span className="text-sm">Project</span>
               <button
@@ -47,8 +48,8 @@ export default function TopBar() {
             </div>
           </div>
 
-          {/* CENTER (fill remaining space, no phantom gap) */}
-          <div className="flex flex-1 min-w-0 justify-center">
+          {/* CENTER: search (grow to fill between left/right, allow shrinking) */}
+          <div className="flex flex-1 min-w-0">
             <label
               htmlFor="lynk-search"
               role="search"
@@ -65,7 +66,7 @@ export default function TopBar() {
             </label>
           </div>
 
-          {/* RIGHT */}
+          {/* RIGHT: actions (prevent shrinking so center truly flexes) */}
           <div className="flex items-center gap-3 shrink-0">
             <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
               New Chat
