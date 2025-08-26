@@ -1,23 +1,20 @@
 // app/layout.jsx
-import "./globals.css";
 import { Poppins } from "next/font/google";
-import TopBar from "./components/TopBar";
+import "./globals.css";
+import TopBar from "./components/TopBar"; // Option B path
 
 const poppins = Poppins({
   subsets: ["latin"],
-  weight: ["400", "900"], // 400 Regular, 900 Black
+  weight: ["400", "500", "700", "900"],
   variable: "--font-poppins",
 });
 
-export const metadata = {
-  title: "Lynk",
-  description: "Conversational workspace",
-};
-
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={poppins.variable}>
-      <body className="min-h-screen">
+    <html lang="en">
+      <body className={`${poppins.variable} font-sans bg-lynk-bg text-lynk-ink`}>
+        {/* Single, white header only */}
+        <TopBar />
         {children}
       </body>
     </html>
