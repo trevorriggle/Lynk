@@ -1,82 +1,87 @@
 "use client";
 
-import Image from "next/image";
-import { useState } from "react";
-
-function ChevronDown({ className = "h-4 w-4" }) {
+/**
+ * Lynk TopBar
+ * - Clean, compact white bar with teal accent badge
+ * - Poppins headings, subtle divider, no gray fill anywhere
+ * - Left: brand, project switcher; Center: search; Right: quick actions
+ * - Responsive: search collapses on small screens
+ *
+ * Z-order note: z-[10000]; keep DraggableModelButton at z-[10001]+.
+ */
+export default function TopBar({
+  project = "Workspace",
+  onNewChat,
+  onUpload,
+  onSettings,
+}) {
   return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className={className}>
-      <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.28l3.71-3.05a.75.75 0 111.04 1.08l-4.23 3.48a.75.75 0 01-.96 0L5.21 8.31a.75.75 0 01.02-1.1z"/>
-    </svg>
-  );
-}
+    <header className="fixed inset-x-0 top-0 z-[10000] h-12 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-b border-slate-200">
+      <div className="mx-auto max-w-screen-2xl h-full px-3 sm:px-4 flex items-center gap-3">
+        {/* Brand / Identity */}
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Teal accent puck */}
+          <span className="inline-block h-6 w-6 rounded-full bg-brand-teal/10 border border-brand-teal/30" />
+          {/* Wordmark */}
+          <span className="text-sm font-heading font-black text-brand-teal tracking-tight select-none">
+            Lynk
+          </span>
 
-function Magnifier({ className = "h-4 w-4" }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
-      <circle cx="11" cy="11" r="7" strokeWidth="2"></circle>
-      <path d="M20 20l-3.5-3.5" strokeWidth="2"></path>
-    </svg>
-  );
-}
-
-export default function TopBar() {
-  const [workspace] = useState("Workspace");
-
-  return (
-    <header className="sticky top-0 z-40 w-full bg-[#E6E8EA] shadow-header">
-      <div className="mx-auto max-w-[1400px] px-4">
-        <div className="flex h-14 items-center justify-between gap-3">
-          {/* Left: logo + project/space */}
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Image
-                src="/lynk-logo.png" // << your asset
-                alt="Lynk"
-                width={112}
-                height={28}
-                priority
-                className="h-7 w-auto"
-              />
-            </div>
-
-            <div className="hidden items-center gap-2 sm:flex text-gray-600">
-              <span className="text-sm">Project</span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-md bg-white/70 px-3 py-1 text-sm font-medium text-gray-700 shadow-p
-ill ring-1 ring-black/5 hover:bg-white"
-              >
-                {workspace}
-                <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
-              </button>
-            </div>
-          </div>
-
-          {/* Center: search */}
-          <div className="flex w-full max-w-[720px] flex-1">
-            <label className="flex w-full items-center gap-3 rounded-pill bg-white px-4 py-2 shadow-input ring-1 ring-black/10">
-              <Magnifier className="h-4 w-4 text-gray-500" />
-              <input
-                type="text"
-                placeholder="Search files, chats, and commands..."
-                className="w-full bg-transparent text-[15px] leading-6 text-gray-800 placeholder:font-medium focus:outline-none"
-              />
-            </label>
-          </div>
-
-          {/* Right: actions */}
-          <div className="flex items-center gap-3">
-            <button className="rounded-pill bg-lynk-teal px-4 py-2 text-sm font-semibold text-white shadow-pill hover:opacity-95">
-              New Chat
+          {/* Project switcher */}
+          <div className="hidden sm:flex items-center gap-1 pl-3 ml-2 border-l border-slate-200">
+            <span className="text-xs text-slate-500">Project</span>
+            <button
+              type="button"
+              className="ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs bg-brand-teal/10 text-brand-teal hover:bg-brand-teal/15 active:bg-brand-teal/20"
+              onClick={() => {/* hook up later */}}
+            >
+              <span className="truncate max-w-[12ch]">{project}</span>
+              <span className="select-none">▾</span>
             </button>
-            <button className="rounded-pill bg-lynk-teal px-4 py-2 text-sm font-semibold text-white shadow-pill hover:opacity-95">
-              Settings
-            </button>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-lynk-teal bg-white text-[13px] font-semibold text-gray-600">
-              AC
-            </div>
           </div>
+        </div>
+
+        {/* Center search (collapses on xs) */}
+        <div className="flex-1 min-w-0 hidden md:flex">
+          <div className="relative w-full max-w-xl">
+            <input
+              type="search"
+              placeholder="Search files, chats, and commands…"
+              className="w-full rounded-full border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-brand-teal"
+            />
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
+              width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+            >
+              <path d="M10 18a8 8 0 1 1 5.293-14.293A8 8 0 0 1 10 18Zm11 3-6-6"
+                fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Right actions */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="hidden sm:inline-flex items-center rounded-full bg-brand-teal text-white text-xs font-medium px-3 py-2 hover:opacity-95 active:opacity-90"
+          >
+            New Chat
+          </button>
+          <button
+            type="button"
+            onClick={onUpload}
+            className="inline-flex items-center rounded-full border border-slate-200 text-xs px-3 py-2 hover:bg-slate-50 active:bg-slate-100"
+          >
+            Upload
+          </button>
+          <button
+            type="button"
+            onClick={onSettings}
+            className="inline-flex items-center rounded-full border border-slate-200 text-xs px-3 py-2 hover:bg-slate-50 active:bg-slate-100"
+          >
+            Settings
+          </button>
         </div>
       </div>
     </header>
