@@ -32,7 +32,7 @@ export default function TopBar() {
             <img
               src="/lynk-logo.png"
               alt="Lynk"
-              className={`${logoSizeClass} h-40 w-auto select-none`}
+              className={`${logoSizeClass} w-auto select-none`}
               draggable="false"
             />
 
