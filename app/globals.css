@@ -48,3 +48,11 @@ html, body {
     @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3;
   }
 }
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid rgba(23,106,130,.55);
+  outline-offset: 2px;
+}
+
+/* Subtle input placeholder weight */
+input::placeholder { color: #7A8791; opacity: .9; }
