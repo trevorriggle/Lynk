@@ -3,7 +3,7 @@
 export default function RightPanel({ active = false, activeContext = null }) {
   const state = active ? "Active" : "Inactive";
   return (
-    <aside className="hidden w-80 shrink-0 p-4 lg:block">
+   <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-xs text-slate-500">State</div>
         <div

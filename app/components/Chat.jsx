@@ -52,7 +52,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
 
   return (
     <div className="flex h-full min-h-[60vh] flex-col">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+<div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-0 pb-6 space-y-4">
         {messages.map((m, i) => {
           const isUser = m.role === "user";
           return (
