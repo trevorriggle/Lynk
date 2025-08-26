@@ -20,11 +20,11 @@ function Section({ title, defaultOpen = true, children }) {
       </button>
 
       <div className={`transition-all overflow-hidden ${open ? "max-h-[600px] mt-2" : "max-h-0"}`}>
-        <div className="rounded-xl border !border-[#C7EBEA]/60 bg-white p-3">
-          <div className="space-y-2">
-            {children}
-          </div>
-        </div>
+        <div className="rounded-xl border !border-[#C7EBEA]/60 bg-white pt-4 px-3 pb-3">
+  <div className="space-y-2">
+    {children}
+  </div>
+</div>
       </div>
     </div>
   );
