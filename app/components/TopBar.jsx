@@ -19,7 +19,7 @@ function Magnifier({ className = "h-4 w-4" }) {
 
 export default function TopBar() {
   // Adjust the logo size here: h-8 (default) / h-9 / h-10, etc.
-  const logoSizeClass = "h-10";
+  const logoSizeClass = "h-20";
 
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
