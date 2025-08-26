@@ -8,8 +8,8 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className="min-h-screen bg-white">
         <TopBar />
-        {/* Header is 56px (h-14) */}
-        <div className="pt-14">{children}</div>
+        {/* Header is 56px (h-14). The -mt-px erases any 1px seam from borders below. */}
+        <div className="pt-14 -mt-px">{children}</div>
       </body>
     </html>
   );
