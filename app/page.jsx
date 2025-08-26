@@ -26,7 +26,7 @@ export default function Page() {
       {/* Legacy <Header /> removed. TopBar is already rendered in layout.jsx */}
 
       {/* Main grid */}
-      <div className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)_20rem]">
+     <div className="mx-auto w-full max-w-7xl flex-1 grid grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)_20rem] items-start gap-x-6 gap-y-0 pt-0">
         {/* Left: collapsible nav */}
         <LeftStack onActivate={handleActivate} />
 
