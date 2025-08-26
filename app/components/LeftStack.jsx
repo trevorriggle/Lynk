@@ -1,14 +1,14 @@
 "use client";
 import { useState } from "react";
 
-// Simple collapsible section
+// Collapsible section with spec teal bar
 function Section({ title, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mb-3">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#176A82] text-white shadow-sm"
+        className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm"
       >
         <span className="font-semibold">{title}</span>
         <span
@@ -19,12 +19,8 @@ function Section({ title, defaultOpen = true, children }) {
         </span>
       </button>
 
-      <div
-        className={`transition-all overflow-hidden ${
-          open ? "max-h-[600px] mt-2" : "max-h-0"
-        }`}
-      >
-        <div className="rounded-xl border border-[#C7EBEA]/60 bg-white p-2">
+      <div className={`transition-all overflow-hidden ${open ? "max-h-[600px] mt-2" : "max-h-0"}`}>
+        <div className="rounded-xl border !border-[#C7EBEA]/60 bg-white p-2">
           {children}
         </div>
       </div>
@@ -35,10 +31,14 @@ function Section({ title, defaultOpen = true, children }) {
 function Row({ label, onClick, muted = false }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`w-full text-left px-3 py-2 rounded-lg hover:bg-[#C7EBEA]/30 active:bg-[#C7EBEA]/50 border border-transparent hover:border-[#C7EBEA]/60 ${
-        muted ? "text-slate-500 italic" : "text-slate-800"
-      }`}
+      className={[
+        "w-full text-left px-3 py-2 rounded-lg",
+        "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50",
+        "border border-transparent hover:!border-[#C7EBEA]/60",
+        muted ? "text-slate-500 italic" : "text-slate-800",
+      ].join(" ")}
     >
       {label}
     </button>
@@ -47,11 +47,12 @@ function Row({ label, onClick, muted = false }) {
 
 /**
  * LeftStack
- * - onActivate(ctx) -> { type: "command"|"project"|"file"|"behavior"|"recent", key: string }
+ * onActivate(ctx) -> { type: "command"|"project"|"file"|"behavior"|"recent", key: string }
  */
 export default function LeftStack({ onActivate }) {
   return (
-    <aside className="h-full w-full lg:w-64 p-3 bg-[#C7EBEA]">
+    // Rail: spec aqua
+    <aside className="h-full w-full lg:w-64 p-3 !bg-[#C7EBEA]">
       <Section title="Context Files">
         <Row
           label="sys-prompt.txt"
@@ -103,3 +104,25 @@ export default function LeftStack({ onActivate }) {
           onClick={() => onActivate?.({ type: "project", key: "graphic-design" })}
         />
         <Row
+          label="Coding Support"
+          onClick={() => onActivate?.({ type: "project", key: "coding-support" })}
+        />
+      </Section>
+
+      <Section title="Recent Chats">
+        <Row
+          label="Best Python Course"
+          onClick={() => onActivate?.({ type: "recent", key: "best-python-course" })}
+        />
+        <Row
+          label="Lunch Options"
+          onClick={() => onActivate?.({ type: "recent", key: "lunch-options" })}
+        />
+      </Section>
+
+      <div className="mt-4 text-sm text-slate-500 px-2">
+        <span className="opacity-70">Lynk account</span>
+      </div>
+    </aside>
+  );
+}
