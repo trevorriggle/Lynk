@@ -18,8 +18,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className={poppins.variable}>
       <body className="min-h-screen">
-        <TopBar />
-        <div className="pt-12">{children}</div>
+        {children}
       </body>
     </html>
   );
