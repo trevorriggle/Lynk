@@ -7,15 +7,14 @@ import Chat from "./components/Chat";
 import DraggableModelButton from "./components/DraggableModelButton";
 
 export default function Page() {
-  // Model menu + picker (unchanged)
+  // Model selector (for the floating pill)
   const [model, setModel] = useState("Gemini 1.5 Pro");
-  const [openModelMenuTick, setOpenModelMenuTick] = useState(0);
+  const [openModelMenuTick, setOpenModelMenuTick] = useState(0); // if you still trigger from TopBar, keep this
 
-  // Inspector / context state
+  // Right-panel inspector state
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
 
-  // Called by LeftStack when a row is clicked
   const handleActivate = (ctx) => {
     setActive(true);
     setActiveContext(ctx);
@@ -23,23 +22,29 @@ export default function Page() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      {/* Legacy <Header /> removed. TopBar is already rendered in layout.jsx */}
-
-      {/* Main grid */}
-     <div className="mx-auto w-full max-w-7xl flex-1 grid grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[16rem_minmax(0,1fr)_20rem] items-start gap-x-6 gap-y-0 pt-0">
-        {/* Left: collapsible nav */}
+      {/* Main content grid */}
+      <div
+        className="
+          mx-auto w-full max-w-7xl flex-1
+          grid grid-cols-1
+          md:grid-cols-[16rem_minmax(0,1fr)]
+          lg:grid-cols-[16rem_minmax(0,1fr)_20rem]
+          items-start pt-0 gap-x-6 gap-y-0
+        "
+      >
+        {/* Left rail */}
         <LeftStack onActivate={handleActivate} />
 
-        {/* Center: chat area */}
+        {/* Center chat */}
         <main className="min-h-[60vh]">
           <Chat model={model} />
         </main>
 
-        {/* Right: inspector */}
+        {/* Right inspector */}
         <RightPanel active={active} activeContext={activeContext} />
       </div>
 
-      {/* Floating model pill (draggable) */}
+      {/* Floating model picker pill */}
       <DraggableModelButton
         model={model}
         setModel={setModel}
@@ -48,4 +53,5 @@ export default function Page() {
     </div>
   );
 }
+
 
