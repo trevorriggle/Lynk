@@ -1,6 +1,18 @@
 // app/layout.jsx
 import "./globals.css";
 import { Poppins } from "next/font/google";
+import TopBar from "./components/TopBar";
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en" className={poppins.variable}>
+      <body>
+        <TopBar />
+        <div className="pt-12">{children}</div>
+      </body>
+    </html>
+  );
+}
 
 const poppins = Poppins({
   subsets: ["latin"],

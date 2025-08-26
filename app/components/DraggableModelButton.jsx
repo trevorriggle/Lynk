@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+/** Models shown in the dropdown */
 const MODELS = [
   "GPT-5 Thinking",
   "GPT-4o",
@@ -16,23 +17,23 @@ const MODELS = [
   "Llama 3.1",
 ];
 
-const STORAGE_KEY = "lynk_pill_pos_v5";
-const CLICK_DRAG_THRESHOLD = 6;   // px before we consider it a drag
-const PILL_W = 176;
-const PILL_H = 44;
+const STORAGE_KEY = "lynk_pill_pos_v6";
+const CLICK_DRAG_THRESHOLD = 6;
+const PILL_W = 192;  // slightly larger so long names fit
+const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  const initial = useMemo(() => model || "GPT-5 Thinking", [model]);
+  const initial = useMemo(() => model || "Gemini 1.5 Pro", [model]);
   const [current, setCurrent] = useState(initial);
   const [open, setOpen] = useState(false);
 
   const wrapRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-  const [pos, setPos] = useState({ x: 24, y: 100 });
+  const [pos, setPos] = useState({ x: 24, y: 160 });
   const press = useRef({ x: 0, y: 0, moved: 0, offX: 0, offY: 0 });
 
-  // lift selection up (so chat can use the chosen model)
+  // lift selection up
   useEffect(() => {
     if (setModel) setModel(current);
   }, [current, setModel]);
@@ -50,7 +51,7 @@ export default function DraggableModelButton({ model, setModel }) {
     } catch {}
   }, [pos]);
 
-  // close when clicking outside
+  // close on outside click
   useEffect(() => {
     const onDocDown = (e) => {
       if (!wrapRef.current) return;
@@ -60,22 +61,17 @@ export default function DraggableModelButton({ model, setModel }) {
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  // helpers
   const clamp = (nx, ny) => {
     const el = wrapRef.current;
     const w = el?.offsetWidth ?? PILL_W;
     const h = el?.offsetHeight ?? PILL_H;
     const maxX = Math.max(EDGE, (window.innerWidth || 0) - w - EDGE);
     const maxY = Math.max(EDGE, (window.innerHeight || 0) - h - EDGE);
-    return {
-      x: Math.min(Math.max(EDGE, nx), maxX),
-      y: Math.min(Math.max(EDGE, ny), maxY),
-    };
+    return { x: Math.min(Math.max(EDGE, nx), maxX), y: Math.min(Math.max(EDGE, ny), maxY) };
   };
 
-  // drag events
   function onPointerDown(e) {
-    if (e.button === 2) return; // ignore right-click
+    if (e.button === 2) return;
     const rect = wrapRef.current?.getBoundingClientRect();
     press.current = {
       x: e.clientX,
@@ -100,13 +96,13 @@ export default function DraggableModelButton({ model, setModel }) {
     }
     const moved = press.current.moved;
     setDragging(false);
-    if (moved < CLICK_DRAG_THRESHOLD) setOpen((v) => !v); // click, not drag
+    if (moved < CLICK_DRAG_THRESHOLD) setOpen((v) => !v);
   }
 
   return (
     <div
       ref={wrapRef}
-      className="fixed z-[9999] select-none"
+      className="fixed z-[10001] select-none"
       style={{ left: pos.x, top: pos.y, width: PILL_W }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -119,32 +115,37 @@ export default function DraggableModelButton({ model, setModel }) {
         aria-expanded={open}
         tabIndex={0}
         className={[
-          "h-[44px] w-[176px]",
-          "rounded-pill bg-brand-teal text-white shadow-pill",
+          "h-[48px] w-[192px]",
+          "rounded-pill bg-brand-teal text-white",
+          "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
           "flex items-center justify-between px-3",
           "cursor-grab active:cursor-grabbing",
           "outline-none ring-0 border-0",
         ].join(" ")}
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        <span className="flex items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           <span
             className="flex items-center justify-center rounded-full bg-white"
-            style={{ width: 28, height: 28 }}
+            style={{ width: 26, height: 26 }}
           >
             <Image
               src="/OpenAI-Logo.png"
               alt="OpenAI"
-              width={20}
-              height={20}
+              width={18}
+              height={18}
               className="object-contain"
               priority
             />
           </span>
-          <span className="text-[13px] font-semibold tracking-wide">{current}</span>
+
+        {/* name with ellipsis so it doesn’t break the pill */}
+          <span className="text-[13px] font-heading font-semibold tracking-normal truncate">
+            {current}
+          </span>
         </span>
 
-        {/* chevron (same motif as LeftStack) */}
+        {/* chevron (matches LeftStack) */}
         <span
           className={`transition-transform select-none ${open ? "rotate-90" : ""}`}
           aria-hidden
@@ -157,7 +158,7 @@ export default function DraggableModelButton({ model, setModel }) {
       {open && (
         <div
           role="listbox"
-          className="mt-2 w-[220px] rounded-2xl overflow-hidden shadow-xl bg-brand-teal"
+          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl bg-brand-teal"
         >
           {MODELS.map((m, i) => (
             <button
@@ -166,12 +167,12 @@ export default function DraggableModelButton({ model, setModel }) {
               key={m}
               type="button"
               onClick={() => {
-                setCurrent(m); // updates pill text immediately
+                setCurrent(m);
                 setOpen(false);
               }}
               className="block w-full text-left px-4 py-2 text-white text-sm hover:bg-white/10"
               style={{
-                fontWeight: m === current ? 700 : 500,
+                fontWeight: m === current ? 800 : 500,
                 borderBottom:
                   i < MODELS.length - 1 ? "1px dotted rgba(201,238,237,0.85)" : "none",
               }}
