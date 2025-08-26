@@ -8,8 +8,7 @@ function Section({ title, defaultOpen = true, children }) {
     <div className="mb-3">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm"
-      >
+        className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm"   >
         <span className="font-semibold">{title}</span>
         <span
           className={`transition-transform select-none ${open ? "rotate-90" : ""}`}
