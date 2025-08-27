@@ -9,7 +9,7 @@ import DraggableModelButton from "./components/DraggableModelButton";
 export default function Page() {
   // Model selector (for the floating pill)
   const [model, setModel] = useState("Gemini 1.5 Pro");
-  const [openModelMenuTick, setOpenModelMenuTick] = useState(0); // if you still trigger from TopBar, keep this
+  const [openModelMenuTick, setOpenModelMenuTick] = useState(0);
 
   // Right-panel inspector state
   const [active, setActive] = useState(false);
@@ -21,7 +21,11 @@ export default function Page() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    // Give the page wrapper exactly the viewport height minus header and prevent outer scrolling
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ height: "calc(100vh - var(--header-h))" }}
+    >
       {/* Main content grid */}
       <div
         className="
@@ -30,14 +34,14 @@ export default function Page() {
           md:grid-cols-[16rem_minmax(0,1fr)]
           lg:grid-cols-[16rem_minmax(0,1fr)_20rem]
           items-start pt-0 gap-x-6 gap-y-0
-          h-[calc(100vh-3rem)] min-h-0 overflow-hidden   /* critical */
+          h-full min-h-0 overflow-hidden
         "
       >
         {/* Left rail */}
         <LeftStack onActivate={handleActivate} />
 
-        {/* Center chat */}
-        <main className="h-full min-h-0 overflow-hidden">       {/* fills the grid row */}
+        {/* Center chat — fills its grid cell and controls its own scroll */}
+        <main className="h-full min-h-0 overflow-hidden">
           <Chat model={model} />
         </main>
 
