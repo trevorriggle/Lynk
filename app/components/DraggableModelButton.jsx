@@ -103,7 +103,7 @@ export default function DraggableModelButton({ model, setModel }) {
     <div
     ref={wrapRef}
     className="fixed z-[10001] select-none"
-    style={{ left: pos.x, top: pos.y }}     // width will be auto
+    style={{ left: pos.x, top: pos.y }}
       
     >
       {/* Pill */}
@@ -113,7 +113,7 @@ export default function DraggableModelButton({ model, setModel }) {
         aria-expanded={open}
         tabIndex={0}
         className={[
-          "h-12 w-auto min-w-[176px] max-w-[90vw]",  // auto width with sane bounds
+          "h-12 w-auto min-w-[176px] max-w-[90vw]",
           "rounded-full !bg-[#176A82] text-white",
           "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
           "flex items-center justify-between px-3",
@@ -127,7 +127,7 @@ export default function DraggableModelButton({ model, setModel }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
-+       className="flex items-center justify-center rounded-full bg-white flex-none"  // don't let the icon shrink
+          className="flex items-center justify-center rounded-full bg-white flex-none"
             style={{ width: 26, height: 26 }}
           >
             <Image
