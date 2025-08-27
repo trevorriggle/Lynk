@@ -55,7 +55,6 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   }
 
   return (
-    {/* Two rows: [scrolling messages] + [input at bottom] */}
     <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
       {/* Messages (only this scrolls) */}
       <div
