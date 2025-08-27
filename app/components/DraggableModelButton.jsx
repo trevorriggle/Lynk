@@ -128,7 +128,7 @@ export default function DraggableModelButton({ model, setModel }) {
         <span className="flex min-w-0 items-center gap-2">
           <span
           className="flex items-center justify-center rounded-full bg-white flex-none"
-            style={{ width: 26, height: 26 }}
+            style={{ width: 36, height: 36 }}
           >
             <Image
               src="/OpenAI-Logo.png"
