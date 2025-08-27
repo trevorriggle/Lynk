@@ -104,9 +104,7 @@ export default function DraggableModelButton({ model, setModel }) {
       ref={wrapRef}
       className="fixed z-[10001] select-none"
       style={{ left: pos.x, top: pos.y, width: PILL_W }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      
     >
       {/* Pill */}
       <div
@@ -123,6 +121,9 @@ export default function DraggableModelButton({ model, setModel }) {
           "outline-none ring-0 border-0",
         ].join(" ")}
         style={{ WebkitTapHighlightColor: "176a82" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
