@@ -158,7 +158,7 @@ export default function DraggableModelButton({ model, setModel }) {
       {open && (
         <div
           role="listbox"
-          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl bg-brand-teal"
+          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl !bg-[#C7EBEA]"
         >
           {MODELS.map((m, i) => (
             <button
