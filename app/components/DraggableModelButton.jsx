@@ -122,7 +122,7 @@ export default function DraggableModelButton({ model, setModel }) {
           "cursor-grab active:cursor-grabbing",
           "outline-none ring-0 border-0",
         ].join(" ")}
-        style={{ WebkitTapHighlightColor: "transparent" }}
+        style={{ WebkitTapHighlightColor: "176a82" }}
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
@@ -158,7 +158,7 @@ export default function DraggableModelButton({ model, setModel }) {
       {open && (
         <div
           role="listbox"
-          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl !bg-[#C7EBEA]"
+          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
         >
           {MODELS.map((m, i) => (
             <button
