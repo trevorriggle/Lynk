@@ -114,7 +114,7 @@ export default function DraggableModelButton({ model, setModel }) {
         tabIndex={0}
         className={[
           "h-[48px] w-[192px]",
-          "rounded-pill bg-brand-teal text-white",
+          "rounded-full !bg-[#176A82] text-white",
           "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
           "flex items-center justify-between px-3",
           "cursor-grab active:cursor-grabbing",
