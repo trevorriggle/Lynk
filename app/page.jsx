@@ -7,9 +7,11 @@ import Chat from "./components/Chat";
 import DraggableModelButton from "./components/DraggableModelButton";
 
 export default function Page() {
+  // Model selector (for the floating pill)
   const [model, setModel] = useState("Gemini 1.5 Pro");
-  const [openModelMenuTick, setOpenModelMenuTick] = useState(0);
+  const [openModelMenuTick, setOpenModelMenuTick] = useState(0); // if you still trigger from TopBar, keep this
 
+  // Right-panel inspector state
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
 
@@ -28,14 +30,13 @@ export default function Page() {
           md:grid-cols-[16rem_minmax(0,1fr)]
           lg:grid-cols-[16rem_minmax(0,1fr)_20rem]
           items-start pt-0 gap-x-6 gap-y-0
-          h-[calc(100vh-3rem)] min-h-0 overflow-hidden   /* 3rem matches pt-12 header */
         "
       >
         {/* Left rail */}
         <LeftStack onActivate={handleActivate} />
 
         {/* Center chat */}
-        <main className="h-full min-h-0 overflow-hidden">
+        <main className="min-h-[60vh]">
           <Chat model={model} />
         </main>
 
@@ -52,4 +53,5 @@ export default function Page() {
     </div>
   );
 }
+
 
