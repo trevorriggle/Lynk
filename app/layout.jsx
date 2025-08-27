@@ -6,11 +6,13 @@ export const metadata = { title: "Lynk", description: "Conversational workspace"
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      {/* Expose the header height as a CSS variable so pages can size to viewport minus header */}
-      <body className="min-h-screen bg-white" style={{ "--header-h": "56px" }}>
+      {/* Pin app to the viewport and prevent page-level scrolling */}
+      <body className="h-dvh overflow-hidden bg-white flex flex-col" style={{ "--header-h": "56px" }}>
         <TopBar />
-        {/* TopBar is h-14 (56px). -mt-px closes any faint 1px seam below it. */}
-        <div className="-mt-px">{children}</div>
+        {/* Give the app area below the header full height and no outer overflow */}
+        <div className="-mt-px flex-1 min-h-0 overflow-hidden">
+          {children}
+        </div>
       </body>
     </html>
   );

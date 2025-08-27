@@ -55,8 +55,8 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   }
 
   return (
-    // Two rows: [scrolling messages] + [input bar stuck to bottom]
-    <div className="grid h-full min-h-[60vh] grid-rows-[1fr_auto] pb-4">
+    {/* Two rows: [scrolling messages] + [input at bottom] */}
+    <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
       {/* Messages (only this scrolls) */}
       <div
         ref={scrollRef}
@@ -93,7 +93,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
             type="submit"
             disabled={sending || !input.trim()}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: "#176A82" }} // solid teal without relying on Tailwind tokens
+            style={{ backgroundColor: "#176A82" }}
           >
             Send
           </button>
