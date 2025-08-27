@@ -1,36 +1,54 @@
-export async function POST(req) {
-  try {
-    const { model = "gpt-4o-mini", messages = [], temperature = 0.4 } = await req.json();
+// app/api/chat/route.js
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
-    // Allow header override for quick curl tests, otherwise use server env.
-    const headerKey = (req.headers.get("x-openai-key") || "").trim();
-    const apiKey = process.env.OPENAI_API_KEY || headerKey;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "Missing API key" }), { status: 400 });
-    }
-
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ model, messages, temperature })
+function getOrSetSid() {
+  const jar = cookies();
+  let sid = jar.get("sid")?.value;
+  if (!sid) {
+    sid = crypto.randomUUID();
+    jar.set("sid", sid, {
+      httpOnly: true, sameSite: "lax", secure: true, path: "/",
+      maxAge: 60 * 60 * 24 * 30,
     });
-
-    const json = await r.json();
-    if (!r.ok) {
-      return new Response(
-        JSON.stringify({ error: json?.error?.message || "Upstream error" }),
-        { status: r.status }
-      );
-    }
-
-    const reply = json?.choices?.[0]?.message?.content ?? "";
-    return new Response(JSON.stringify({ reply }), {
-      headers: { "Content-Type": "application/json" }
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
+  return sid;
+}
+
+export async function POST(req) {
+  const sid = getOrSetSid();
+  let reply = "Okay.";
+
+  try {
+    const { messages = [], model, temperature = 0.4 } = await req.json();
+
+    if (process.env.OPENAI_API_KEY) {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: messages.map(({ role, content }) => ({ role, content })),
+          temperature,
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        reply = data?.choices?.[0]?.message?.content ?? reply;
+      } else {
+        reply = `Sorry, the model API returned ${resp.status}.`;
+      }
+    } else {
+      const last = messages[messages.length - 1]?.content ?? "";
+      reply = `You said: ${last}`;
+    }
+  } catch (e) {
+    console.error("POST /api/chat error:", e);
+    reply = "Sorry, something went wrong on the server.";
+  }
+
+  return NextResponse.json({ reply, sid });
 }
