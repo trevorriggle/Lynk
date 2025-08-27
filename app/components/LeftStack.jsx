@@ -55,7 +55,7 @@ function Row({ label, onClick, muted = false }) {
 export default function LeftStack({ onActivate }) {
   return (
     // Rail: spec aqua, no top gap
-    <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-0 !bg-[#C7EBEA]">
+    <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
       <Section title="Context Files">
         <Row
           label="sys-prompt.txt"
