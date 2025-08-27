@@ -30,13 +30,14 @@ export default function Page() {
           md:grid-cols-[16rem_minmax(0,1fr)]
           lg:grid-cols-[16rem_minmax(0,1fr)_20rem]
           items-start pt-0 gap-x-6 gap-y-0
+          h-[calc(100vh-3rem)] overflow-hidden
         "
       >
         {/* Left rail */}
         <LeftStack onActivate={handleActivate} />
 
         {/* Center chat */}
-        <main className="min-h-[60vh]">
+        <main className="h-[calc(100vh-3rem)] overflow-hidden">  {/* 3rem = pt-12 from layout */}
           <Chat model={model} />
         </main>
 
