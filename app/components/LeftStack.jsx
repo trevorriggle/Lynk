@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 // Collapsible section with spec teal bar
-function Section({ title, defaultOpen = true, children }) {
+function Section({ title, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mb-3">
