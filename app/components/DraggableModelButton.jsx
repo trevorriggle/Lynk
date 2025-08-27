@@ -133,8 +133,8 @@ export default function DraggableModelButton({ model, setModel }) {
             <Image
               src="/OpenAI-Logo.png"
               alt="OpenAI"
-              width={18}
-              height={18}
+              width={28}
+              height={28}
               className="object-contain"
               priority
             />
