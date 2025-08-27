@@ -13,9 +13,8 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
 
   async function handleSubmit(e) {
@@ -51,8 +50,12 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   }
 
   return (
-   <div className="flex min-h-[calc(100vh-56px)] flex-col">
-<div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pt-0 pb-3 space-y-4">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Messages (only this scrolls) */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto px-6 pt-0 pb-24 space-y-4"
+      >
         {messages.map((m, i) => {
           const isUser = m.role === "user";
           return (
@@ -64,7 +67,11 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
         {sending && <div className="max-w-xl brand-agent">Thinking…</div>}
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-auto border-t bg-white/95 backdrop-blur px-4 py-3">
+      {/* Input locked to bottom */}
+      <form
+        onSubmit={handleSubmit}
+        className="sticky bottom-0 inset-x-0 border-t bg-white/95 backdrop-blur px-4 py-3"
+      >
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
@@ -85,4 +92,3 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     </div>
   );
 }
-
