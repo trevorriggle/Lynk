@@ -141,7 +141,7 @@ export default function DraggableModelButton({ model, setModel }) {
           </span>
 
         {/* name with ellipsis so it doesn’t break the pill */}
-          <span className="text-[13px] font-heading font-semibold tracking-normal truncate">
+          <span className="text-base leading-tight font-heading font-semibold tracking-normal truncate">
             {current}
           </span>
         </span>
