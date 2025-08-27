@@ -19,7 +19,7 @@ const MODELS = [
 
 const STORAGE_KEY = "lynk_pill_pos_v6";
 const CLICK_DRAG_THRESHOLD = 6;
-const PILL_W = 192;  // slightly larger so long names fit
+const PILL_W = 192;  // fallback for clamp only (wrapper will auto-size)
 const PILL_H = 48;
 const EDGE = 8;
 
@@ -101,9 +101,9 @@ export default function DraggableModelButton({ model, setModel }) {
 
   return (
     <div
-      ref={wrapRef}
-      className="fixed z-[10001] select-none"
-      style={{ left: pos.x, top: pos.y, width: PILL_W }}
+    ref={wrapRef}
+    className="fixed z-[10001] select-none"
+    style={{ left: pos.x, top: pos.y }}     // width will be auto
       
     >
       {/* Pill */}
@@ -113,7 +113,7 @@ export default function DraggableModelButton({ model, setModel }) {
         aria-expanded={open}
         tabIndex={0}
         className={[
-          "h-[48px] w-[192px]",
+          "h-12 w-auto min-w-[176px] max-w-[90vw]",  // auto width with sane bounds
           "rounded-full !bg-[#176A82] text-white",
           "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
           "flex items-center justify-between px-3",
@@ -127,7 +127,7 @@ export default function DraggableModelButton({ model, setModel }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
-            className="flex items-center justify-center rounded-full bg-white"
++       className="flex items-center justify-center rounded-full bg-white flex-none"  // don't let the icon shrink
             style={{ width: 26, height: 26 }}
           >
             <Image
@@ -147,10 +147,7 @@ export default function DraggableModelButton({ model, setModel }) {
         </span>
 
         {/* chevron (matches LeftStack) */}
-        <span
-          className={`transition-transform select-none ${open ? "rotate-90" : ""}`}
-          aria-hidden
-        >
+        <span className={`transition-transform select-none flex-none ${open ? "rotate-90" : ""}`} aria-hidden>
           ▸
         </span>
       </div>
