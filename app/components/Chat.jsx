@@ -145,6 +145,4 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
   );
 }
 
-  );
-}
 
