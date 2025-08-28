@@ -35,7 +35,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     setSending(true);
 
     try {
-      // 2) call your streaming endpoint
+      // 2) call your chat endpoint (expects streaming plain text)
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -46,24 +46,24 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
         }),
       });
 
-      // 3) create/track an assistant placeholder we’ll update as tokens arrive
+      // 3) prepare/update a single assistant bubble as tokens arrive
       let assistantText = "";
-      let assistantInserted = false;
+      let inserted = false;
 
       const upsertAssistant = () =>
         setMessages((prev) => {
-          // if we already added assistant once, replace the last assistant; else append
           const last = prev[prev.length - 1];
-          if (assistantInserted && last?.role === "assistant") {
+          // replace last assistant if already inserted, else append
+          if (inserted && last?.role === "assistant") {
             const copy = prev.slice(0, -1);
             copy.push({ role: "assistant", content: assistantText });
             return copy;
           }
-          assistantInserted = true;
+          inserted = true;
           return [...prev, { role: "assistant", content: assistantText }];
         });
 
-      // Prefer streaming; if not available, fall back to JSON body
+      // Prefer streaming (res.body) — falls back to JSON if not available
       if (res.ok && res.body) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -75,17 +75,15 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
           upsertAssistant();
         }
 
-        // flush final chunk (some runtimes buffer until end)
-        assistantText = assistantText;
+        // flush any buffered tail
         upsertAssistant();
       } else if (res.ok) {
-        // fallback: non-stream JSON { reply }
+        // Non-streaming fallback: expect JSON { reply }
         const data = await res.json().catch(() => ({}));
         assistantText = data?.reply ?? "Okay.";
         upsertAssistant();
       } else {
-        const errText = `Sorry, the server returned ${res.status}.`;
-        assistantText = errText;
+        assistantText = `Sorry, the server returned ${res.status}.`;
         upsertAssistant();
       }
     } catch {
@@ -144,6 +142,9 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
         </div>
       </form>
     </div>
+  );
+}
+
   );
 }
 
