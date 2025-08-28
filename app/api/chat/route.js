@@ -3,10 +3,18 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// Normalize messages array
+// Coerce the request body into a proper messages array
 function coerceMessages(body) {
-  if (Array.isArray(body?.messages) && body.messages.length) return body.messages;
-  if (body?.message) return [{ role: "user", content: String(body.message) }];
+  if (Array.isArray(body?.messages) && body.messages.length) {
+    // Ensure each message has { role, content } as strings
+    return body.messages.map((m) => ({
+      role: m.role || "user",
+      content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
+    }));
+  }
+  if (body?.message) {
+    return [{ role: "user", content: String(body.message) }];
+  }
   return [];
 }
 
@@ -15,19 +23,15 @@ export async function POST(req) {
   const messages = coerceMessages(body);
 
   if (!messages.length) {
-    return NextResponse.json({ error: "No message provided" }, { status: 400 });
+    return new Response("No message provided", { status: 400 });
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Helpful, explicit error so you’re not guessing
-    return NextResponse.json(
-      { error: "Missing OPENAI_API_KEY env var" },
-      { status: 500 }
-    );
+    return new Response("Missing OPENAI_API_KEY", { status: 500 });
   }
 
-  // Use a safe default OpenAI chat model
+  // Stable, inexpensive OpenAI chat model
   const model = "gpt-4o-mini";
   const temperature =
     typeof body.temperature === "number" ? body.temperature : 0.4;
@@ -43,29 +47,36 @@ export async function POST(req) {
         model,
         messages,
         temperature,
-        // non-streaming to keep it bulletproof from the web editor
+        // non-streaming to keep this bulletproof in the web editor;
+        // we still return plain text so the UI treats it like streamed text
         stream: false,
       }),
     });
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      return NextResponse.json(
-        { error: "OpenAI request failed", status: res.status, detail },
+      // Keep error plaintext so the client shows a readable message
+      return new Response(
+        `OpenAI request failed (${res.status}).\n${detail}`.trim(),
         { status: 500 }
       );
     }
 
     const data = await res.json();
     const reply =
-      data?.choices?.[0]?.message?.content?.trim?.() || "Okay.";
+      data?.choices?.[0]?.message?.content?.toString?.().trim?.() || "Okay.";
 
-    // Return JSON; Chat.jsx will display it (its JSON fallback path)
-    return NextResponse.json({ reply });
+    // ✅ Return plain text so Chat.jsx renders the text directly
+    return new Response(reply, {
+      status: 200,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: "Chat failed", detail: err?.message ?? String(err) },
+    return new Response(
+      `Chat failed: ${err?.message ?? String(err)}`,
       { status: 500 }
     );
   }
+}
+
 }
