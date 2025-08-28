@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 
 export default function Chat({ model = "Gemini 1.5 Pro" }) {
   const [messages, setMessages] = useState([
-    { role: "assistant", content: "Welcome to Lynk. Continue, discuss new ideas, or do anything else." },
+    {
+      role: "assistant",
+      content:
+        "Welcome to Lynk. Continue, discuss new ideas, or do anything else.",
+    },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -24,25 +28,66 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     const text = input.trim();
     if (!text || sending) return;
 
-    const next = [...messages, { role: "user", content: text }];
-    setMessages(next);
+    // 1) push user message
+    const userMsg = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setSending(true);
 
     try {
+      // 2) call your streaming endpoint
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: next, temperature: 0.4 }),
+        body: JSON.stringify({
+          model,
+          messages: [...messages, userMsg],
+          temperature: 0.4,
+        }),
       });
-      let reply = "Okay.";
-      if (res.ok) {
-        const data = await res.json();
-        reply = data.reply ?? "Okay.";
+
+      // 3) create/track an assistant placeholder we’ll update as tokens arrive
+      let assistantText = "";
+      let assistantInserted = false;
+
+      const upsertAssistant = () =>
+        setMessages((prev) => {
+          // if we already added assistant once, replace the last assistant; else append
+          const last = prev[prev.length - 1];
+          if (assistantInserted && last?.role === "assistant") {
+            const copy = prev.slice(0, -1);
+            copy.push({ role: "assistant", content: assistantText });
+            return copy;
+          }
+          assistantInserted = true;
+          return [...prev, { role: "assistant", content: assistantText }];
+        });
+
+      // Prefer streaming; if not available, fall back to JSON body
+      if (res.ok && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          assistantText += decoder.decode(value, { stream: true });
+          upsertAssistant();
+        }
+
+        // flush final chunk (some runtimes buffer until end)
+        assistantText = assistantText;
+        upsertAssistant();
+      } else if (res.ok) {
+        // fallback: non-stream JSON { reply }
+        const data = await res.json().catch(() => ({}));
+        assistantText = data?.reply ?? "Okay.";
+        upsertAssistant();
       } else {
-        reply = `Sorry, the server returned ${res.status}.`;
+        const errText = `Sorry, the server returned ${res.status}.`;
+        assistantText = errText;
+        upsertAssistant();
       }
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch {
       setMessages((m) => [
         ...m,
@@ -101,3 +146,4 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     </div>
   );
 }
+
