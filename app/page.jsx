@@ -8,7 +8,7 @@ import DraggableModelButton from "./components/DraggableModelButton";
 
 export default function Page() {
   // Model selector (for the floating pill)
-  const [model, setModel] = useState("Gemini 1.5 Pro");
+  const [model, setModel] = useState("GPT-4o")
   const [openModelMenuTick, setOpenModelMenuTick] = useState(0);
 
   // Right-panel inspector state
