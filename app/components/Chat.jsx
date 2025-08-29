@@ -15,6 +15,13 @@ export default function Chat({ selectedModel }) {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Tiny debug so you can see the active target; remove later if you want
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log("[Chat] Using:", label, "→", endpoint);
+  }, [endpoint, label]);
+
+  // Always scroll to newest
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -71,17 +78,12 @@ export default function Chat({ selectedModel }) {
         let err = `Sorry, ${label} endpoint returned ${res.status}.`;
         try {
           const ct = res.headers.get("content-type") || "";
-          err = ct.includes("application/json")
-            ? JSON.stringify(await res.json())
-            : await res.text();
+          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
         } catch {}
         setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
       }
     } catch {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: `Couldn’t reach ${endpoint}.` },
-      ]);
+      setMessages((m) => [...m, { role: "assistant", content: `Couldn’t reach ${endpoint}.` }]);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -90,10 +92,15 @@ export default function Chat({ selectedModel }) {
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
+      {/* Status line: confirm the pill is switching */}
+      <div className="px-6 pt-2 text-xs text-slate-500">
+        Using: <b>{label}</b> → <code>{endpoint}</code>
+      </div>
+
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="min-h-0 overflow-y-auto px-6 pt-4 pb-3 space-y-4"
+        className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4"
       >
         {messages.map((m, i) => {
           const isUser = m.role === "user";
@@ -135,3 +142,4 @@ export default function Chat({ selectedModel }) {
     </div>
   );
 }
+

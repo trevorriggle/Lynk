@@ -1,3 +1,4 @@
+// app/page.jsx
 "use client";
 
 import { useState } from "react";
@@ -7,9 +8,13 @@ import Chat from "./components/Chat";
 import DraggableModelButton from "./components/DraggableModelButton";
 
 export default function Page() {
-  // Model selector (for the floating pill)
-  const [model, setModel] = useState("GPT-4o")
-  const [openModelMenuTick, setOpenModelMenuTick] = useState(0);
+  // Model selector (floating pill) — start on Claude so your existing Claude route keeps working
+  const [selectedModel, setSelectedModel] = useState({
+    label: "Claude",
+    provider: "anthropic",
+    model: "claude-3-haiku-20240307",
+    endpoint: "/api/claude",
+  });
 
   // Right-panel inspector state
   const [active, setActive] = useState(false);
@@ -42,7 +47,8 @@ export default function Page() {
 
         {/* Center chat — fills its grid cell and controls its own scroll */}
         <main className="h-full min-h-0 overflow-hidden">
-          <Chat model={model} />
+          {/* Pass the selected model object down */}
+          <Chat selectedModel={selectedModel} />
         </main>
 
         {/* Right inspector */}
@@ -51,12 +57,11 @@ export default function Page() {
 
       {/* Floating model picker pill */}
       <DraggableModelButton
-        model={model}
-        setModel={setModel}
-        openFromHeader={openModelMenuTick}
+        model={selectedModel}
+        setModel={setSelectedModel}
+        // keep your prop if other code toggles it; pill ignores it if unused
+        openFromHeader={0}
       />
     </div>
   );
 }
-
-
