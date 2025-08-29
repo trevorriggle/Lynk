@@ -3,10 +3,10 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Simplified models - just two options */
+/** Claude-only test: but still allow toggle */
 const MODELS = [
-  { label: "OpenAI", provider: "openai" },
-  { label: "Claude", provider: "anthropic" },
+  { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" },
+  { label: "OpenAI", provider: "openai", model: "gpt-4o-mini" }, // placeholder for later
 ];
 
 const STORAGE_KEY = "lynk_pill_pos_v7";
@@ -16,7 +16,10 @@ const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  const initial = useMemo(() => model || "OpenAI", [model]);
+  const initial = useMemo(
+    () => (typeof model === "string" ? model : model?.label) || "Claude",
+    [model]
+  );
   const [current, setCurrent] = useState(initial);
   const [open, setOpen] = useState(false);
 
@@ -25,12 +28,13 @@ export default function DraggableModelButton({ model, setModel }) {
   const [pos, setPos] = useState({ x: 24, y: 160 });
   const press = useRef({ x: 0, y: 0, moved: 0, offX: 0, offY: 0 });
 
-  // Lift selection up
+  // Lift selection up → parent gets {label, provider, model}
   useEffect(() => {
-    if (setModel) setModel(current);
+    const selected = MODELS.find((m) => m.label === current) || MODELS[0];
+    if (setModel) setModel(selected);
   }, [current, setModel]);
 
-  // Load/save position
+  // Load/save pos
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -95,7 +99,7 @@ export default function DraggableModelButton({ model, setModel }) {
   }
 
   const currentProvider =
-    MODELS.find((m) => m.label === current)?.provider || "openai";
+    MODELS.find((m) => m.label === current)?.provider || "anthropic";
 
   const logoSrc =
     currentProvider === "anthropic"
@@ -114,14 +118,7 @@ export default function DraggableModelButton({ model, setModel }) {
         aria-haspopup="listbox"
         aria-expanded={open}
         tabIndex={0}
-        className={[
-          "h-12 w-auto min-w-[140px] max-w-[90vw]",
-          "rounded-full !bg-[#176A82] text-white",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
-          "flex items-center justify-between px-3",
-          "cursor-grab active:cursor-grabbing",
-          "outline-none ring-0 border-0",
-        ].join(" ")}
+        className="h-12 w-auto min-w-[140px] max-w-[90vw] rounded-full !bg-[#176A82] text-white shadow-[0_8px_24px_rgba(0,0,0,0.18)] flex items-center justify-between px-3 cursor-grab active:cursor-grabbing outline-none ring-0 border-0"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -140,17 +137,12 @@ export default function DraggableModelButton({ model, setModel }) {
               priority
             />
           </span>
-
           <span className="text-base leading-tight font-heading font-semibold tracking-normal truncate">
             {current}
           </span>
         </span>
-
-        {/* chevron */}
         <span
-          className={`transition-transform select-none flex-none ${
-            open ? "rotate-90" : ""
-          }`}
+          className={`transition-transform select-none flex-none ${open ? "rotate-90" : ""}`}
           aria-hidden
         >
           ▸
@@ -190,3 +182,4 @@ export default function DraggableModelButton({ model, setModel }) {
     </div>
   );
 }
+
