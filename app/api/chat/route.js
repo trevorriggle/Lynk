@@ -1,101 +1,108 @@
-// app/api/chat/route.js — CLAUDE-ONLY (no OpenAI, no model switch)
+// app/api/chat/route.js — CLAUDE-ONLY + DIAGNOSTICS
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// allow same-origin + any preflight so you never see 405
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+const noStore = { "Cache-Control": "no-store", ...CORS };
 
-// GET = simple health (optional)
+// --- helpers ---
+const mask = (v) => (v ? v.slice(0, 4) + "…" + v.slice(-4) : null);
+const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
+
+// GET = health + Anthropic reachability (no auth success required)
 export async function GET() {
-  return Response.json({ ok: true, provider: "anthropic-only", model: "claude-3-haiku-20240307" }, { headers: CORS });
+  const key = process.env.ANTHROPIC_API_KEY || "";
+  const headers = {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": key,
+  };
+  let ping = null;
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/models", { headers, method: "GET" });
+    const body = await r.text();
+    ping = { status: r.status, statusText: r.statusText, body: body.slice(0, 300) };
+  } catch (e) {
+    ping = { error: e.message };
+  }
+
+  return Response.json(
+    {
+      ok: true,
+      expects: "POST { message: '...' }",
+      env: {
+        ANTHROPIC_API_KEY_present: !!key,
+        ANTHROPIC_API_KEY_preview: mask(key),
+        vercel_env: process.env.VERCEL_ENV || null,
+        region: process.env.VERCEL_REGION || "unknown",
+      },
+      anthropic_ping: ping,
+      time: new Date().toISOString(),
+    },
+    { headers: noStore }
+  );
 }
-// OPTIONS = preflight ok
+
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-// --- tiny helper: coerce input into Anthropic format
-function toAnthropicMessages(body) {
-  // accept either {message: "..."} or {messages:[{role, content}]}
-  if (Array.isArray(body?.messages) && body.messages.length) {
-    const system = body.messages
-      .filter(m => m.role === "system")
-      .map(m => String(m.content ?? ""))
-      .join("\n\n");
-
-    const msgs = body.messages
-      .filter(m => m.role !== "system")
-      .map(m => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: [{ type: "text", text: typeof m.content === "string" ? m.content : String(m?.content ?? "") }],
-      }));
-
-    return { system: system || undefined, messages: msgs };
-  }
-
-  // fallback: single user message
-  const text = typeof body?.message === "string" ? body.message : String(body?.message ?? "Say hi in one sentence.");
-  return { system: undefined, messages: [{ role: "user", content: [{ type: "text", text }] }] };
-}
-
+// POST = send to Claude (haiku) and return PLAIN TEXT on success, JSON on failure
 export async function POST(req) {
   try {
-    const body = await req.json().catch(() => ({}));
-
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: CORS });
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) {
+      return Response.json({ ok: false, error: "ANTHROPIC_API_KEY missing" }, { status: 500, headers: noStore });
     }
 
+    const body = await req.json().catch(() => ({}));
+    const userText = asText(body?.message ?? body?.messages?.[0]?.content ?? "Say hi in one sentence.");
     const temperature = typeof body?.temperature === "number" ? body.temperature : 0.4;
     const max_tokens = typeof body?.max_tokens === "number" ? body.max_tokens : 256;
 
-    const { system, messages } = toAnthropicMessages(body);
-    if (!messages.length) {
-      return new Response("No message provided", { status: 400, headers: CORS });
-    }
-
-    // *** single, safe model that works broadly ***
-    const model = "claude-3-haiku-20240307";
-
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "x-api-key": key,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model,
+        model: "claude-3-haiku-20240307",
         max_tokens,
         temperature,
-        ...(system ? { system } : {}),
-        messages,
+        messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
       }),
     });
 
-    const txt = await r.text();
-    if (!r.ok) {
-      // show Anthropic's complaint verbatim so you know exactly what's wrong
-      return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: CORS });
+    const txt = await res.text();
+    if (!res.ok) {
+      return Response.json(
+        {
+          ok: false,
+          provider: "anthropic",
+          status: res.status,
+          statusText: res.statusText,
+          body: txt.slice(0, 1000),
+        },
+        { status: 502, headers: noStore }
+      );
     }
 
-    // flatten text blocks → return plain text for your chat bubble
+    // success → flatten text blocks to plain text
     let out = "";
     try {
       const data = JSON.parse(txt);
       for (const block of data?.content || []) {
         if (block.type === "text" && block.text) out += block.text;
       }
-    } catch { /* ignore parse errors, txt was already ok */ }
-
-    return new Response(out || "Okay.", {
-      status: 200,
-      headers: { ...CORS, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-    });
+    } catch {}
+    return new Response(out || "Okay.", { status: 200, headers: { ...noStore, "Content-Type": "text/plain; charset=utf-8" } });
   } catch (e) {
-    return new Response(`Server error: ${e?.message || String(e)}`, { status: 500, headers: CORS });
+    return Response.json({ ok: false, error: e.message }, { status: 500, headers: noStore });
   }
 }
+
