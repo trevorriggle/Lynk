@@ -32,7 +32,7 @@ export async function POST(req) {
   const modelLabel = String(body?.model ?? "").trim(); // "OpenAI" or "Anthropic"
   const temperature = typeof body?.temperature === "number" ? body.temperature : 0.4;
 
-  const wantsClaude = modelLabel.toLowerCase() === "anthropic";
+  const wantsClaude = modelLabel.toLowerCase().includes("claude");
 
   try {
     if (wantsClaude) {
