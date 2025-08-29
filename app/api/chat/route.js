@@ -1,137 +1,102 @@
 // app/api/chat/route.js
 export const runtime = "nodejs";
 
-function coerceMessages(body) {
+/* ---------- helpers ---------- */
+function splitSystemAndMsgs(raw = []) {
+  const system = raw.filter(m => m.role === "system").map(m => String(m.content ?? "")).join("\n\n") || undefined;
+  const msgs = raw.filter(m => m.role !== "system");
+  return { system, msgs };
+}
+
+function toOpenAIMessages(body) {
   if (Array.isArray(body?.messages) && body.messages.length) {
-    return body.messages.map((m) => ({
-      role: m?.role === "assistant" ? "assistant" : "user", // keep to user/assistant only
-      content: [{ type: "text", text: String(m?.content ?? "") }],
+    return body.messages.map(m => ({
+      role: m.role || "user",
+      content: typeof m.content === "string" ? m.content : String(m?.content ?? "")
     }));
   }
-  if (body?.message) {
-    return [{ role: "user", content: [{ type: "text", text: String(body.message) }] }];
-  }
+  if (body?.message) return [{ role: "user", content: String(body.message) }];
   return [];
 }
 
-function coerceMessagesForOpenAI(body) {
-  if (Array.isArray(body?.messages) && body.messages.length) {
-    return body.messages.map((m) => ({
-      role: m?.role || "user",
-      content: typeof m?.content === "string" ? m.content : String(m?.content ?? ""),
-    }));
-  }
-  if (body?.message) {
-    return [{ role: "user", content: String(body.message) }];
-  }
-  return [];
+function toAnthropicPayload(body) {
+  const raw = Array.isArray(body?.messages)
+    ? body.messages
+    : (body?.message ? [{ role: "user", content: String(body.message) }] : []);
+  const { system, msgs } = splitSystemAndMsgs(raw);
+  const messages = msgs.map(m => ({
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: [{ type: "text", text: typeof m.content === "string" ? m.content : String(m?.content ?? "") }]
+  }));
+  return { system, messages };
 }
 
+const wantsAnthropic = (model = "", provider = "") =>
+  (provider || "").toLowerCase() === "anthropic" || (model || "").toLowerCase().includes("claude");
+
+/* ---------- route ---------- */
 export async function POST(req) {
-  const body = await req.json().catch(() => ({}));
-  const modelLabel = String(body?.model ?? "").trim(); 
-  const temperature = typeof body?.temperature === "number" ? body.temperature : 0.4;
-
-  const wantsClaude = modelLabel.toLowerCase() === "claude";
-
   try {
-    if (wantsClaude) {
-      // ---------- Claude (Anthropic) ----------
-      const messages = coerceMessages(body); // Anthropic format
+    const body = await req.json().catch(() => ({}));
+    const model = String(body?.model ?? "").trim();
+    const provider = String(body?.provider ?? "").trim();
+    const temperature = typeof body?.temperature === "number" ? body.temperature : 0.4;
+    const max_tokens = typeof body?.max_tokens === "number" ? body.max_tokens : 1024;
+
+    // ---- Anthropic (Claude) ----
+    if (wantsAnthropic(model, provider)) {
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (!key) return new Response("ANTHROPIC_API_KEY not configured", { status: 500 });
+
+      const { system, messages } = toAnthropicPayload(body);
       if (!messages.length) return new Response("No message provided", { status: 400 });
 
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return new Response(
-          "Server misconfig: Missing ANTHROPIC_API_KEY (check Vercel → Settings → Environment Variables → Production, then redeploy).",
-          { status: 500 }
-        );
-      }
+      const chosen = model && model.toLowerCase().includes("claude") ? model : "claude-3-5-sonnet-latest";
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01"
         },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1024,
-          temperature,
-          messages,
-        }),
+        body: JSON.stringify({ model: chosen, max_tokens, temperature, ...(system ? { system } : {}), messages })
       });
 
-      const detail = await res.text().catch(() => "");
-      if (!res.ok) {
-        // Show Anthropic's error text directly in the bubble
-        return new Response(
-          `Claude request failed (${res.status}).\n${detail || "(no body)"}\n\nBranch: Anthropic\nModel: claude-3-5-sonnet-20241022`,
-          { status: 500 }
-        );
-      }
+      const text = await r.text();
+      if (!r.ok) return new Response(`Claude ${r.status}: ${text}`, { status: 502 });
 
-      let data;
-      try { data = detail ? JSON.parse(detail) : {}; } catch {}
-      const reply =
-        Array.isArray(data?.content) && data.content[0]?.text
-          ? String(data.content[0].text).trim()
-          : "Okay.";
-
-      return new Response(reply, {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      });
+      let data = {};
+      try { data = JSON.parse(text); } catch {}
+      let out = "";
+      for (const block of data?.content || []) if (block.type === "text" && block.text) out += block.text;
+      return new Response(out || "Okay.", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
-    // ---------- OpenAI (default) - UNCHANGED FROM YOUR WORKING VERSION ----------
-    const messages = coerceMessagesForOpenAI(body); // OpenAI format
+    // ---- OpenAI (GPT) ----
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) return new Response("OPENAI_API_KEY not configured", { status: 500 });
+
+    const messages = toOpenAIMessages(body);
     if (!messages.length) return new Response("No message provided", { status: 400 });
 
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return new Response(
-        "Server misconfig: Missing OPENAI_API_KEY (check Vercel → Settings → Environment Variables → Production, then redeploy).",
-        { status: 500 }
-      );
-    }
+    const chosen = model && model.toLowerCase().startsWith("gpt") ? model : "gpt-4o-mini";
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages,
-        temperature,
-        stream: false,
-      }),
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: chosen, messages, temperature, max_tokens, stream: false })
     });
 
-    const detail = await res.text().catch(() => "");
-    if (!res.ok) {
-      return new Response(
-        `OpenAI request failed (${res.status}).\n${detail || "(no body)"}\n\nBranch: OpenAI\nModel: gpt-4o-mini`,
-        { status: 500 }
-      );
-    }
+    const text = await r.text();
+    if (!r.ok) return new Response(`OpenAI ${r.status}: ${text}`, { status: 502 });
 
-    let data;
-    try { data = detail ? JSON.parse(detail) : {}; } catch {}
-    const reply =
-      data?.choices?.[0]?.message?.content?.toString?.().trim?.() || "Okay.";
+    let data = {};
+    try { data = JSON.parse(text); } catch {}
+    const reply = data?.choices?.[0]?.message?.content?.toString?.().trim?.() || "Okay.";
+    return new Response(reply, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
-    return new Response(reply, {
-      status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
   } catch (err) {
-    return new Response(
-      `Route crashed: ${err?.message ?? String(err)}\nBranch: ${wantsClaude ? "Anthropic" : "OpenAI"}`,
-      { status: 500 }
-    );
+    return new Response(`Server error: ${err?.message || String(err)}`, { status: 500 });
   }
 }
