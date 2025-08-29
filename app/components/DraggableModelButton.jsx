@@ -3,13 +3,10 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Models shown in the dropdown */
+/** Simplified models - just two options */
 const MODELS = [
-  { label: "GPT-4o", provider: "openai" },
-  { label: "GPT-4o mini", provider: "openai" },
-  { label: "GPT-4", provider: "openai" },
-  { label: "Claude 3.5 Sonnet", provider: "anthropic" },
-  { label: "Claude Haiku", provider: "anthropic" },
+  { label: "OpenAI", provider: "openai" },
+  { label: "Claude", provider: "anthropic" },
 ];
 
 const STORAGE_KEY = "lynk_pill_pos_v7";
@@ -19,7 +16,7 @@ const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  const initial = useMemo(() => model || "GPT-4o", [model]);
+  const initial = useMemo(() => model || "OpenAI", [model]);
   const [current, setCurrent] = useState(initial);
   const [open, setOpen] = useState(false);
 
@@ -118,7 +115,7 @@ export default function DraggableModelButton({ model, setModel }) {
         aria-expanded={open}
         tabIndex={0}
         className={[
-          "h-12 w-auto min-w-[176px] max-w-[90vw]",
+          "h-12 w-auto min-w-[140px] max-w-[90vw]",
           "rounded-full !bg-[#176A82] text-white",
           "shadow-[0_8px_24px_rgba(0,0,0,0.18)]",
           "flex items-center justify-between px-3",
@@ -144,7 +141,6 @@ export default function DraggableModelButton({ model, setModel }) {
             />
           </span>
 
-          {/* name with ellipsis so it doesn’t break the pill */}
           <span className="text-base leading-tight font-heading font-semibold tracking-normal truncate">
             {current}
           </span>
@@ -165,7 +161,7 @@ export default function DraggableModelButton({ model, setModel }) {
       {open && (
         <div
           role="listbox"
-          className="mt-2 w-[236px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
+          className="mt-2 w-[180px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
         >
           {MODELS.map((m, i) => (
             <button
