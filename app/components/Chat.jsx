@@ -3,14 +3,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export default function Chat({ model = "Gemini 1.5 Pro" }) {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content:
-        "Welcome to Lynk. Continue, discuss new ideas, or do anything else.",
-    },
-  ]);
+const CHAT_ENDPOINT = "/api/claude"; // ← call the Claude-only endpoint
+
+export default function Chat() {
+  const [messages, setMessages] = useState([]); // ← no stubbed welcome message
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -35,25 +31,21 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     setSending(true);
 
     try {
-      // 2) call your chat endpoint (expects streaming plain text)
-      const res = await fetch("/api/chat", {
+      // 2) call Claude-only endpoint with a minimal payload
+      const res = await fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages: [...messages, userMsg],
-          temperature: 0.4,
-        }),
+        // IMPORTANT: do not send model/provider/messages; just a single message
+        body: JSON.stringify({ message: text }),
       });
 
-      // 3) prepare/update a single assistant bubble as tokens arrive
+      // 3) prepare/update a single assistant bubble as chunks arrive
       let assistantText = "";
       let inserted = false;
 
       const upsertAssistant = () =>
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          // replace last assistant if already inserted, else append
           if (inserted && last?.role === "assistant") {
             const copy = prev.slice(0, -1);
             copy.push({ role: "assistant", content: assistantText });
@@ -63,7 +55,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
           return [...prev, { role: "assistant", content: assistantText }];
         });
 
-      // Prefer streaming (res.body) — falls back to JSON if not available
+      // Prefer streaming; if not available, fall back to reading the full body
       if (res.ok && res.body) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -74,22 +66,40 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
           assistantText += decoder.decode(value, { stream: true });
           upsertAssistant();
         }
-
-        // flush any buffered tail
-        upsertAssistant();
+        upsertAssistant(); // flush any buffered tail
       } else if (res.ok) {
-        // Non-streaming fallback: expect JSON { reply }
-        const data = await res.json().catch(() => ({}));
-        assistantText = data?.reply ?? "Okay.";
+        // Non-streaming success
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const data = await res.json().catch(() => ({}));
+          assistantText = data?.text || data?.reply || "Okay.";
+        } else {
+          assistantText = await res.text();
+        }
         upsertAssistant();
       } else {
-        assistantText = `Sorry, the server returned ${res.status}.`;
-        upsertAssistant();
+        // Error path: show provider’s actual message when possible
+        let errText = "Sorry, the server returned " + res.status + ".";
+        try {
+          const ct = res.headers.get("content-type") || "";
+          if (ct.includes("application/json")) {
+            const data = await res.json();
+            errText =
+              data?.body ||
+              data?.error ||
+              data?.last_attempt?.body ||
+              JSON.stringify(data);
+          } else {
+            errText = await res.text();
+          }
+        } catch {}
+        setMessages((m) => [...m, { role: "assistant", content: `(error) ${errText}` }]);
+        return;
       }
-    } catch {
+    } catch (err) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: "Sorry, I couldn’t reach /api/chat." },
+        { role: "assistant", content: `Sorry, I couldn’t reach ${CHAT_ENDPOINT}.` },
       ]);
     } finally {
       setSending(false);
@@ -128,7 +138,7 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask anything… (try: flinn?)"
+            placeholder="Ask anything… (try: say hi)"
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
           />
           <button
@@ -144,5 +154,3 @@ export default function Chat({ model = "Gemini 1.5 Pro" }) {
     </div>
   );
 }
-
-
