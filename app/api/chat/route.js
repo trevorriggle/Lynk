@@ -1,4 +1,4 @@
-// app/api/chat/route.js - TEST MODEL VERSIONS
+// app/api/chat/route.js
 export const runtime = "nodejs";
 
 function coerceMessagesForOpenAI(body) {
@@ -8,6 +8,22 @@ function coerceMessagesForOpenAI(body) {
       content: typeof m?.content === "string" ? m.content : String(m?.content ?? ""),
     }));
   }
+  if (body?.message) {
+    return [{ role: "user", content: String(body.message) }];
+  }
+  return [];
+}
+
+function coerceMessagesForAnthropic(body) {
+  if (Array.isArray(body?.messages) && body.messages.length) {
+    return body.messages.map((m) => ({
+      role: m?.role === "assistant" ? "assistant" : "user",
+      content: [{ type: "text", text: String(m?.content ?? "") }],
+    }));
+  }
+  if (body?.message) {
+    return [{ role: "user", content: [{ type: "text", text: String(body.message) }] }];
+  }
   return [];
 }
 
@@ -15,91 +31,107 @@ export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const modelLabel = String(body?.model ?? "").trim();
+    const temperature = typeof body?.temperature === "number" ? body.temperature : 0.4;
     const wantsClaude = modelLabel.toLowerCase() === "claude";
 
     if (wantsClaude) {
+      // ---------- Try Claude (Anthropic) ----------
+      const messages = coerceMessagesForAnthropic(body);
+      if (!messages.length) {
+        return new Response("No message provided", { status: 400 });
+      }
+
       const apiKey = process.env.ANTHROPIC_API_KEY;
-      
-      // Try different model versions to find one that works
-      const modelsToTry = [
-        "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet-latest", 
-        "claude-3-5-sonnet-20240620",
-        "claude-3-sonnet-20240229",
-        "claude-3-haiku-20240307"
-      ];
+      if (!apiKey) {
+        return new Response("Anthropic API key not configured", { 
+          status: 500,
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
 
-      let results = { attempts: [] };
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 1024,
+            temperature,
+            messages,
+          }),
+        });
 
-      for (const model of modelsToTry) {
-        try {
-          const testRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-api-key": apiKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: model,
-              max_tokens: 50,
-              messages: [{ role: "user", content: [{ type: "text", text: "test" }] }],
-            }),
-          });
-
-          const responseText = await testRes.text();
-          results.attempts.push({
-            model: model,
-            status: testRes.status,
-            ok: testRes.ok,
-            response: testRes.ok ? "SUCCESS" : responseText
-          });
-
-          if (testRes.ok) {
-            results.workingModel = model;
-            break;
-          }
-        } catch (err) {
-          results.attempts.push({
-            model: model,
-            error: err.message
+        if (!res.ok) {
+          const errorText = await res.text();
+          return new Response(`Claude API error (${res.status}): ${errorText}`, { 
+            status: 500,
+            headers: { "Content-Type": "text/plain" }
           });
         }
+
+        const data = await res.json();
+        const reply = data?.content?.[0]?.text || "No response generated";
+
+        return new Response(reply, {
+          status: 200,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+
+      } catch (claudeErr) {
+        return new Response(`Claude request failed: ${claudeErr.message}`, { 
+          status: 500,
+          headers: { "Content-Type": "text/plain" }
+        });
       }
-
-      return new Response(JSON.stringify(results, null, 2), {
-        headers: { "Content-Type": "application/json" },
-      });
-
-    } else {
-      // OpenAI path (keep working)
-      const messages = coerceMessagesForOpenAI(body);
-      const openaiKey = process.env.OPENAI_API_KEY;
-
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages,
-          temperature: 0.4,
-          stream: false,
-        }),
-      });
-
-      if (!res.ok) {
-        return new Response(`OpenAI error: ${res.status}`, { status: 500 });
-      }
-
-      const data = await res.json();
-      const reply = data?.choices?.[0]?.message?.content || "No response";
-      return new Response(reply, { headers: { "Content-Type": "text/plain" } });
     }
 
+    // ---------- OpenAI (default and safe fallback) ----------
+    const messages = coerceMessagesForOpenAI(body);
+    if (!messages.length) {
+      return new Response("No message provided", { status: 400 });
+    }
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return new Response("OpenAI API key not configured", { status: 500 });
+    }
+
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages,
+        temperature,
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      return new Response(`OpenAI API error (${res.status}): ${errorText}`, { status: 500 });
+    }
+
+    const data = await res.json();
+    const reply = data?.choices?.[0]?.message?.content?.toString?.()?.trim?.() || "No response generated";
+
+    return new Response(reply, {
+      status: 200,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+
   } catch (err) {
-    return new Response(`Route error: ${err.message}`, { status: 500 });
+    // Fallback error handling - won't break OpenAI
+    return new Response(`Server error: ${err?.message ?? String(err)}`, { 
+      status: 500,
+      headers: { "Content-Type": "text/plain" }
+    });
   }
 }
