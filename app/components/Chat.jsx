@@ -3,10 +3,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const CHAT_ENDPOINT = "/api/claude"; // ← call the Claude-only endpoint
+export default function Chat({ selectedModel }) {
+  // Pull the endpoint/label from the pill; default keeps Claude working
+  const endpoint = selectedModel?.endpoint || "/api/claude";
+  const label = selectedModel?.label || "Claude";
 
-export default function Chat() {
-  const [messages, setMessages] = useState([]); // ← no stubbed welcome message
+  const [messages, setMessages] = useState([]); // start empty so only real replies show
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -31,19 +33,17 @@ export default function Chat() {
     setSending(true);
 
     try {
-      // 2) call Claude-only endpoint with a minimal payload
-      const res = await fetch(CHAT_ENDPOINT, {
+      // 2) call the selected endpoint with a minimal payload
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // IMPORTANT: do not send model/provider/messages; just a single message
         body: JSON.stringify({ message: text }),
       });
 
-      // 3) prepare/update a single assistant bubble as chunks arrive
+      // 3) create/update one assistant bubble
       let assistantText = "";
       let inserted = false;
-
-      const upsertAssistant = () =>
+      const upsert = () =>
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (inserted && last?.role === "assistant") {
@@ -55,52 +55,33 @@ export default function Chat() {
           return [...prev, { role: "assistant", content: assistantText }];
         });
 
-      // Prefer streaming; if not available, fall back to reading the full body
+      // Prefer streaming if available; else fallback to once
       if (res.ok && res.body) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           assistantText += decoder.decode(value, { stream: true });
-          upsertAssistant();
+          upsert();
         }
-        upsertAssistant(); // flush any buffered tail
+        upsert();
       } else if (res.ok) {
-        // Non-streaming success
         const ct = res.headers.get("content-type") || "";
-        if (ct.includes("application/json")) {
-          const data = await res.json().catch(() => ({}));
-          assistantText = data?.text || data?.reply || "Okay.";
-        } else {
-          assistantText = await res.text();
-        }
-        upsertAssistant();
+        assistantText = ct.includes("application/json")
+          ? ((await res.json().catch(() => ({})))?.text || "Okay.")
+          : (await res.text());
+        upsert();
       } else {
-        // Error path: show provider’s actual message when possible
-        let errText = "Sorry, the server returned " + res.status + ".";
+        let err = `Sorry, ${label} endpoint returned ${res.status}.`;
         try {
           const ct = res.headers.get("content-type") || "";
-          if (ct.includes("application/json")) {
-            const data = await res.json();
-            errText =
-              data?.body ||
-              data?.error ||
-              data?.last_attempt?.body ||
-              JSON.stringify(data);
-          } else {
-            errText = await res.text();
-          }
+          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
         } catch {}
-        setMessages((m) => [...m, { role: "assistant", content: `(error) ${errText}` }]);
-        return;
+        setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
       }
-    } catch (err) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: `Sorry, I couldn’t reach ${CHAT_ENDPOINT}.` },
-      ]);
+    } catch {
+      setMessages((m) => [...m, { role: "assistant", content: `Couldn’t reach ${endpoint}.` }]);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -109,18 +90,12 @@ export default function Chat() {
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
-      {/* Messages (only this scrolls) */}
-      <div
-        ref={scrollRef}
-        className="min-h-0 overflow-y-auto px-6 pt-4 pb-3 space-y-4"
-      >
+      {/* Messages */}
+      <div ref={scrollRef} className="min-h-0 overflow-y-auto px-6 pt-4 pb-3 space-y-4">
         {messages.map((m, i) => {
           const isUser = m.role === "user";
           return (
-            <div
-              key={i}
-              className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}
-            >
+            <div key={i} className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}>
               {m.content}
             </div>
           );
@@ -128,18 +103,15 @@ export default function Chat() {
         {sending && <div className="max-w-xl brand-agent">Thinking…</div>}
       </div>
 
-      {/* Input bar (bottom row) */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t bg-white/95 backdrop-blur px-4 py-3"
-      >
+      {/* Input */}
+      <form onSubmit={handleSubmit} className="border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask anything… (try: say hi)"
-            className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
+            placeholder={`Ask anything… (${label})`}
+            className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"}
           />
           <button
             type="submit"
