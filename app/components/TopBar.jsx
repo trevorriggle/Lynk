@@ -1,6 +1,5 @@
-"use client";
-
 import Link from "next/link";
+"use client";
 
 function ChevronDown({ className = "h-4 w-4" }) {
   return (
@@ -28,12 +27,14 @@ export default function TopBar() {
         <div className="flex h-14 items-center gap-3">
           {/* LEFT: logo + workspace */}
           <div className="flex items-center gap-4 shrink-0">
-            <img
-              src="/lynk-logo.png"
-              alt="Lynk"
-              className={`${logoSizeClass} w-auto select-none`}
-              draggable="false"
-            />
+            <Link href="/" className="flex items-center">
+              <img
+                src="/lynk-logo.png"
+                alt="Lynk"
+                className={`${logoSizeClass} w-auto select-none`}
+                draggable="false"
+              />
+            </Link>
 
             <div className="hidden items-center gap-2 sm:flex text-gray-600">
               <span className="text-sm">Project</span>
@@ -78,7 +79,7 @@ export default function TopBar() {
               Settings
             </button>
 
-            {/* Account button now links to /account */}
+            {/* AC button (still links to /account) */}
             <Link href="/account">
               <div
                 className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
@@ -94,3 +95,4 @@ export default function TopBar() {
     </header>
   );
 }
+
