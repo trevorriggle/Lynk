@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function Chat({ selectedModel }) {
-  // Always route through the memory-aware endpoint
+  // Memory-aware endpoint
   const endpoint = "/api/session";
   const label = selectedModel?.label || "OpenAI";
 
@@ -11,7 +11,7 @@ export default function Chat({ selectedModel }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
-  // persistent per-tab session id so server can remember turns
+  // Per-tab session id so the server can remember turns
   const [sessionId] = useState(() => {
     try {
       const K = "lynk_session_id";
@@ -28,7 +28,6 @@ export default function Chat({ selectedModel }) {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
-  // debug
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.log(
@@ -37,11 +36,13 @@ export default function Chat({ selectedModel }) {
       selectedModel?.provider,
       selectedModel?.model,
       "→ endpoint:",
-      endpoint
+      endpoint,
+      "sessionId:",
+      sessionId
     );
-  }, [endpoint, selectedModel]);
+  }, [endpoint, selectedModel, sessionId]);
 
-  // auto-scroll to bottom
+  // Always scroll to newest message
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -67,7 +68,7 @@ export default function Chat({ selectedModel }) {
           model: {
             label: selectedModel?.label,
             provider: selectedModel?.provider, // "openai" | "anthropic"
-            model: selectedModel?.model,       // e.g. "gpt-4o-mini" / "claude-3-haiku-20240307"
+            model: selectedModel?.model,       // "gpt-4o-mini" | "claude-3-haiku-20240307" etc.
           },
         }),
       });
@@ -88,14 +89,17 @@ export default function Chat({ selectedModel }) {
 
       const ct = (res.headers.get("content-type") || "").toLowerCase();
 
-      // If server returned JSON (our session route), parse it — DO NOT stream
       if (res.ok && ct.includes("application/json")) {
+        // Our /api/session route
         const data = await res.json().catch(() => ({}));
         assistantText = data?.text || "Okay.";
+        // >>> Emit inspector update for the Right Panel
+        if (data?.inspector && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+        }
         upsert();
-      }
-      // If server returned text/plain and supports streaming
-      else if (res.ok && res.body && ct.includes("text")) {
+      } else if (res.ok && res.body && ct.includes("text")) {
+        // Stream plain text (not used by /api/session, but keeps other endpoints working)
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -105,9 +109,8 @@ export default function Chat({ selectedModel }) {
           upsert();
         }
         upsert();
-      }
-      // Fallback: read whole body as text
-      else if (res.ok) {
+      } else if (res.ok) {
+        // Fallback: read text body
         assistantText = await res.text();
         upsert();
       } else {
@@ -120,10 +123,7 @@ export default function Chat({ selectedModel }) {
         setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
       }
     } catch (e) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: `Couldn’t reach ${endpoint}.` },
-      ]);
+      setMessages((m) => [...m, { role: "assistant", content: `Couldn’t reach ${endpoint}.` }]);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -182,4 +182,3 @@ export default function Chat({ selectedModel }) {
     </div>
   );
 }
-
