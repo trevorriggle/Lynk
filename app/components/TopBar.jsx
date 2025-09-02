@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
+
 function ChevronDown({ className = "h-4 w-4" }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={className}>
-      <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.28l3.71-3.05a.75.75 0 111.04 1.08l-4.23 3.48a.75.75 0 01-.96 0L5.21 8.31a.75.75 0 01.02-1.1z"/>
+      <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.28l3.71-3.05a.75.75 0 111.04 1.08l-4.23 3.48a.75.75 0 01-.96 0L5.21 8.31a.75.75 0 01.02-1.1z" />
     </svg>
   );
 }
@@ -18,15 +20,13 @@ function Magnifier({ className = "h-4 w-4" }) {
 }
 
 export default function TopBar() {
-  // Adjust the logo size here: h-8 (default) / h-9 / h-10, etc.
   const logoSizeClass = "h-12";
 
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
-        {/* OUTER ROW (no justify-between to avoid phantom gap) */}
         <div className="flex h-14 items-center gap-3">
-          {/* LEFT: logo + workspace (prevent shrinking) */}
+          {/* LEFT: logo + workspace */}
           <div className="flex items-center gap-4 shrink-0">
             <img
               src="/lynk-logo.png"
@@ -48,7 +48,7 @@ export default function TopBar() {
             </div>
           </div>
 
-          {/* CENTER: search (grow to fill between left/right, allow shrinking) */}
+          {/* CENTER: search */}
           <div className="flex flex-1 min-w-0">
             <label
               htmlFor="lynk-search"
@@ -66,7 +66,7 @@ export default function TopBar() {
             </label>
           </div>
 
-          {/* RIGHT: actions (prevent shrinking so center truly flexes) */}
+          {/* RIGHT: actions */}
           <div className="flex items-center gap-3 shrink-0">
             <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
               New Chat
@@ -77,13 +77,17 @@ export default function TopBar() {
             <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
               Settings
             </button>
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600"
-              aria-label="Account"
-              title="Account"
-            >
-              AC
-            </div>
+
+            {/* Account button now links to /account */}
+            <Link href="/account">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
+                aria-label="Account"
+                title="Account"
+              >
+                AC
+              </div>
+            </Link>
           </div>
         </div>
       </div>
