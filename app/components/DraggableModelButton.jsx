@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Model choices shown in the floating pill.
- * NOTE: all endpoints point to /api/session so memory/inspector are consistent.
+ * All route through /api/session so memory/inspector stay consistent.
  */
 const MODELS = [
   {
@@ -28,11 +28,11 @@ const MODELS = [
     provider: "gemini",
     model: "gemini-1.5-flash",
     endpoint: "/api/session",
-    icon: "/google-logo.png", // make sure this exists in /public (you said it does)
+    icon: "/google-logo.png", // you added this
   },
 ];
 
-const STORAGE_KEY = "lynk_pill_pos_v9"; // bump key so old position cache doesn’t collide
+const STORAGE_KEY = "lynk_pill_pos_v10"; // bump so old cache doesn't clash
 const CLICK_DRAG_THRESHOLD = 6;
 const PILL_W = 192;
 const PILL_H = 48;
@@ -143,7 +143,7 @@ export default function DraggableModelButton({ model, setModel }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        title={`${selected.label} — ${selected.provider} (${selected.model})`}
+        title={`${selected.label} — ${selected.provider}`}
       >
         <span className="flex min-w-0 items-center gap-2">
           <span
@@ -171,11 +171,11 @@ export default function DraggableModelButton({ model, setModel }) {
         </span>
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown — simple style like your “desired” screenshot */}
       {open && (
         <div
           role="listbox"
-          className="mt-2 w-[220px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
+          className="mt-2 w-[200px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
         >
           {MODELS.map((m, i) => {
             const isActive = m.label === selected.label;
@@ -189,24 +189,16 @@ export default function DraggableModelButton({ model, setModel }) {
                   setCurrent(m.label);
                   setOpen(false);
                 }}
-                className="flex items-center gap-2 w-full text-left px-4 py-2 text-white text-sm hover:bg-white/10"
+                className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10"
                 style={{
-                  fontWeight: isActive ? 800 : 500,
+                  fontWeight: isActive ? 800 : 700, // bold labels like the simple version
                   borderBottom:
                     i < MODELS.length - 1
                       ? "1px dotted rgba(201,238,237,0.85)"
                       : "none",
                 }}
               >
-                <Image
-                  src={m.icon || "/OpenAI-Logo.png"}
-                  alt={m.provider}
-                  width={18}
-                  height={18}
-                  className="object-contain"
-                />
-                <span className="truncate">{m.label}</span>
-                <span className="ml-auto text-[11px] opacity-80">{m.model}</span>
+                {m.label}
               </button>
             );
           })}
