@@ -17,12 +17,12 @@ export default function RightPanel({ active = false, activeContext = null }) {
         const j = await r.json();
         if (j?.inspector) setInspector(j.inspector);
       } catch {
-        // ignore fetch errors to keep panel quiet
+        // keep panel quiet if fetch fails
       }
     };
 
     load();
-    if (active) timer = setInterval(load, 4000); // light polling while visible
+    if (active) timer = setInterval(load, 4000); // light polling when visible
     return () => timer && clearInterval(timer);
   }, [active]);
 
@@ -46,31 +46,32 @@ export default function RightPanel({ active = false, activeContext = null }) {
 
         <div className="text-sm font-semibold text-slate-800">Inspector</div>
 
-        {/* Pretty view if we have structured inspector */}
+        {/* Pretty view if inspector present */}
         {inspector?.live ? (
           <div className="mt-3 space-y-3 text-xs leading-5 text-slate-700">
-            {inspector.live.gist && (
+            {inspector.live.gist ? (
               <div>
                 <div className="mb-1 font-medium text-slate-900">Gist</div>
                 <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
                   {inspector.live.gist}
                 </div>
               </div>
-            )}
+            ) : null}
 
             {Array.isArray(inspector.live.key_points) &&
-              inspector.live.key_points.length > 0 && (
-                <div>
-                  <div className="mb-1 font-medium text-slate-900">Key points</div>
-                  <ul className="list-disc pl-5">
-                    {inspector.live.key_points.map((k, i) => (
-                      <li key={i}>{k}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+            inspector.live.key_points.length > 0 ? (
+              <div>
+                <div className="mb-1 font-medium text-slate-900">Key points</div>
+                <ul className="list-disc pl-5">
+                  {inspector.live.key_points.map((k, i) => (
+                    <li key={i}>{k}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
-            {Array.isArray(inspector.live.todos) && inspector.live.todos.length > 0 && (
+            {Array.isArray(inspector.live.todos) &&
+            inspector.live.todos.length > 0 ? (
               <div>
                 <div className="mb-1 font-medium text-slate-900">To-dos</div>
                 <ul className="pl-0">
@@ -82,26 +83,26 @@ export default function RightPanel({ active = false, activeContext = null }) {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
 
             {Array.isArray(inspector.live.entities) &&
-              inspector.live.entities.length > 0 && (
-                <div>
-                  <div className="mb-1 font-medium text-slate-900">Entities</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {inspector.live.entities.map((e, i) => (
-                      <span
-                        key={i}
-                        className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5"
-                      >
-                        {e}
-                      </span>
-                    ))}
-                  </div>
+            inspector.live.entities.length > 0 ? (
+              <div>
+                <div className="mb-1 font-medium text-slate-900">Entities</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {inspector.live.entities.map((e, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5"
+                    >
+                      {e}
+                    </span>
+                  ))}
                 </div>
-              )}
+              </div>
+            ) : null}
 
-            {Array.isArray(inspector.commands) && inspector.commands.length > 0 && (
+            {Array.isArray(inspector.commands) && inspector.commands.length > 0 ? (
               <div>
                 <div className="mb-1 font-medium text-slate-900">Suggested commands</div>
                 <ul className="list-disc pl-5">
@@ -115,10 +116,10 @@ export default function RightPanel({ active = false, activeContext = null }) {
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         ) : (
-          // Fallback to your old text view (JSON string)
+          // Fallback: previous JSON string display
           <p className="mt-2 text-xs leading-5 text-slate-600">
             {ctx
               ? JSON.stringify(ctx)
@@ -129,3 +130,4 @@ export default function RightPanel({ active = false, activeContext = null }) {
     </aside>
   );
 }
+

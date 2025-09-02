@@ -3,22 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function Chat({ selectedModel }) {
-  // Route all messages through the new session endpoint (server keeps memory)
+  // Always route through the memory-aware endpoint
   const endpoint = "/api/session";
-  const label = selectedModel?.label || "Claude";
+  const label = selectedModel?.label || "OpenAI";
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
-  // lightweight, per-tab session id so memory persists between turns
+  // persistent per-tab session id so server can remember turns
   const [sessionId] = useState(() => {
     try {
-      const k = "lynk_session_id";
-      const v = localStorage.getItem(k);
+      const K = "lynk_session_id";
+      const v = localStorage.getItem(K);
       if (v) return v;
       const id = crypto?.randomUUID?.() || ("sess_" + Math.random().toString(36).slice(2));
-      localStorage.setItem(k, id);
+      localStorage.setItem(K, id);
       return id;
     } catch {
       return "sess_" + Math.random().toString(36).slice(2);
@@ -28,7 +28,7 @@ export default function Chat({ selectedModel }) {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Tiny debug so you can see the active target; remove later if you want
+  // debug
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.log(
@@ -39,9 +39,9 @@ export default function Chat({ selectedModel }) {
       "→ endpoint:",
       endpoint
     );
-  }, [endpoint, label, selectedModel]);
+  }, [endpoint, selectedModel]);
 
-  // Always scroll to newest
+  // auto-scroll to bottom
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -66,8 +66,8 @@ export default function Chat({ selectedModel }) {
           message: text,
           model: {
             label: selectedModel?.label,
-            provider: selectedModel?.provider,
-            model: selectedModel?.model,
+            provider: selectedModel?.provider, // "openai" | "anthropic"
+            model: selectedModel?.model,       // e.g. "gpt-4o-mini" / "claude-3-haiku-20240307"
           },
         }),
       });
@@ -86,8 +86,16 @@ export default function Chat({ selectedModel }) {
           return [...prev, { role: "assistant", content: assistantText }];
         });
 
-      if (res.ok && res.body) {
-        // If the server streams, use it; if not, the else path below handles it
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+      // If server returned JSON (our session route), parse it — DO NOT stream
+      if (res.ok && ct.includes("application/json")) {
+        const data = await res.json().catch(() => ({}));
+        assistantText = data?.text || "Okay.";
+        upsert();
+      }
+      // If server returned text/plain and supports streaming
+      else if (res.ok && res.body && ct.includes("text")) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -97,24 +105,25 @@ export default function Chat({ selectedModel }) {
           upsert();
         }
         upsert();
-      } else if (res.ok) {
-        const ct = res.headers.get("content-type") || "";
-        assistantText = ct.includes("application/json")
-          ? ((await res.json().catch(() => ({})))?.text || "Okay.")
-          : (await res.text());
+      }
+      // Fallback: read whole body as text
+      else if (res.ok) {
+        assistantText = await res.text();
         upsert();
       } else {
         let err = `Sorry, ${label} endpoint returned ${res.status}.`;
         try {
-          const ct = res.headers.get("content-type") || "";
           err = ct.includes("application/json")
             ? JSON.stringify(await res.json())
             : await res.text();
         } catch {}
         setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
       }
-    } catch {
-      setMessages((m) => [...m, { role: "assistant", content: `Couldn’t reach ${endpoint}.` }]);
+    } catch (e) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: `Couldn’t reach ${endpoint}.` },
+      ]);
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -123,7 +132,7 @@ export default function Chat({ selectedModel }) {
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
-      {/* Status line: confirm the pill is switching */}
+      {/* Status line */}
       <div className="px-6 pt-2 text-xs text-slate-500">
         Using: <b>{label}</b> → <code>{endpoint}</code>
       </div>
@@ -152,7 +161,7 @@ export default function Chat({ selectedModel }) {
         onSubmit={handleSubmit}
         className="border-t bg-white/95 backdrop-blur px-4 py-3"
       >
-        <div className="mx-auto flex w/full max-w-3xl items-center gap-2">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
             value={input}
@@ -173,3 +182,4 @@ export default function Chat({ selectedModel }) {
     </div>
   );
 }
+
