@@ -13,7 +13,7 @@ export default function Page() {
     label: "Claude",
     provider: "anthropic",
     model: "claude-3-haiku-20240307",
-    endpoint: "/api/claude",
+    endpoint: "/api/session",
   });
 
   // Right-panel inspector state
