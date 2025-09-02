@@ -1,16 +1,29 @@
-// app/components/Chat.jsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 
 export default function Chat({ selectedModel }) {
-  // Default keeps Claude working if nothing is passed
-  const endpoint = selectedModel?.endpoint || "/api/claude";
+  // Route all messages through the new session endpoint (server keeps memory)
+  const endpoint = "/api/session";
   const label = selectedModel?.label || "Claude";
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+
+  // lightweight, per-tab session id so memory persists between turns
+  const [sessionId] = useState(() => {
+    try {
+      const k = "lynk_session_id";
+      const v = localStorage.getItem(k);
+      if (v) return v;
+      const id = crypto?.randomUUID?.() || ("sess_" + Math.random().toString(36).slice(2));
+      localStorage.setItem(k, id);
+      return id;
+    } catch {
+      return "sess_" + Math.random().toString(36).slice(2);
+    }
+  });
 
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
@@ -18,8 +31,15 @@ export default function Chat({ selectedModel }) {
   // Tiny debug so you can see the active target; remove later if you want
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log("[Chat] Using:", label, "→", endpoint);
-  }, [endpoint, label]);
+    console.log(
+      "[Chat] Using model:",
+      selectedModel?.label,
+      selectedModel?.provider,
+      selectedModel?.model,
+      "→ endpoint:",
+      endpoint
+    );
+  }, [endpoint, label, selectedModel]);
 
   // Always scroll to newest
   useEffect(() => {
@@ -41,7 +61,15 @@ export default function Chat({ selectedModel }) {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          sessionId,
+          message: text,
+          model: {
+            label: selectedModel?.label,
+            provider: selectedModel?.provider,
+            model: selectedModel?.model,
+          },
+        }),
       });
 
       let assistantText = "";
@@ -59,6 +87,7 @@ export default function Chat({ selectedModel }) {
         });
 
       if (res.ok && res.body) {
+        // If the server streams, use it; if not, the else path below handles it
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -78,7 +107,9 @@ export default function Chat({ selectedModel }) {
         let err = `Sorry, ${label} endpoint returned ${res.status}.`;
         try {
           const ct = res.headers.get("content-type") || "";
-          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
+          err = ct.includes("application/json")
+            ? JSON.stringify(await res.json())
+            : await res.text();
         } catch {}
         setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
       }
@@ -121,7 +152,7 @@ export default function Chat({ selectedModel }) {
         onSubmit={handleSubmit}
         className="border-t bg-white/95 backdrop-blur px-4 py-3"
       >
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+        <div className="mx-auto flex w/full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
             value={input}
@@ -142,4 +173,3 @@ export default function Chat({ selectedModel }) {
     </div>
   );
 }
-
