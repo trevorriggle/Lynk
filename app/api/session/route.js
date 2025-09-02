@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CORS / headers ---
 const H = {
@@ -15,8 +16,8 @@ const H = {
 };
 
 // --- cost guards ---
-const INPUT_TOKEN_BUDGET = 1500; // ~cheap context window
-const OUTPUT_TOKENS = 256;       // reply cap
+const INPUT_TOKEN_BUDGET = 1500;  // context budget
+const OUTPUT_TOKENS      = 800;   // raise to avoid cutoffs (was 256)
 const estTokens = (s) => Math.ceil((s || "").length / 4);
 
 // --- Minimal in-memory session store ---
@@ -43,7 +44,7 @@ const buildBudgetedTurns = (turns, maxTokens) => {
   let used = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
-    const cost = estTokens(t.content) + 4; // overhead
+    const cost = estTokens(t.content) + 4;
     if (used + cost > maxTokens) break;
     out.unshift(t);
     used += cost;
@@ -51,7 +52,6 @@ const buildBudgetedTurns = (turns, maxTokens) => {
   return out;
 };
 
-// Build messages for OpenAI (chat.completions)
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
@@ -59,7 +59,6 @@ function buildOpenAIMessages(turns) {
   }));
 }
 
-// Build messages for Anthropic (Messages API)
 function buildAnthropicMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
@@ -67,9 +66,16 @@ function buildAnthropicMessages(turns) {
   }));
 }
 
+function buildGeminiHistory(turns) {
+  // Gemini expects { role: "user"|"model", parts:[{text}] }
+  return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
+    role: t.role === "assistant" ? "model" : "user",
+    parts: [{ text: t.content }],
+  }));
+}
+
 // ---------- Live Notes + Topics -> Commands ----------
 async function updateLiveNotes(session, provider, modelName) {
-  // Keep summarization input extra small
   const lastTurns = buildBudgetedTurns(session.turns, 600);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
@@ -88,9 +94,6 @@ async function updateLiveNotes(session, provider, modelName) {
     chatExcerpt,
   ].join("\n");
 
-  // You can force the cheapest summarizer no matter what pill is selected:
-  // provider = "openai"; modelName = "gpt-4o-mini";
-
   try {
     if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
@@ -108,7 +111,7 @@ async function updateLiveNotes(session, provider, modelName) {
       const raw = r?.choices?.[0]?.message?.content?.toString?.() || "";
       const obj = JSON.parse(extractJson(raw));
       mergeLive(session, obj);
-    } else {
+    } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return;
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -123,24 +126,31 @@ async function updateLiveNotes(session, provider, modelName) {
           max_tokens: 128,
           temperature: 0.2,
           messages: [
-            {
-              role: "user",
-              content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }],
-            },
+            { role: "user", content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }] },
           ],
         }),
       });
       const txt = await r.text();
-      const data = safeParseJson(txt); // Anthropics outer envelope
-      const onlyText = (data?.content || [])
-        .filter((b) => b.type === "text")
-        .map((b) => b.text)
-        .join("");
+      const data = safeParseJson(txt);
+      const onlyText = (data?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
       const obj = JSON.parse(extractJson(onlyText));
+      mergeLive(session, obj);
+    } else {
+      // gemini
+      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!key) return;
+      const genAI = new GoogleGenerativeAI(key);
+      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: "Return only valid JSON. No explanations.\n\n" + prompt }] }],
+        generationConfig: { maxOutputTokens: 128, temperature: 0.2 },
+      });
+      const raw = result?.response?.text?.() || "";
+      const obj = JSON.parse(extractJson(raw));
       mergeLive(session, obj);
     }
   } catch {
-    // If summarizer fails, keep prior live notes
+    // keep prior live notes on failure
   }
 }
 
@@ -152,23 +162,15 @@ function extractJson(s) {
   return "{}";
 }
 function safeParseJson(s) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(s); } catch { return {}; }
 }
-
 function mergeLive(session, obj) {
-  const live =
-    session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
-
+  const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
   if (typeof obj?.gist === "string") live.gist = obj.gist;
   if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 4);
   if (Array.isArray(obj?.todos)) live.todos = obj.todos.slice(0, 8);
   if (Array.isArray(obj?.entities)) live.entities = obj.entities.slice(0, 8);
 
-  // NEW: topics -> counts -> suggested commands
   if (Array.isArray(obj?.topics)) {
     for (const raw of obj.topics) {
       const slug = normalizeSlug(raw);
@@ -178,72 +180,42 @@ function mergeLive(session, obj) {
     }
   }
 }
-
 function normalizeSlug(v) {
   if (!v) return "";
   const s = String(v).trim().toLowerCase();
-  return s
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+  return s.replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
-
-const COMMAND_THRESHOLD = 10; // “more than 10 messages” → suggest at 10+
+const COMMAND_THRESHOLD = 10;
 function maybeSuggestCommand(session, slug) {
   const n = session.topicCounts[slug] || 0;
   if (n < COMMAND_THRESHOLD) return;
   const cmd = `${slug}?`;
   const exists = (session.commands || []).some((c) => c.slug === slug);
-  if (!exists) {
-    (session.commands ||= []).push({
-      slug,
-      command: cmd,
-      count: n,
-      created_at: new Date().toISOString(),
-    });
-  } else {
+  if (!exists) (session.commands ||= []).push({ slug, command: cmd, count: n, created_at: new Date().toISOString() });
+  else {
     const item = session.commands.find((c) => c.slug === slug);
     if (item) item.count = n;
   }
 }
 
 // --- preflight ---
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: H });
-}
+export async function OPTIONS() { return new Response(null, { status: 204, headers: H }); }
 
 // --- simple health/debug ---
 export async function GET(req) {
-  // NEW: allow Right Panel to fetch the latest inspector by sessionId
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
-
   if (sessionId) {
     const s = SESSIONS.get(sessionId);
     return Response.json(
       s
-        ? {
-            ok: true,
-            inspector: {
-              live: s.live,
-              snapshots: s.snapshots || [],
-              commands: s.commands || [],
-            },
-            turns: s.turns.length,
-          }
+        ? { ok: true, inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] }, turns: s.turns.length }
         : { ok: false, error: "session not found" },
       { headers: H }
     );
   }
-
   return Response.json(
-    {
-      ok: true,
-      sessions: SESSIONS.size,
-      now: new Date().toISOString(),
-      expects: "POST { sessionId, message, model: { label, provider, model } }",
-    },
+    { ok: true, sessions: SESSIONS.size, now: new Date().toISOString(), expects: "POST { sessionId, message, model: { label, provider, model } }" },
     { headers: H }
   );
 }
@@ -255,33 +227,33 @@ export async function POST(req) {
     let message = asText(body?.message ?? body?.messages?.[0]?.content ?? "");
     if (!message) return new Response("Missing message", { status: 400, headers: H });
 
-    // session id
     let sessionId = asText(body?.sessionId || "");
     if (!sessionId) {
-      try {
-        sessionId = crypto.randomUUID();
-      } catch {
-        sessionId = "sess_" + Math.random().toString(36).slice(2);
-      }
+      try { sessionId = crypto.randomUUID(); }
+      catch { sessionId = "sess_" + Math.random().toString(36).slice(2); }
     }
 
-    // model meta from the pill
     const modelMeta = body?.model || {};
-    const provider = asText(modelMeta?.provider || "anthropic");
+    const provider = asText(modelMeta?.provider || "anthropic"); // "openai" | "anthropic" | "gemini"
     const modelName = asText(
-      modelMeta?.model || (provider === "openai" ? "gpt-4o-mini" : "claude-3-haiku-20240307")
+      modelMeta?.model ||
+        (provider === "openai"
+          ? "gpt-4o-mini"
+          : provider === "gemini"
+          ? "gemini-1.5-flash"
+          : "claude-3-haiku-20240307")
     );
 
     // 1) append user turn
     const s = getSession(sessionId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
 
-    // 2) call chosen provider with recent context
+    // 2) call chosen provider
     let assistantText = "";
+
     if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
-
       const client = new OpenAI({ apiKey: key });
       const r = await client.chat.completions.create({
         model: modelName,
@@ -290,7 +262,22 @@ export async function POST(req) {
         messages: buildOpenAIMessages(s.turns),
       });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
-    } else {
+
+      // continuation if truncated
+      if (r?.choices?.[0]?.finish_reason === "length") {
+        const cont = await client.chat.completions.create({
+          model: modelName,
+          max_tokens: OUTPUT_TOKENS,
+          temperature: 0.4,
+          messages: [
+            ...buildOpenAIMessages(s.turns),
+            { role: "assistant", content: assistantText },
+            { role: "user", content: "Continue your previous reply." },
+          ],
+        });
+        assistantText += cont?.choices?.[0]?.message?.content?.toString?.() || "";
+      }
+    } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
 
@@ -310,13 +297,52 @@ export async function POST(req) {
       });
       const txt = await r.text();
       if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
-
       try {
         const data = JSON.parse(txt);
         for (const b of data?.content || []) if (b?.type === "text" && b?.text) assistantText += b.text;
-      } catch {
-        assistantText = txt || "Okay.";
-      }
+        if (data?.stop_reason === "max_tokens") {
+          // quick continuation
+          const r2 = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-api-key": key,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: modelName,
+              max_tokens: OUTPUT_TOKENS,
+              temperature: 0.4,
+              messages: [
+                ...buildAnthropicMessages(s.turns),
+                { role: "assistant", content: [{ type: "text", text: assistantText }] },
+                { role: "user", content: [{ type: "text", text: "Continue your previous reply." }] },
+              ],
+            }),
+          });
+          const txt2 = await r2.text();
+          try {
+            const data2 = JSON.parse(txt2);
+            for (const b of data2?.content || []) if (b?.type === "text" && b?.text) assistantText += b.text;
+          } catch { assistantText += "\n" + txt2; }
+        }
+      } catch { assistantText = txt || "Okay."; }
+    } else {
+      // gemini
+      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
+
+      const genAI = new GoogleGenerativeAI(key);
+      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
+
+      const history = buildGeminiHistory(s.turns);
+      const result = await model.generateContent({
+        contents: history,
+        generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
+      });
+      assistantText = result?.response?.text?.() || "Okay.";
+
+      // Gemini may not expose a simple finish_reason; optional continuation is skipped for now
     }
 
     // 3) append assistant turn
@@ -330,24 +356,12 @@ export async function POST(req) {
     return new Response(
       JSON.stringify({
         text: assistantText,
-        inspector: {
-          live: s.live,
-          snapshots: s.snapshots || [],
-          commands: s.commands || [],
-        },
+        inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
       }),
-      {
-        status: 200,
-        headers: {
-          ...H,
-          "Content-Type": "application/json; charset=utf-8",
-          "X-Session-Id": sessionId,
-        },
-      }
+      { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );
   } catch (e) {
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
-
 
