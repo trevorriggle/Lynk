@@ -68,27 +68,25 @@ function buildAnthropicMessages(turns) {
 }
 
 // ---------- Live Notes + Topics -> Commands ----------
-
 async function updateLiveNotes(session, provider, modelName) {
   // Keep summarization input extra small
   const lastTurns = buildBudgetedTurns(session.turns, 600);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
-  const prompt =
-    [
-      "You are the Inspector. Update live notes for this chat turn.",
-      "Return STRICT JSON with keys:",
-      '  - "gist": (string, <= 1 sentence)',
-      '  - "key_points": (array, <= 4 short bullets)',
-      '  - "todos": (array of strings, empty if none)',
-      '  - "entities": (array of short labels/names)',
-      '  - "topics": (array of short, lowercase slugs; hyphenate multiword, e.g., "fort-rapids")',
-      "",
-      "Respond with JSON only. No prose.",
-      "",
-      "Chat excerpt:",
-      chatExcerpt,
-    ].join("\n");
+  const prompt = [
+    "You are the Inspector. Update live notes for this chat turn.",
+    "Return STRICT JSON with keys:",
+    '  - "gist": (string, <= 1 sentence)',
+    '  - "key_points": (array, <= 4 short bullets)',
+    '  - "todos": (array of strings, empty if none)',
+    '  - "entities": (array of short labels/names)',
+    '  - "topics": (array of short, lowercase slugs; hyphenate multiword, e.g., "fort-rapids")',
+    "",
+    "Respond with JSON only. No prose.",
+    "",
+    "Chat excerpt:",
+    chatExcerpt,
+  ].join("\n");
 
   // You can force the cheapest summarizer no matter what pill is selected:
   // provider = "openai"; modelName = "gpt-4o-mini";
@@ -124,12 +122,20 @@ async function updateLiveNotes(session, provider, modelName) {
           model: modelName,
           max_tokens: 128,
           temperature: 0.2,
-          messages: [{ role: "user", content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }] }],
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }],
+            },
+          ],
         }),
       });
       const txt = await r.text();
       const data = safeParseJson(txt); // Anthropics outer envelope
-      const onlyText = (data?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const onlyText = (data?.content || [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("");
       const obj = JSON.parse(extractJson(onlyText));
       mergeLive(session, obj);
     }
@@ -154,7 +160,8 @@ function safeParseJson(s) {
 }
 
 function mergeLive(session, obj) {
-  const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
+  const live =
+    session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
 
   if (typeof obj?.gist === "string") live.gist = obj.gist;
   if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 4);
@@ -189,7 +196,12 @@ function maybeSuggestCommand(session, slug) {
   const cmd = `${slug}?`;
   const exists = (session.commands || []).some((c) => c.slug === slug);
   if (!exists) {
-    (session.commands ||= []).push({ slug, command: cmd, count: n, created_at: new Date().toISOString() });
+    (session.commands ||= []).push({
+      slug,
+      command: cmd,
+      count: n,
+      created_at: new Date().toISOString(),
+    });
   } else {
     const item = session.commands.find((c) => c.slug === slug);
     if (item) item.count = n;
@@ -202,7 +214,29 @@ export async function OPTIONS() {
 }
 
 // --- simple health/debug ---
-export async function GET() {
+export async function GET(req) {
+  // NEW: allow Right Panel to fetch the latest inspector by sessionId
+  const { searchParams } = new URL(req.url);
+  const sessionId = searchParams.get("sessionId");
+
+  if (sessionId) {
+    const s = SESSIONS.get(sessionId);
+    return Response.json(
+      s
+        ? {
+            ok: true,
+            inspector: {
+              live: s.live,
+              snapshots: s.snapshots || [],
+              commands: s.commands || [],
+            },
+            turns: s.turns.length,
+          }
+        : { ok: false, error: "session not found" },
+      { headers: H }
+    );
+  }
+
   return Response.json(
     {
       ok: true,
@@ -234,7 +268,9 @@ export async function POST(req) {
     // model meta from the pill
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic");
-    const modelName = asText(modelMeta?.model || (provider === "openai" ? "gpt-4o-mini" : "claude-3-haiku-20240307"));
+    const modelName = asText(
+      modelMeta?.model || (provider === "openai" ? "gpt-4o-mini" : "claude-3-haiku-20240307")
+    );
 
     // 1) append user turn
     const s = getSession(sessionId);
@@ -302,11 +338,16 @@ export async function POST(req) {
       }),
       {
         status: 200,
-        headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId },
+        headers: {
+          ...H,
+          "Content-Type": "application/json; charset=utf-8",
+          "X-Session-Id": sessionId,
+        },
       }
     );
   } catch (e) {
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
+
 
