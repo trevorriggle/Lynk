@@ -1,60 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function Chat({ selectedModel }) {
-  // Memory-aware endpoint
+  // Your memory-aware endpoint
   const endpoint = "/api/session";
   const label = selectedModel?.label || "OpenAI";
 
-  const [messages, setMessages] = useState([]);
+  const { activeId, sessions, createSession, appendToActive } = useSessionStore((s) => s);
+
+  // Guarantee there is an active session
+  useEffect(() => {
+    if (!activeId) {
+      createSession(
+        selectedModel || { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" }
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
+
+  // Derive the thread from the active session
+  const thread = useMemo(() => (activeId ? sessions[activeId]?.messages || [] : []), [activeId, sessions]);
+  const sessionModel = useMemo(
+    () => (activeId ? sessions[activeId]?.model : selectedModel),
+    [activeId, sessions, selectedModel]
+  );
+
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-
-  // Per-tab session id so the server can remember turns
-  const [sessionId] = useState(() => {
-    try {
-      const K = "lynk_session_id";
-      const v = localStorage.getItem(K);
-      if (v) return v;
-      const id = crypto?.randomUUID?.() || ("sess_" + Math.random().toString(36).slice(2));
-      localStorage.setItem(K, id);
-      return id;
-    } catch {
-      return "sess_" + Math.random().toString(36).slice(2);
-    }
-  });
 
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log(
-      "[Chat] Using model:",
-      selectedModel?.label,
-      selectedModel?.provider,
-      selectedModel?.model,
-      "→ endpoint:",
-      endpoint,
-      "sessionId:",
-      sessionId
-    );
-  }, [endpoint, selectedModel, sessionId]);
+    console.log("[Chat] Using model:", sessionModel?.label, sessionModel?.provider, sessionModel?.model, "→", endpoint, "sessionId:", activeId);
+  }, [endpoint, sessionModel, activeId]);
 
   // Always scroll to newest message
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, sending]);
+  }, [thread, sending]);
 
   async function handleSubmit(e) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || !activeId) return;
 
-    const userMsg = { role: "user", content: text };
-    setMessages((prev) => [...prev, userMsg]);
+    // 1) optimistic user message
+    appendToActive({ role: "user", content: text });
     setInput("");
     setSending(true);
 
@@ -63,67 +59,48 @@ export default function Chat({ selectedModel }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId,
-          message: text,
+          sessionId: activeId, // server uses this to keep memory
+          message: text,       // send only the latest turn; server already has memory
           model: {
-            label: selectedModel?.label,
-            provider: selectedModel?.provider, // "openai" | "anthropic"
-            model: selectedModel?.model,       // "gpt-4o-mini" | "claude-3-haiku-20240307" etc.
+            label: sessionModel?.label,
+            provider: sessionModel?.provider,
+            model: sessionModel?.model,
           },
         }),
       });
 
       let assistantText = "";
-      let inserted = false;
-      const upsert = () =>
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (inserted && last?.role === "assistant") {
-            const copy = prev.slice(0, -1);
-            copy.push({ role: "assistant", content: assistantText });
-            return copy;
-          }
-          inserted = true;
-          return [...prev, { role: "assistant", content: assistantText }];
-        });
 
       const ct = (res.headers.get("content-type") || "").toLowerCase();
-
       if (res.ok && ct.includes("application/json")) {
-        // Our /api/session route
         const data = await res.json().catch(() => ({}));
         assistantText = data?.text || "Okay.";
-        // >>> Emit inspector update for the Right Panel
         if (data?.inspector && typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
         }
-        upsert();
+        appendToActive({ role: "assistant", content: assistantText });
       } else if (res.ok && res.body && ct.includes("text")) {
-        // Stream plain text (not used by /api/session, but keeps other endpoints working)
+        // streaming text fallback
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           assistantText += decoder.decode(value, { stream: true });
-          upsert();
         }
-        upsert();
+        appendToActive({ role: "assistant", content: assistantText || " " });
       } else if (res.ok) {
-        // Fallback: read text body
         assistantText = await res.text();
-        upsert();
+        appendToActive({ role: "assistant", content: assistantText || " " });
       } else {
         let err = `Sorry, ${label} endpoint returned ${res.status}.`;
         try {
-          err = ct.includes("application/json")
-            ? JSON.stringify(await res.json())
-            : await res.text();
+          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
         } catch {}
-        setMessages((m) => [...m, { role: "assistant", content: `(error) ${err}` }]);
+        appendToActive({ role: "assistant", content: `(error) ${err}` });
       }
     } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: `Couldn’t reach ${endpoint}.` }]);
+      appendToActive({ role: "assistant", content: `Couldn’t reach ${endpoint}.` });
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -134,21 +111,15 @@ export default function Chat({ selectedModel }) {
     <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
       {/* Status line */}
       <div className="px-6 pt-2 text-xs text-slate-500">
-        Using: <b>{label}</b> → <code>{endpoint}</code>
+        Using: <b>{sessionModel?.label || label}</b> → <code>{endpoint}</code>
       </div>
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4"
-      >
-        {messages.map((m, i) => {
+      <div ref={scrollRef} className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
+        {thread.map((m) => {
           const isUser = m.role === "user";
           return (
-            <div
-              key={i}
-              className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}
-            >
+            <div key={m.id} className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}>
               {m.content}
             </div>
           );
@@ -157,16 +128,13 @@ export default function Chat({ selectedModel }) {
       </div>
 
       {/* Input */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t bg-white/95 backdrop-blur px-4 py-3"
-      >
+      <form onSubmit={handleSubmit} className="border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`Ask anything… (${label})`}
+            placeholder={`Ask anything… (${sessionModel?.label || label})`}
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
           />
           <button

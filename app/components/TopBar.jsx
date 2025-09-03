@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useSessionStore } from "../hooks/useSessionStore";
 
 function ChevronDown({ className = "h-4 w-4" }) {
   return (
@@ -20,6 +21,7 @@ function Magnifier({ className = "h-4 w-4" }) {
 
 export default function TopBar() {
   const logoSizeClass = "h-12";
+  const createSession = useSessionStore((s) => s.createSession);
 
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
@@ -69,7 +71,16 @@ export default function TopBar() {
 
           {/* RIGHT: actions */}
           <div className="flex items-center gap-3 shrink-0">
-            <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+            <button
+              onClick={() =>
+                createSession({
+                  label: "Claude",
+                  provider: "anthropic",
+                  model: "claude-3-haiku-20240307",
+                })
+              }
+              className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
               New Chat
             </button>
             <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
@@ -95,4 +106,5 @@ export default function TopBar() {
     </header>
   );
 }
+
 

@@ -1,14 +1,14 @@
 // app/page.jsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LeftStack from "./components/LeftStack";
 import RightPanel from "./components/RightPanel";
 import Chat from "./components/Chat";
 import DraggableModelButton from "./components/DraggableModelButton";
+import { useSessionStore } from "./hooks/useSessionStore";
 
 export default function Page() {
-  // Model selector (floating pill) — start on Claude so your existing Claude route keeps working
   const [selectedModel, setSelectedModel] = useState({
     label: "Claude",
     provider: "anthropic",
@@ -16,7 +16,6 @@ export default function Page() {
     endpoint: "/api/session",
   });
 
-  // Right-panel inspector state
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
 
@@ -25,13 +24,19 @@ export default function Page() {
     setActiveContext(ctx);
   };
 
+  // Ensure at least one session on first load
+  const { activeId, order, createSession } = useSessionStore((s) => s);
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    if (!activeId && order.length === 0) {
+      createSession({ label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" });
+    }
+  }, [activeId, order, createSession]);
+
   return (
-    // Give the page wrapper exactly the viewport height minus header and prevent outer scrolling
-    <div
-      className="flex flex-col overflow-hidden"
-      style={{ height: "calc(100vh - var(--header-h))" }}
-    >
-      {/* Main content grid */}
+    <div className="flex flex-col overflow-hidden" style={{ height: "calc(100vh - var(--header-h))" }}>
       <div
         className="
           mx-auto w-full max-w-7xl flex-1
@@ -42,24 +47,16 @@ export default function Page() {
           h-full min-h-0 overflow-hidden
         "
       >
-        {/* Left rail */}
         <LeftStack onActivate={handleActivate} />
-
-        {/* Center chat — fills its grid cell and controls its own scroll */}
         <main className="h-full min-h-0 overflow-hidden">
-          {/* Pass the selected model object down */}
           <Chat selectedModel={selectedModel} />
         </main>
-
-        {/* Right inspector */}
         <RightPanel active={active} activeContext={activeContext} />
       </div>
 
-      {/* Floating model picker pill */}
       <DraggableModelButton
         model={selectedModel}
         setModel={setSelectedModel}
-        // keep your prop if other code toggles it; pill ignores it if unused
         openFromHeader={0}
       />
     </div>
