@@ -40,9 +40,10 @@ export const useSessionStore = create(
       },
 
       /** Activate an existing session */
-      selectSession(id) {
-        if (!get().sessions[id]) return;
-        set({ activeId: id }); // no reordering on select},
+       selectSession(id) {
+         if (!get().sessions[id]) return;
+         set({ activeId: id }); // no reordering on select
+       },
 
       /** Append a message to the active session */
       appendToActive(msg /* { role, content } */) {
