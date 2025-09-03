@@ -67,9 +67,21 @@ export const useSessionStore = create(
 
       /** Manually activate an existing session (no reordering). */
       selectSession(id) {
-        if (!get().sessions[id]) return;
-        set({ activeId: id });
-      },
+  const s = get();
+  if (!s.sessions[id]) return;
+
+  const chosen = s.selectedModel; // whatever the pill currently shows
+
+  set((state) => {
+    const cur = state.sessions[id];
+    const patched = chosen ? { ...cur, model: chosen } : cur;
+    return {
+      activeId: id,
+      sessions: { ...state.sessions, [id]: patched },
+      // no MRU reordering on select (keeps your current behavior)
+    };
+  });
+},
 
       /** Append a message to the active session and MRU it. */
       appendToActive(msg /* { role, content } */) {
