@@ -147,10 +147,6 @@ export default function TopBar() {
               )}
             </div>
 
-            <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-              Settings
-            </button>
-
             {/* AC button */}
             <Link href="/account">
               <div
