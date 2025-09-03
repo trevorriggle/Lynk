@@ -1,8 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-export default function RightPanel({ active = false, activeContext = null }) {
+const DUMMY_SNAPSHOT = {
+  created_at: new Date().toISOString(),
+  from_turn: 1,
+  to_turn: 5,
+  confidence: "med",
+  topics: [
+    { slug: "example-topic", gloss: "one-line gloss of what was discussed" },
+    { slug: "second-topic", gloss: "another compact description" },
+  ],
+  key_details: [
+    "key detail #1 (≤ 12 words)",
+    "key detail #2 (≤ 12 words)",
+    "key detail #3 (≤ 12 words)",
+  ],
+  decisions: ["picked option B for phase 1"],
+  open_questions: ["confirm permit timeline with city"],
+  actions: [{ text: "draft follow-up email", owner: "trevor" }],
+  entities: ["Columbus Zoo", "Zoobezi Bay"],
+  links: ["columbuszoo.org", "press-release.pdf"],
+  model: { provider: "openai", model: "gpt-4o-mini" },
+};
+
+export default function RightPanel({ active = false }) {
   const [inspector, setInspector] = useState(null);
   const [sessionId, setSessionId] = useState(null);
 
@@ -31,9 +53,7 @@ export default function RightPanel({ active = false, activeContext = null }) {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(sessionId)}`);
         const j = await r.json();
         if (j?.inspector) setInspector(j.inspector);
-      } catch {
-        // keep panel quiet on fetch errors
-      }
+      } catch {}
     };
     load();
     if (active) timer = setInterval(load, 4000);
@@ -42,9 +62,20 @@ export default function RightPanel({ active = false, activeContext = null }) {
 
   const state = active ? "Active" : "Inactive";
 
+  // Pick the latest snapshot; if missing or too empty, inject a dummy
+  const latestSnapshot = useMemo(() => {
+    const s = inspector?.snapshots?.at(-1);
+    const tooEmpty =
+      !s ||
+      (Array.isArray(s.topics) && s.topics.length === 0 &&
+       Array.isArray(s.key_details) && s.key_details.length === 0);
+    return tooEmpty ? DUMMY_SNAPSHOT : s;
+  }, [inspector]);
+
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        {/* Header */}
         <div className="mb-2 text-xs text-slate-500">State</div>
         <div
           className={
@@ -60,9 +91,8 @@ export default function RightPanel({ active = false, activeContext = null }) {
           session: <code>{sessionId || "—"}</code>
         </div>
 
+        {/* Inspector live notes (kept) */}
         <div className="text-sm font-semibold text-slate-800">Inspector</div>
-
-        {/* Pretty view if inspector present */}
         {inspector?.live ? (
           <div className="mt-3 space-y-3 text-xs leading-5 text-slate-700">
             {inspector.live.gist ? (
@@ -131,86 +161,93 @@ export default function RightPanel({ active = false, activeContext = null }) {
                 </ul>
               </div>
             ) : null}
-
-            {/* Snapshots */}
-            {Array.isArray(inspector.snapshots) && inspector.snapshots.length > 0 && (
-              <div className="pt-2 border-t border-slate-200">
-                <div className="mb-1 text-sm font-semibold text-slate-800">Snapshots</div>
-                <div className="space-y-2">
-                  {inspector.snapshots.slice(-5).reverse().map((s, i) => (
-                    <div key={i} className="rounded-md border border-slate-200 p-2">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[11px] text-slate-500">
-                          turns {s.from_turn}–{s.to_turn} • {new Date(s.created_at).toLocaleString()}
-                        </div>
-                        {s.confidence && (
-                          <span className="text-[10px] rounded-full border px-1.5 py-0.5 text-slate-500">
-                            {s.confidence}
-                          </span>
-                        )}
-                      </div>
-
-                      {Array.isArray(s.topics) && s.topics.length > 0 && (
-                        <div className="mt-1 text-xs">
-                          <div className="font-medium">Topics</div>
-                          <ul className="list-disc pl-4">
-                            {s.topics.map((t, j) => (
-                              <li key={j}><b>{t.slug}</b>{t.gloss ? ` — ${t.gloss}` : ""}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {Array.isArray(s.key_details) && s.key_details.length > 0 && (
-                        <div className="mt-1 text-xs">
-                          <div className="font-medium">Key details</div>
-                          <ul className="list-disc pl-4">
-                            {s.key_details.map((k, j) => (<li key={j}>{k}</li>))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Optional: show decisions/open questions/actions in a compact way */}
-                      {Array.isArray(s.decisions) && s.decisions.length > 0 && (
-                        <div className="mt-1 text-xs">
-                          <div className="font-medium">Decisions</div>
-                          <ul className="list-disc pl-4">
-                            {s.decisions.map((d, j) => (<li key={j}>{d}</li>))}
-                          </ul>
-                        </div>
-                      )}
-                      {Array.isArray(s.open_questions) && s.open_questions.length > 0 && (
-                        <div className="mt-1 text-xs">
-                          <div className="font-medium">Open questions</div>
-                          <ul className="list-disc pl-4">
-                            {s.open_questions.map((q, j) => (<li key={j}>{q}</li>))}
-                          </ul>
-                        </div>
-                      )}
-                      {Array.isArray(s.actions) && s.actions.length > 0 && (
-                        <div className="mt-1 text-xs">
-                          <div className="font-medium">Actions</div>
-                          <ul className="list-disc pl-4">
-                            {s.actions.map((a, j) => (
-                              <li key={j}>
-                                {a.text}{a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         ) : (
           <p className="mt-2 text-xs leading-5 text-slate-600">
-            This inspector lights up as you chat. If nothing appears, check your environment
-            keys and session id above.
+            This inspector lights up as you chat.
           </p>
         )}
+
+        {/* Expanded Snapshot Card (always shows; falls back to dummy) */}
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <div className="mb-1 text-sm font-semibold text-slate-800">Snapshot</div>
+
+          <div className="rounded-md border border-slate-200 p-2 text-xs leading-5 text-slate-700">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-slate-500">
+                turns {latestSnapshot?.from_turn ?? "1"}–{latestSnapshot?.to_turn ?? "5"} •{" "}
+                {new Date(latestSnapshot?.created_at || Date.now()).toLocaleString()}
+              </div>
+              {latestSnapshot?.confidence && (
+                <span className="text-[10px] rounded-full border px-1.5 py-0.5 text-slate-500">
+                  {latestSnapshot.confidence}
+                </span>
+              )}
+            </div>
+
+            {Array.isArray(latestSnapshot?.topics) && latestSnapshot.topics.length > 0 && (
+              <div className="mt-1">
+                <div className="font-medium">Topics</div>
+                <ul className="list-disc pl-4">
+                  {latestSnapshot.topics.map((t, i) => (
+                    <li key={i}>
+                      <b>{t.slug}</b>
+                      {t.gloss ? ` — ${t.gloss}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {Array.isArray(latestSnapshot?.key_details) && latestSnapshot.key_details.length > 0 && (
+              <div className="mt-1">
+                <div className="font-medium">Key details</div>
+                <ul className="list-disc pl-4">
+                  {latestSnapshot.key_details.map((k, i) => (
+                    <li key={i}>{k}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {Array.isArray(latestSnapshot?.decisions) && latestSnapshot.decisions.length > 0 && (
+              <div className="mt-1">
+                <div className="font-medium">Decisions</div>
+                <ul className="list-disc pl-4">
+                  {latestSnapshot.decisions.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {Array.isArray(latestSnapshot?.open_questions) &&
+              latestSnapshot.open_questions.length > 0 && (
+                <div className="mt-1">
+                  <div className="font-medium">Open questions</div>
+                  <ul className="list-disc pl-4">
+                    {latestSnapshot.open_questions.map((q, i) => (
+                      <li key={i}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            {Array.isArray(latestSnapshot?.actions) && latestSnapshot.actions.length > 0 && (
+              <div className="mt-1">
+                <div className="font-medium">Actions</div>
+                <ul className="list-disc pl-4">
+                  {latestSnapshot.actions.map((a, i) => (
+                    <li key={i}>
+                      {a.text}
+                      {a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </aside>
   );
