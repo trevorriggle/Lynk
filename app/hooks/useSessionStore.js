@@ -41,13 +41,8 @@ export const useSessionStore = create(
 
       /** Activate an existing session */
       selectSession(id) {
-        const exists = get().sessions[id];
-        if (!exists) return;
-        set((s) => ({
-          activeId: id,
-          order: [id, ...s.order.filter((x) => x !== id)],
-        }));
-      },
+        if (!get().sessions[id]) return;
+        set({ activeId: id }); // no reordering on select},
 
       /** Append a message to the active session */
       appendToActive(msg /* { role, content } */) {
