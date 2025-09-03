@@ -16,8 +16,8 @@ const H = {
 };
 
 // --- cost guards ---
-const INPUT_TOKEN_BUDGET = 1500;  // context budget
-const OUTPUT_TOKENS      = 800;   // raise to avoid cutoffs (was 256)
+const INPUT_TOKEN_BUDGET = 1500; // context budget
+const OUTPUT_TOKENS = 800;       // raise to avoid cutoffs (was 256)
 const estTokens = (s) => Math.ceil((s || "").length / 4);
 
 // --- Minimal in-memory session store ---
@@ -39,6 +39,7 @@ const getSession = (id) => {
 
 // --- helpers ---
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
+
 const buildBudgetedTurns = (turns, maxTokens) => {
   const out = [];
   let used = 0;
@@ -74,10 +75,40 @@ function buildGeminiHistory(turns) {
   }));
 }
 
+// ---------- OpenAI-compatible helper (xAI/Groq/etc.) ----------
+async function callOpenAICompatible({
+  baseURL,
+  key,
+  model,
+  messages,
+  max_tokens = OUTPUT_TOKENS,
+  temperature = 0.4,
+}) {
+  const res = await fetch(`${baseURL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens,
+    }),
+  });
+  const txt = await res.text();
+  if (!res.ok) throw new Error(`OpenAI-compatible ${res.status}: ${txt}`);
+  const data = safeParseJson(txt);
+  return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
+}
+
 // ---------- Live Notes + Topics -> Commands ----------
 async function updateLiveNotes(session, provider, modelName) {
   const lastTurns = buildBudgetedTurns(session.turns, 600);
-  const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
+  const chatExcerpt = lastTurns
+    .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
+    .join("\n");
 
   const prompt = [
     "You are the Inspector. Update live notes for this chat turn.",
@@ -111,6 +142,7 @@ async function updateLiveNotes(session, provider, modelName) {
       const raw = r?.choices?.[0]?.message?.content?.toString?.() || "";
       const obj = JSON.parse(extractJson(raw));
       mergeLive(session, obj);
+
     } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return;
@@ -126,15 +158,37 @@ async function updateLiveNotes(session, provider, modelName) {
           max_tokens: 128,
           temperature: 0.2,
           messages: [
-            { role: "user", content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }] },
+            {
+              role: "user",
+              content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }],
+            },
           ],
         }),
       });
       const txt = await r.text();
       const data = safeParseJson(txt);
-      const onlyText = (data?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      const onlyText = (data?.content || [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("");
       const obj = JSON.parse(extractJson(onlyText));
       mergeLive(session, obj);
+
+    } else if (provider === "xai") {
+      const key = process.env.XAI_API_KEY;
+      if (!key) return;
+      const assistantText = await callOpenAIMessagesOnce({
+        baseURL: "https://api.x.ai/v1",
+        key,
+        model: modelName,
+        system: "Return only valid JSON. No explanations.",
+        user: prompt,
+        max_tokens: 128,
+        temperature: 0.2,
+      });
+      const obj = JSON.parse(extractJson(assistantText));
+      mergeLive(session, obj);
+
     } else {
       // gemini
       const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -154,6 +208,30 @@ async function updateLiveNotes(session, provider, modelName) {
   }
 }
 
+// small helper to call OAI-compatible with system+user in one go (for Inspector)
+async function callOpenAIMessagesOnce({ baseURL, key, model, system, user, max_tokens, temperature }) {
+  const res = await fetch(`${baseURL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        { role: "user", content: user },
+      ],
+      temperature,
+      max_tokens,
+    }),
+  });
+  const txt = await res.text();
+  if (!res.ok) throw new Error(`OpenAI-compatible ${res.status}: ${txt}`);
+  const data = safeParseJson(txt);
+  return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
+}
+
 function extractJson(s) {
   const str = (s || "").trim();
   const start = str.indexOf("{");
@@ -162,7 +240,11 @@ function extractJson(s) {
   return "{}";
 }
 function safeParseJson(s) {
-  try { return JSON.parse(s); } catch { return {}; }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
 }
 function mergeLive(session, obj) {
   const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
@@ -183,7 +265,11 @@ function mergeLive(session, obj) {
 function normalizeSlug(v) {
   if (!v) return "";
   const s = String(v).trim().toLowerCase();
-  return s.replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return s
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 const COMMAND_THRESHOLD = 10;
 function maybeSuggestCommand(session, slug) {
@@ -199,7 +285,9 @@ function maybeSuggestCommand(session, slug) {
 }
 
 // --- preflight ---
-export async function OPTIONS() { return new Response(null, { status: 204, headers: H }); }
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: H });
+}
 
 // --- simple health/debug ---
 export async function GET(req) {
@@ -215,7 +303,12 @@ export async function GET(req) {
     );
   }
   return Response.json(
-    { ok: true, sessions: SESSIONS.size, now: new Date().toISOString(), expects: "POST { sessionId, message, model: { label, provider, model } }" },
+    {
+      ok: true,
+      sessions: SESSIONS.size,
+      now: new Date().toISOString(),
+      expects: "POST { sessionId, message, model: { label, provider, model } }",
+    },
     { headers: H }
   );
 }
@@ -229,18 +322,23 @@ export async function POST(req) {
 
     let sessionId = asText(body?.sessionId || "");
     if (!sessionId) {
-      try { sessionId = crypto.randomUUID(); }
-      catch { sessionId = "sess_" + Math.random().toString(36).slice(2); }
+      try {
+        sessionId = crypto.randomUUID();
+      } catch {
+        sessionId = "sess_" + Math.random().toString(36).slice(2);
+      }
     }
 
     const modelMeta = body?.model || {};
-    const provider = asText(modelMeta?.provider || "anthropic"); // "openai" | "anthropic" | "gemini"
+    const provider = asText(modelMeta?.provider || "anthropic"); // "openai" | "anthropic" | "gemini" | "xai"
     const modelName = asText(
       modelMeta?.model ||
         (provider === "openai"
           ? "gpt-4o-mini"
           : provider === "gemini"
           ? "gemini-1.5-flash"
+          : provider === "xai"
+          ? "grok-2"
           : "claude-3-haiku-20240307")
     );
 
@@ -251,10 +349,29 @@ export async function POST(req) {
     // 2) call chosen provider
     let assistantText = "";
 
-    if (provider === "openai") {
+    if (provider === "xai") {
+      const key = process.env.XAI_API_KEY;
+      if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
+
+      // primary completion
+      assistantText = await callOpenAICompatible({
+        baseURL: "https://api.x.ai/v1",
+        key,
+        model: modelName, // e.g., "grok-2" / "grok-4"
+        messages: buildOpenAIMessages(s.turns),
+        max_tokens: OUTPUT_TOKENS,
+        temperature: 0.4,
+      });
+
+      // simple continuation pass if you want parity with OpenAI length handling:
+      // (Cannot inspect finish_reason here; heuristic continuation when answer looks truncated is optional.)
+      // Skipping by default to avoid extra cost.
+
+    } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
+
       const r = await client.chat.completions.create({
         model: modelName,
         max_tokens: OUTPUT_TOKENS,
@@ -277,6 +394,7 @@ export async function POST(req) {
         });
         assistantText += cont?.choices?.[0]?.message?.content?.toString?.() || "";
       }
+
     } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
@@ -324,9 +442,14 @@ export async function POST(req) {
           try {
             const data2 = JSON.parse(txt2);
             for (const b of data2?.content || []) if (b?.type === "text" && b?.text) assistantText += b.text;
-          } catch { assistantText += "\n" + txt2; }
+          } catch {
+            assistantText += "\n" + txt2;
+          }
         }
-      } catch { assistantText = txt || "Okay."; }
+      } catch {
+        assistantText = txt || "Okay.";
+      }
+
     } else {
       // gemini
       const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -341,8 +464,7 @@ export async function POST(req) {
         generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
       });
       assistantText = result?.response?.text?.() || "Okay.";
-
-      // Gemini may not expose a simple finish_reason; optional continuation is skipped for now
+      // (Continuation skipped for Gemini)
     }
 
     // 3) append assistant turn
@@ -364,4 +486,3 @@ export async function POST(req) {
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
-

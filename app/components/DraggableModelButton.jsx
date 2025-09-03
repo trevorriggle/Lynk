@@ -28,8 +28,16 @@ const MODELS = [
     provider: "gemini",
     model: "gemini-1.5-flash",
     endpoint: "/api/session",
-    icon: "/google-logo.png", // you added this
+    icon: "/google-logo.png",
   },
+   {
+     label: "Grok",
+     provider: "xai",
+     model: "grok-2",         // or "grok-4" if your key has access
+     endpoint: "/api/session",
+     icon: "/xai-logo.png",   // you said you added this to /public
+   },
+
 ];
 
 const STORAGE_KEY = "lynk_pill_pos_v10"; // bump so old cache doesn't clash
