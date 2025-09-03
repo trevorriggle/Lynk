@@ -12,7 +12,10 @@ function Section({ title, defaultOpen = false, children }) {
         className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm"
       >
         <span className="font-semibold">{title}</span>
-        <span className={`transition-transform select-none ${open ? "rotate-90" : ""}`} aria-hidden>
+        <span
+          className={`transition-transform select-none ${open ? "rotate-90" : ""}`}
+          aria-hidden
+        >
           ▸
         </span>
       </button>
@@ -26,42 +29,25 @@ function Section({ title, defaultOpen = false, children }) {
   );
 }
 
+/** Row that can render as an input-like pill when `pill` is true */
 function Row({ label, onClick, muted = false, active = false, pill = false }) {
-  // EXACTLY match your chat input field visual
-  // input classes: rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 focus:ring-2 focus:ring-[#176A82]
-  const baseInput =
-    "w-full rounded-full bg-white px-4 py-3 text-base leading-6 text-slate-800 " +
-    "transition outline-none select-none";
-
-  const inactive =
+  // EXACT match to your chat input pill styles
+  const pillBase =
+    "w-full rounded-full bg-white px-4 py-3 text-base leading-6 text-slate-800 transition outline-none select-none";
+  const pillInactive =
     "border border-slate-300 hover:border-[#176A82] hover:ring-1 hover:ring-[#176A82]/30";
+  const pillActive =
+    "border-2 border-[#176A82] ring-2 ring-[#176A82]/40 shadow-[inset_0_0_0_1px_rgba(23,106,130,0.20)] font-medium";
 
-  const activeCls =
-    "border-2 border-[#176A82] ring-2 ring-[#176A82]/40 " +
-    "shadow-[inset_0_0_0_1px_rgba(23,106,130,0.20)] font-medium";
-
-  const nonPill =
-    "px-3 py-2.5 rounded-lg ring-1 ring-black/5 hover:bg-white/70";
+  const nonPillBase =
+    "w-full text-left px-3 py-2.5 rounded-lg ring-1 ring-black/5 transition";
+  const nonPillInactive =
+    "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50 hover:!border-[#C7EBEA]/60";
+  const nonPillActive = "bg-white border font-semibold shadow";
 
   const cls = pill
-    ? [baseInput, active ? activeCls : inactive, muted ? "text-slate-500 italic" : ""].join(" ")
-    : [nonPill, active ? "bg-white border font-semibold shadow" : "", muted ? "text-slate-500 italic" : ""].join(" ");
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "true" : undefined}
-      className={cls}
-      title={label}
-    >
-      {label}
-    </button>
-  );
-}
-
-
-  if (muted) cls += " text-slate-500 italic";
+    ? [pillBase, active ? pillActive : pillInactive, muted ? "text-slate-500 italic" : ""].join(" ")
+    : [nonPillBase, active ? nonPillActive : nonPillInactive, muted ? "text-slate-500 italic" : "text-slate-800"].join(" ");
 
   return (
     <button
@@ -85,7 +71,6 @@ export default function LeftStack({ onActivate }) {
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
 
   return (
-    // Rail: spec aqua, no top gap
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
       <Section title="Context Files">
         <Row label="sys-prompt.txt" onClick={() => onActivate?.({ type: "file", key: "sys-prompt.txt" })} />
@@ -111,23 +96,22 @@ export default function LeftStack({ onActivate }) {
         <Row label="Coding Support" onClick={() => onActivate?.({ type: "project", key: "coding-support" })} />
       </Section>
 
-      {/* REAL Recent Chats */}
+      {/* REAL Recent Chats as pills */}
       <Section title="Recent Chats" defaultOpen>
-  {recent.length === 0 ? (
-    <Row label="(no chats yet)" muted pill />
-  ) : (
-    recent.map((s) => (
-      <Row
-        key={s.id}
-        label={s.title || "New chat"}
-        active={s.id === activeId}
-        onClick={() => selectSession(s.id)}
-        pill
-      />
-    ))
-  )}
-</Section>
-
+        {recent.length === 0 ? (
+          <Row label="(no chats yet)" muted pill />
+        ) : (
+          recent.map((s) => (
+            <Row
+              key={s.id}
+              label={s.title || "New chat"}
+              active={s.id === activeId}
+              onClick={() => selectSession(s.id)}
+              pill
+            />
+          ))
+        )}
+      </Section>
 
       <div className="mt-4 text-sm text-slate-500 px-2">
         <span className="opacity-70">Lynk account</span>
