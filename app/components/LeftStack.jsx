@@ -33,7 +33,7 @@ function Section({ title, defaultOpen = false, children }) {
 function Row({ label, onClick, muted = false, active = false, pill = false }) {
   // EXACT match to your chat input pill styles
   const pillBase =
-    "w-full rounded-full bg-white px-4 py-3 text-base leading-6 text-slate-800 transition outline-none select-none";
+    "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none";
   const pillInactive =
     "border border-slate-300 hover:border-[#176A82] hover:ring-1 hover:ring-[#176A82]/30";
   const pillActive =
