@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 
 // build a fresh dummy card
 function makeDummyCard(seqKey) {
-  const created = new Date().toISOString();
   return {
     key: String(seqKey),
-    created_at: created,
+    created_at: new Date().toISOString(),
     from_turn: 1,
     to_turn: 5,
     confidence: "med",
@@ -23,32 +22,41 @@ function makeDummyCard(seqKey) {
     decisions: ["picked option B for phase 1"],
     open_questions: ["confirm permit timeline with city"],
     actions: [{ text: "draft follow-up email", owner: "trevor" }],
+    hydrated: false, // mark until snapshot merges
   };
 }
 
 // pretty plaintext for copy
-function formatDummyForCopy(d) {
+function formatCardForCopy(c) {
   const lines = [];
-  lines.push(`Turns ${d.from_turn}–${d.to_turn} • ${new Date(d.created_at).toLocaleString()} • ${d.confidence}`);
-  if (d.topics?.length) {
+  lines.push(
+    `Turns ${c.from_turn ?? "?"}–${c.to_turn ?? "?"} • ${new Date(
+      c.created_at
+    ).toLocaleString()} • ${c.confidence}`
+  );
+  if (c.topics?.length) {
     lines.push("\nTopics:");
-    d.topics.forEach((t) => lines.push(`- ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`));
+    c.topics.forEach((t) =>
+      lines.push(`- ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
+    );
   }
-  if (d.key_details?.length) {
+  if (c.key_details?.length) {
     lines.push("\nKey details:");
-    d.key_details.forEach((k) => lines.push(`- ${k}`));
+    c.key_details.forEach((k) => lines.push(`- ${k}`));
   }
-  if (d.decisions?.length) {
+  if (c.decisions?.length) {
     lines.push("\nDecisions:");
-    d.decisions.forEach((x) => lines.push(`- ${x}`));
+    c.decisions.forEach((x) => lines.push(`- ${x}`));
   }
-  if (d.open_questions?.length) {
+  if (c.open_questions?.length) {
     lines.push("\nOpen questions:");
-    d.open_questions.forEach((q) => lines.push(`- ${q}`));
+    c.open_questions.forEach((q) => lines.push(`- ${q}`));
   }
-  if (d.actions?.length) {
+  if (c.actions?.length) {
     lines.push("\nActions:");
-    d.actions.forEach((a) => lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ""}`));
+    c.actions.forEach((a) =>
+      lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ""}`)
+    );
   }
   return lines.join("\n");
 }
@@ -56,11 +64,11 @@ function formatDummyForCopy(d) {
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [dummies, setDummies] = useState([]);
+  const [cards, setCards] = useState([]); // stack of dummy/snapshots
   const [copiedKey, setCopiedKey] = useState(null);
   const [lastSnapshotCount, setLastSnapshotCount] = useState(0);
 
-  // Discover the session id used by Chat.jsx
+  // Discover session id
   useEffect(() => {
     if (typeof window === "undefined") return;
     const sid = localStorage.getItem("lynk_session_id");
@@ -81,7 +89,9 @@ export default function RightPanel() {
     if (!sessionId) return;
     const load = async () => {
       try {
-        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(sessionId)}`);
+        const r = await fetch(
+          `/api/session?sessionId=${encodeURIComponent(sessionId)}`
+        );
         const j = await r.json();
         if (j?.inspector) setInspector(j.inspector);
       } catch {}
@@ -91,25 +101,46 @@ export default function RightPanel() {
     return () => clearInterval(timer);
   }, [sessionId]);
 
-  // Watch for snapshot count increases
+  // Watch snapshots to spawn & hydrate
   useEffect(() => {
-    const count = inspector?.snapshots?.length || 0;
+    const snaps = inspector?.snapshots || [];
+    const count = snaps.length;
+
+    // Spawn new dummy if snapshot count increased
     if (count > lastSnapshotCount) {
-      // a new snapshot was created → spawn a fresh dummy card
       const seqKey = `${count}-${Date.now()}`;
-      setDummies((prev) => [makeDummyCard(seqKey), ...prev]);
+      setCards((prev) => [makeDummyCard(seqKey), ...prev]);
       setLastSnapshotCount(count);
     } else if (count < lastSnapshotCount) {
-      // reset (new session, etc.)
+      // reset
+      setCards([]);
       setLastSnapshotCount(count);
-      setDummies([]);
+    }
+
+    // Hydrate the top N cards with real snapshots
+    if (count > 0) {
+      setCards((prev) => {
+        const updated = [...prev];
+        for (let i = 0; i < count && i < updated.length; i++) {
+          const snap = snaps[snaps.length - 1 - i]; // newest snapshot hydrates newest card
+          const card = updated[i];
+          if (card && !card.hydrated) {
+            updated[i] = {
+              ...card,
+              ...snap,
+              hydrated: true,
+            };
+          }
+        }
+        return updated;
+      });
     }
   }, [inspector, lastSnapshotCount]);
 
-  async function copyDummy(d) {
+  async function copyCard(c) {
     try {
-      await navigator.clipboard.writeText(formatDummyForCopy(d));
-      setCopiedKey(d.key);
+      await navigator.clipboard.writeText(formatCardForCopy(c));
+      setCopiedKey(c.key);
       setTimeout(() => setCopiedKey(null), 1200);
     } catch {}
   }
@@ -122,42 +153,43 @@ export default function RightPanel() {
         </div>
 
         <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
-        {dummies.length === 0 ? (
+        {cards.length === 0 ? (
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            A preview dummy will appear here as soon as the first snapshot is created.
+            A preview will appear here as soon as the first snapshot is created.
           </p>
         ) : (
           <div className="mt-2 space-y-3">
-            {dummies.map((d) => (
+            {cards.map((c) => (
               <div
-                key={d.key}
+                key={c.key}
                 className="rounded-md border border-slate-200 p-2 text-xs leading-5 text-slate-700"
               >
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] text-slate-500">
-                    turns {d.from_turn}–{d.to_turn} • {new Date(d.created_at).toLocaleString()}
+                    turns {c.from_turn ?? "?"}–{c.to_turn ?? "?"} •{" "}
+                    {new Date(c.created_at).toLocaleString()}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {d.confidence && (
+                    {c.confidence && (
                       <span className="text-[10px] rounded-full border px-1.5 py-0.5 text-slate-500">
-                        {d.confidence}
+                        {c.confidence}
                       </span>
                     )}
                     <button
-                      onClick={() => copyDummy(d)}
+                      onClick={() => copyCard(c)}
                       className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-50 active:scale-[0.99]"
                       title="Copy preview text"
                     >
-                      {copiedKey === d.key ? "Copied!" : "Copy"}
+                      {copiedKey === c.key ? "Copied!" : "Copy"}
                     </button>
                   </div>
                 </div>
 
-                {d.topics?.length > 0 && (
+                {c.topics?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Topics</div>
                     <ul className="list-disc pl-4">
-                      {d.topics.map((t, i) => (
+                      {c.topics.map((t, i) => (
                         <li key={i}>
                           <b>{t.slug}</b>
                           {t.gloss ? ` — ${t.gloss}` : ""}
@@ -167,47 +199,49 @@ export default function RightPanel() {
                   </div>
                 )}
 
-                {d.key_details?.length > 0 && (
+                {c.key_details?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Key details</div>
                     <ul className="list-disc pl-4">
-                      {d.key_details.map((k, i) => (
+                      {c.key_details.map((k, i) => (
                         <li key={i}>{k}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {d.decisions?.length > 0 && (
+                {c.decisions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Decisions</div>
                     <ul className="list-disc pl-4">
-                      {d.decisions.map((x, i) => (
-                        <li key={i}>{x}</li>
+                      {c.decisions.map((d, i) => (
+                        <li key={i}>{d}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {d.open_questions?.length > 0 && (
+                {c.open_questions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Open questions</div>
                     <ul className="list-disc pl-4">
-                      {d.open_questions.map((q, i) => (
+                      {c.open_questions.map((q, i) => (
                         <li key={i}>{q}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {d.actions?.length > 0 && (
+                {c.actions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Actions</div>
                     <ul className="list-disc pl-4">
-                      {d.actions.map((a, i) => (
+                      {c.actions.map((a, i) => (
                         <li key={i}>
                           {a.text}
-                          {a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
+                          {a.owner ? (
+                            <span className="text-slate-500"> — {a.owner}</span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
