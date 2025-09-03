@@ -65,23 +65,35 @@ export const useSessionStore = create(
         return id;
       },
 
-      /** Manually activate an existing session (no reordering). */
+      /** Activate an existing session AND align it to the current pill selection (pill is source of truth). */
       selectSession(id) {
-  const s = get();
-  if (!s.sessions[id]) return;
+        const s = get();
+        if (!s.sessions[id]) return;
 
-  const chosen = s.selectedModel; // whatever the pill currently shows
+        const chosen = s.selectedModel; // whatever the pill currently shows
 
-  set((state) => {
-    const cur = state.sessions[id];
-    const patched = chosen ? { ...cur, model: chosen } : cur;
-    return {
-      activeId: id,
-      sessions: { ...state.sessions, [id]: patched },
-      // no MRU reordering on select (keeps your current behavior)
-    };
-  });
-},
+        set((state) => {
+          const cur = state.sessions[id];
+          const patched = chosen ? { ...cur, model: chosen } : cur;
+          return {
+            activeId: id,
+            sessions: { ...state.sessions, [id]: patched },
+            // no MRU reordering on select (keeps your current behavior)
+          };
+        });
+      },
+
+      /** Delete a chat. If it's active, fall back to the next most-recent (or none). */
+      deleteSession(id) {
+        const s = get();
+        if (!s.sessions[id]) return;
+
+        const { [id]: _removed, ...rest } = s.sessions;
+        const newOrder = s.order.filter((x) => x !== id);
+        const nextActive = s.activeId === id ? (newOrder[0] || null) : s.activeId;
+
+        set({ sessions: rest, order: newOrder, activeId: nextActive });
+      },
 
       /** Append a message to the active session and MRU it. */
       appendToActive(msg /* { role, content } */) {

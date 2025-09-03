@@ -62,12 +62,16 @@ function Row({ label, onClick, muted = false, active = false, pill = false }) {
   );
 }
 
-/**
- * LeftStack
- * onActivate(ctx) -> { type: "command"|"project"|"file"|"behavior"|"recent", key: string }
- */
 export default function LeftStack({ onActivate }) {
-  const { order, sessions, activeId, selectSession, createSession } = useSessionStore((s) => s);
+  const {
+    order,
+    sessions,
+    activeId,
+    selectSession,
+    createSession,
+    deleteSession,
+  } = useSessionStore((s) => s);
+
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
 
   return (
@@ -96,20 +100,38 @@ export default function LeftStack({ onActivate }) {
         <Row label="Coding Support" onClick={() => onActivate?.({ type: "project", key: "coding-support" })} />
       </Section>
 
-      {/* REAL Recent Chats as pills */}
+      {/* REAL Recent Chats as pills + inline delete */}
       <Section title="Recent Chats" defaultOpen>
         {recent.length === 0 ? (
           <Row label="(no chats yet)" muted pill />
         ) : (
-          recent.map((s) => (
-            <Row
-              key={s.id}
-              label={s.title || "New chat"}
-              active={s.id === activeId}
-              onClick={() => selectSession(s.id)}
-              pill
-            />
-          ))
+          recent.map((s) => {
+            const active = s.id === activeId;
+            return (
+              <div key={s.id} className="relative">
+                <Row
+                  label={s.title || "New chat"}
+                  active={active}
+                  onClick={() => selectSession(s.id)}
+                  pill
+                />
+                <button
+                  type="button"
+                  title="Delete chat"
+                  aria-label="Delete chat"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // optional confirm for non-empty chats:
+                    // if ((s.messages?.length ?? 0) > 0 && !confirm("Delete this chat?")) return;
+                    deleteSession(s.id);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })
         )}
       </Section>
 
