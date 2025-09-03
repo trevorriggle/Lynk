@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-/** Build a fresh dummy card for the current sequence */
+// build a fresh dummy card
 function makeDummyCard(seqKey) {
   const created = new Date().toISOString();
   return {
-    key: String(seqKey),        // sequence identifier (stable for this run)
+    key: String(seqKey),
     created_at: created,
     from_turn: 1,
     to_turn: 5,
@@ -26,29 +26,29 @@ function makeDummyCard(seqKey) {
   };
 }
 
-/** Pretty text export matching exactly what's rendered on a dummy card */
+// pretty plaintext for copy
 function formatDummyForCopy(d) {
   const lines = [];
   lines.push(`Turns ${d.from_turn}–${d.to_turn} • ${new Date(d.created_at).toLocaleString()} • ${d.confidence}`);
-  if (Array.isArray(d.topics) && d.topics.length) {
+  if (d.topics?.length) {
     lines.push("\nTopics:");
-    for (const t of d.topics) lines.push(`- ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`);
+    d.topics.forEach((t) => lines.push(`- ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`));
   }
-  if (Array.isArray(d.key_details) && d.key_details.length) {
+  if (d.key_details?.length) {
     lines.push("\nKey details:");
-    for (const k of d.key_details) lines.push(`- ${k}`);
+    d.key_details.forEach((k) => lines.push(`- ${k}`));
   }
-  if (Array.isArray(d.decisions) && d.decisions.length) {
+  if (d.decisions?.length) {
     lines.push("\nDecisions:");
-    for (const x of d.decisions) lines.push(`- ${x}`);
+    d.decisions.forEach((x) => lines.push(`- ${x}`));
   }
-  if (Array.isArray(d.open_questions) && d.open_questions.length) {
+  if (d.open_questions?.length) {
     lines.push("\nOpen questions:");
-    for (const q of d.open_questions) lines.push(`- ${q}`);
+    d.open_questions.forEach((q) => lines.push(`- ${q}`));
   }
-  if (Array.isArray(d.actions) && d.actions.length) {
+  if (d.actions?.length) {
     lines.push("\nActions:");
-    for (const a of d.actions) lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ""}`);
+    d.actions.forEach((a) => lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ""}`));
   }
   return lines.join("\n");
 }
@@ -56,11 +56,9 @@ function formatDummyForCopy(d) {
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [sessionId, setSessionId] = useState(null);
-  const [turns, setTurns] = useState(0);
-
-  // We keep a stack of dummy cards; newest at index 0
   const [dummies, setDummies] = useState([]);
   const [copiedKey, setCopiedKey] = useState(null);
+  const [lastSnapshotCount, setLastSnapshotCount] = useState(0);
 
   // Discover the session id used by Chat.jsx
   useEffect(() => {
@@ -69,7 +67,7 @@ export default function RightPanel() {
     setSessionId(sid || null);
   }, []);
 
-  // Listen for real-time inspector payloads from Chat.jsx
+  // Listen for inspector updates
   useEffect(() => {
     function onUpdate(e) {
       if (e?.detail) setInspector(e.detail);
@@ -78,57 +76,36 @@ export default function RightPanel() {
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // Poll GET so we can read `turns` and know when sequences flip
+  // Poll GET to refresh inspector
   useEffect(() => {
     if (!sessionId) return;
-    let timer;
     const load = async () => {
       try {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(sessionId)}`);
         const j = await r.json();
         if (j?.inspector) setInspector(j.inspector);
-        if (typeof j?.turns === "number") setTurns(j.turns);
       } catch {}
     };
     load();
-    timer = setInterval(load, 4000);
+    const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, [sessionId]);
 
-  // Latest server-side snapshot (we never visualize it here)
-  const lastSnapshot = useMemo(
-    () =>
-      Array.isArray(inspector?.snapshots) && inspector.snapshots.length
-        ? inspector.snapshots[inspector.snapshots.length - 1]
-        : null,
-    [inspector]
-  );
-
-  // Determine if we are currently collecting a new snapshot sequence
-  // A "new sequence" is when there are turns beyond the last snapshot's to_turn (or no snapshot yet).
-  const collecting = useMemo(() => {
-    const lastTo = typeof lastSnapshot?.to_turn === "number" ? lastSnapshot.to_turn : 0;
-    return turns > lastTo; // true while user keeps chatting past last snapshot
-  }, [turns, lastSnapshot]);
-
-  // Compute a stable "sequence key" for the current collecting period: (lastTo + 1)
-  const currentSeqKey = useMemo(() => {
-    const lastTo = typeof lastSnapshot?.to_turn === "number" ? lastSnapshot.to_turn : 0;
-    return String(lastTo + 1);
-  }, [lastSnapshot]);
-
-  // Whenever we're in collecting mode AND we don't already have a dummy for this sequence,
-  // push a fresh dummy card to the top of the stack.
+  // Watch for snapshot count increases
   useEffect(() => {
-    if (!collecting) return;
-    setDummies((prev) => {
-      if (prev.some((d) => d.key === currentSeqKey)) return prev; // already have a dummy for this sequence
-      const fresh = makeDummyCard(currentSeqKey);
-      return [fresh, ...prev]; // newest first
-    });
-  }, [collecting, currentSeqKey]);
+    const count = inspector?.snapshots?.length || 0;
+    if (count > lastSnapshotCount) {
+      // a new snapshot was created → spawn a fresh dummy card
+      const seqKey = `${count}-${Date.now()}`;
+      setDummies((prev) => [makeDummyCard(seqKey), ...prev]);
+      setLastSnapshotCount(count);
+    } else if (count < lastSnapshotCount) {
+      // reset (new session, etc.)
+      setLastSnapshotCount(count);
+      setDummies([]);
+    }
+  }, [inspector, lastSnapshotCount]);
 
-  // Copy handler (pretty plaintext of what's visible on that dummy)
   async function copyDummy(d) {
     try {
       await navigator.clipboard.writeText(formatDummyForCopy(d));
@@ -140,22 +117,22 @@ export default function RightPanel() {
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        {/* keep a tiny header for debugging; remove if you prefer */}
         <div className="mb-2 text-[10px] text-slate-400">
           session: <code>{sessionId || "—"}</code>
         </div>
 
-        {/* DUMMY PREVIEWS ONLY — newest sequence first */}
-        <div className="mb-1 text-sm font-semibold text-slate-800">Preview</div>
-
+        <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
         {dummies.length === 0 ? (
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            A preview dummy will appear here as soon as a new sequence begins.
+            A preview dummy will appear here as soon as the first snapshot is created.
           </p>
         ) : (
           <div className="mt-2 space-y-3">
             {dummies.map((d) => (
-              <div key={d.key} className="rounded-md border border-slate-200 p-2 text-xs leading-5 text-slate-700">
+              <div
+                key={d.key}
+                className="rounded-md border border-slate-200 p-2 text-xs leading-5 text-slate-700"
+              >
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] text-slate-500">
                     turns {d.from_turn}–{d.to_turn} • {new Date(d.created_at).toLocaleString()}
@@ -176,8 +153,7 @@ export default function RightPanel() {
                   </div>
                 </div>
 
-                {/* Topics */}
-                {Array.isArray(d.topics) && d.topics.length > 0 && (
+                {d.topics?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Topics</div>
                     <ul className="list-disc pl-4">
@@ -191,8 +167,7 @@ export default function RightPanel() {
                   </div>
                 )}
 
-                {/* Key details */}
-                {Array.isArray(d.key_details) && d.key_details.length > 0 && (
+                {d.key_details?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Key details</div>
                     <ul className="list-disc pl-4">
@@ -203,8 +178,7 @@ export default function RightPanel() {
                   </div>
                 )}
 
-                {/* Decisions */}
-                {Array.isArray(d.decisions) && d.decisions.length > 0 && (
+                {d.decisions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Decisions</div>
                     <ul className="list-disc pl-4">
@@ -215,8 +189,7 @@ export default function RightPanel() {
                   </div>
                 )}
 
-                {/* Open questions */}
-                {Array.isArray(d.open_questions) && d.open_questions.length > 0 && (
+                {d.open_questions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Open questions</div>
                     <ul className="list-disc pl-4">
@@ -227,8 +200,7 @@ export default function RightPanel() {
                   </div>
                 )}
 
-                {/* Actions */}
-                {Array.isArray(d.actions) && d.actions.length > 0 && (
+                {d.actions?.length > 0 && (
                   <div className="mt-1">
                     <div className="font-medium">Actions</div>
                     <ul className="list-disc pl-4">
