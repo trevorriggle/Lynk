@@ -34,7 +34,7 @@ export const useSessionStore = create(
         set((s) => ({
           sessions: { ...s.sessions, [id]: session },
           order: [id, ...s.order.filter((x) => x !== id)],
-          activeId: id,
+          s.activeId,
         }));
         return id;
       },
