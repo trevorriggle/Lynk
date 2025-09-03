@@ -497,7 +497,7 @@ export async function POST(req) {
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
 
       // primary completion
-      assistantText = await callOpenAIMCompatible({
+      assistantText = await callOpenAICompatible({
         baseURL: "https://api.x.ai/v1",
         key,
         model: modelName, // e.g., "grok-2" / "grok-4"
