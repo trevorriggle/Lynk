@@ -20,7 +20,6 @@ const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  // default to Claude if nothing provided
   const initial = useMemo(
     () => (typeof model === "string" ? model : model?.label) || "Claude",
     [model]
@@ -36,7 +35,7 @@ export default function DraggableModelButton({ model, setModel }) {
   const wrapRef = useRef(null);
   const press = useRef({ x: 0, y: 0, moved: 0, offX: 0, offY: 0 });
 
-  // Lift selection to parent AND store (store also updates active session's model)
+  // Lift selection to parent AND store
   useEffect(() => {
     const selected = MODELS.find((m) => m.label === current) || MODELS[0];
     setModel?.(selected);
@@ -108,61 +107,65 @@ export default function DraggableModelButton({ model, setModel }) {
 
   return (
     <div ref={wrapRef} className="fixed z-[10001] select-none" style={{ left: pos.x, top: pos.y }}>
-      {/* Pill (label only) */}
+      {/* Pill with logo + label */}
       <div
         role="button"
         aria-haspopup="listbox"
         aria-expanded={open}
         tabIndex={0}
-        className="h-12 w-auto min-w-[140px] max-w-[90vw] rounded-full !bg-[#176A82] text-white shadow-[0_8px_24px_rgba(0,0,0,0.18)] flex items-center justify-between px-4 cursor-grab active:cursor-grabbing outline-none ring-0 border-0"
+        className="h-12 w-auto min-w-[140px] max-w-[90vw] rounded-full !bg-[#176A82] text-white shadow-[0_8px_24px_rgba(0,0,0,0.18)] flex items-center justify-between px-3 cursor-grab active:cursor-grabbing outline-none ring-0 border-0"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onDragStart={(e) => e.preventDefault()}
         title={`${selected.label} — ${selected.provider}`}
       >
-        <span className="min-w-0 truncate text-base leading-tight font-heading font-semibold tracking-normal">
-          {selected.label}
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            className="flex items-center justify-center rounded-full bg-white flex-none"
+            style={{ width: 36, height: 36 }}
+          >
+            <Image
+              src={selected.icon || "/OpenAI-Logo.png"}
+              alt={selected.provider}
+              width={28}
+              height={28}
+              className="object-contain"
+              priority
+            />
+          </span>
+          <span className="text-base leading-tight font-heading font-semibold tracking-normal truncate">
+            {selected.label}
+          </span>
         </span>
-        <span
-          className={`transition-transform select-none flex-none opacity-90 ${open ? "rotate-90" : ""}`}
-          aria-hidden
-        >
+        <span className={`transition-transform select-none flex-none ${open ? "rotate-90" : ""}`} aria-hidden>
           ▸
         </span>
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown with labels only */}
       {open && (
-        <div role="listbox" className="mt-2 w-[220px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]">
+        <div role="listbox" className="mt-2 w-[200px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]">
           {MODELS.map((m, i) => {
             const isActive = m.label === selected.label;
             return (
-              <div key={m.label}>
-                <button
-                  role="option"
-                  aria-selected={isActive}
-                  type="button"
-                  onClick={() => {
-                    setCurrent(m.label);
-                    setOpen(false);
-                  }}
-                  className="block w-full text-left px-3 py-2.5 text-white text-[15px] leading-5 hover:bg-white/10"
-                  style={{ fontWeight: isActive ? 800 : 700 }}
-                >
-                  <span className="flex items-center gap-2">
-                    <Image
-                      src={m.icon || "/OpenAI-Logo.png"}
-                      alt={m.provider}
-                      width={18}
-                      height={18}
-                      className="object-contain opacity-90"
-                    />
-                    <span className="truncate">{m.label}</span>
-                  </span>
-                </button>
-                {i < MODELS.length - 1 && <div className="mx-3 h-px bg-white/15" />}
-              </div>
+              <button
+                role="option"
+                aria-selected={isActive}
+                key={m.label}
+                type="button"
+                onClick={() => {
+                  setCurrent(m.label);
+                  setOpen(false);
+                }}
+                className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10"
+                style={{
+                  fontWeight: isActive ? 800 : 700,
+                  borderBottom: i < MODELS.length - 1 ? "1px dotted rgba(201,238,237,0.85)" : "none",
+                }}
+              >
+                {m.label}
+              </button>
             );
           })}
         </div>
