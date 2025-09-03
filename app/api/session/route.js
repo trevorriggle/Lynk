@@ -16,9 +16,13 @@ const H = {
 };
 
 // --- cost guards ---
-const INPUT_TOKEN_BUDGET = 1500; // context budget
-const OUTPUT_TOKENS = 800;       // raise to avoid cutoffs (was 256)
+const INPUT_TOKEN_BUDGET = 1500; // context budget for main chat
+const OUTPUT_TOKENS = 800;       // reply cap (prevents cutoffs)
 const estTokens = (s) => Math.ceil((s || "").length / 4);
+
+// --- snapshot caps (keep cheap) ---
+const SNAPSHOT_INPUT_BUDGET = 700;   // approx input window to summarize
+const SNAPSHOT_OUTPUT_TOKENS = 200;  // strict cap; JSON-only output
 
 // --- Minimal in-memory session store ---
 // Session: { turns, last, live, topicCounts, commands, snapshots? }
@@ -52,6 +56,8 @@ const buildBudgetedTurns = (turns, maxTokens) => {
   }
   return out;
 };
+
+const userTurnCount = (turns) => turns.reduce((n, t) => n + (t.role === "user" ? 1 : 0), 0);
 
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
@@ -208,7 +214,144 @@ async function updateLiveNotes(session, provider, modelName) {
   }
 }
 
-// small helper to call OAI-compatible with system+user in one go (for Inspector)
+// Consolidate a compact snapshot for the last window (triggered every 5 user turns)
+async function consolidateSnapshot(session, provider, modelName) {
+  // 1) Determine the turn range to summarize (since last snapshot)
+  const from_turn = (session.snapshots?.at(-1)?.to_turn ?? 0) + 1;
+  const to_turn = session.turns.length;
+  const windowTurns = session.turns.slice(Math.max(0, from_turn - 1), to_turn);
+
+  // Build a concise excerpt (≈ SNAPSHOT_INPUT_BUDGET tokens)
+  const excerpt = buildBudgetedTurns(windowTurns, SNAPSHOT_INPUT_BUDGET)
+    .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
+    .join("\n");
+
+  // 2) Ask the same provider/model for a STRICT JSON snapshot (low temp, small max)
+  const schemaPrompt = [
+    "You are a summarizer. Produce a COMPACT JSON snapshot of this chat window.",
+    "Return STRICT JSON. No prose. No explanations. No markdown.",
+    "",
+    "Schema (keys & limits):",
+    '{',
+    '  "topics": [ { "slug": "kebab-case", "gloss": "≤12 words" } ] (max 5),',
+    '  "key_details": [ "≤12 words each" ] (max 5),',
+    '  "decisions": [ "≤12 words each" ] (max 3),',
+    '  "open_questions": [ "≤12 words each" ] (max 3),',
+    '  "actions": [ { "text": "≤12 words", "owner": "optional short tag" } ] (max 5),',
+    '  "entities": [ "short labels" ] (max 8, dedupe),',
+    '  "links": [ "url-or-filename" ] (max 5),',
+    '  "confidence": "low|med|high"',
+    '}',
+    "",
+    "If the window is trivial/noisy, return minimal valid JSON with empty arrays.",
+    "",
+    "Chat window:",
+    excerpt,
+  ].join("\n");
+
+  let jsonText = "{}";
+  try {
+    if (provider === "openai") {
+      const key = process.env.OPENAI_API_KEY; if (!key) return;
+      const client = new OpenAI({ apiKey: key });
+      const r = await client.chat.completions.create({
+        model: modelName,
+        temperature: 0.1,
+        max_tokens: SNAPSHOT_OUTPUT_TOKENS,
+        messages: [
+          { role: "system", content: "Return ONLY valid JSON. No explanations." },
+          { role: "user", content: schemaPrompt },
+        ],
+      });
+      jsonText = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+
+    } else if (provider === "anthropic") {
+      const key = process.env.ANTHROPIC_API_KEY; if (!key) return;
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: modelName,
+          temperature: 0.1,
+          max_tokens: SNAPSHOT_OUTPUT_TOKENS,
+          messages: [{ role: "user", content: [{ type: "text", text: "Return ONLY valid JSON. No explanations.\n\n" + schemaPrompt }] }],
+        }),
+      });
+      const txt = await r.text();
+      const data = safeParseJson(txt);
+      jsonText = (data?.content || [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join("") || "{}";
+
+    } else if (provider === "xai") {
+      const key = process.env.XAI_API_KEY; if (!key) return;
+      jsonText = await callOpenAIMessagesOnce({
+        baseURL: "https://api.x.ai/v1",
+        key,
+        model: modelName,
+        system: "Return ONLY valid JSON. No explanations.",
+        user: schemaPrompt,
+        temperature: 0.1,
+        max_tokens: SNAPSHOT_OUTPUT_TOKENS,
+      });
+
+    } else {
+      // gemini
+      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY; if (!key) return;
+      const genAI = new GoogleGenerativeAI(key);
+      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: "Return ONLY valid JSON. No explanations.\n\n" + schemaPrompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: SNAPSHOT_OUTPUT_TOKENS },
+      });
+      jsonText = result?.response?.text?.() || "{}";
+    }
+  } catch {
+    // swallow & keep minimal
+  }
+
+  const obj = safeParseJson(extractJson(jsonText)) || {};
+  // Normalize & cap
+  const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
+  const topics = cap(obj.topics, 5)
+    .map((x) => ({
+      slug: normalizeSlug(x?.slug ?? x),
+      gloss: String(x?.gloss || "").slice(0, 120),
+    }))
+    .filter((t) => t.slug);
+
+  const snapshot = {
+    created_at: new Date().toISOString(),
+    model: { provider, model: modelName },
+    from_turn,
+    to_turn,
+    topics,
+    key_details: cap(obj.key_details, 5).map((s) => String(s).slice(0, 120)),
+    decisions: cap(obj.decisions, 3).map((s) => String(s).slice(0, 120)),
+    open_questions: cap(obj.open_questions, 3).map((s) => String(s).slice(0, 120)),
+    actions: cap(obj.actions, 5).map((a) => ({
+      text: String(a?.text ?? a).slice(0, 120),
+      owner: a?.owner ? String(a.owner).slice(0, 40) : undefined,
+    })),
+    entities: cap(obj.entities, 8).map((s) => String(s).slice(0, 60)),
+    links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)),
+    confidence: ["low", "med", "high"].includes(obj.confidence) ? obj.confidence : "med",
+  };
+
+  // 3) Save & sync topic counters for command suggestions
+  (session.snapshots ||= []).push(snapshot);
+  for (const t of topics) {
+    session.topicCounts[t.slug] = (session.topicCounts[t.slug] || 0) + 1;
+    maybeSuggestCommand(session, t.slug);
+  }
+}
+
+// small helper to call OAI-compatible with system+user in one go (for Inspector & snapshots)
 async function callOpenAIMessagesOnce({ baseURL, key, model, system, user, max_tokens, temperature }) {
   const res = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
@@ -354,7 +497,7 @@ export async function POST(req) {
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
 
       // primary completion
-      assistantText = await callOpenAICompatible({
+      assistantText = await callOpenAIMCompatible({
         baseURL: "https://api.x.ai/v1",
         key,
         model: modelName, // e.g., "grok-2" / "grok-4"
@@ -363,9 +506,7 @@ export async function POST(req) {
         temperature: 0.4,
       });
 
-      // simple continuation pass if you want parity with OpenAI length handling:
-      // (Cannot inspect finish_reason here; heuristic continuation when answer looks truncated is optional.)
-      // Skipping by default to avoid extra cost.
+      // simple continuation pass optional (skipped)
 
     } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
@@ -474,7 +615,13 @@ export async function POST(req) {
     // 4) update inspector live notes (cheap)
     await updateLiveNotes(s, provider, modelName);
 
-    // 5) return JSON: assistant + inspector
+    // 5) periodic snapshot every 5 user turns
+    const users = userTurnCount(s.turns);
+    if (users > 0 && users % 5 === 0) {
+      await consolidateSnapshot(s, provider, modelName);
+    }
+
+    // 6) return JSON: assistant + inspector
     return new Response(
       JSON.stringify({
         text: assistantText,

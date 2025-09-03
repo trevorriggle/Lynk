@@ -131,6 +131,79 @@ export default function RightPanel({ active = false, activeContext = null }) {
                 </ul>
               </div>
             ) : null}
+
+            {/* Snapshots */}
+            {Array.isArray(inspector.snapshots) && inspector.snapshots.length > 0 && (
+              <div className="pt-2 border-t border-slate-200">
+                <div className="mb-1 text-sm font-semibold text-slate-800">Snapshots</div>
+                <div className="space-y-2">
+                  {inspector.snapshots.slice(-5).reverse().map((s, i) => (
+                    <div key={i} className="rounded-md border border-slate-200 p-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] text-slate-500">
+                          turns {s.from_turn}–{s.to_turn} • {new Date(s.created_at).toLocaleString()}
+                        </div>
+                        {s.confidence && (
+                          <span className="text-[10px] rounded-full border px-1.5 py-0.5 text-slate-500">
+                            {s.confidence}
+                          </span>
+                        )}
+                      </div>
+
+                      {Array.isArray(s.topics) && s.topics.length > 0 && (
+                        <div className="mt-1 text-xs">
+                          <div className="font-medium">Topics</div>
+                          <ul className="list-disc pl-4">
+                            {s.topics.map((t, j) => (
+                              <li key={j}><b>{t.slug}</b>{t.gloss ? ` — ${t.gloss}` : ""}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {Array.isArray(s.key_details) && s.key_details.length > 0 && (
+                        <div className="mt-1 text-xs">
+                          <div className="font-medium">Key details</div>
+                          <ul className="list-disc pl-4">
+                            {s.key_details.map((k, j) => (<li key={j}>{k}</li>))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Optional: show decisions/open questions/actions in a compact way */}
+                      {Array.isArray(s.decisions) && s.decisions.length > 0 && (
+                        <div className="mt-1 text-xs">
+                          <div className="font-medium">Decisions</div>
+                          <ul className="list-disc pl-4">
+                            {s.decisions.map((d, j) => (<li key={j}>{d}</li>))}
+                          </ul>
+                        </div>
+                      )}
+                      {Array.isArray(s.open_questions) && s.open_questions.length > 0 && (
+                        <div className="mt-1 text-xs">
+                          <div className="font-medium">Open questions</div>
+                          <ul className="list-disc pl-4">
+                            {s.open_questions.map((q, j) => (<li key={j}>{q}</li>))}
+                          </ul>
+                        </div>
+                      )}
+                      {Array.isArray(s.actions) && s.actions.length > 0 && (
+                        <div className="mt-1 text-xs">
+                          <div className="font-medium">Actions</div>
+                          <ul className="list-disc pl-4">
+                            {s.actions.map((a, j) => (
+                              <li key={j}>
+                                {a.text}{a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className="mt-2 text-xs leading-5 text-slate-600">
@@ -142,5 +215,3 @@ export default function RightPanel({ active = false, activeContext = null }) {
     </aside>
   );
 }
-
-
