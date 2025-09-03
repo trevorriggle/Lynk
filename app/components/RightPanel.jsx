@@ -2,27 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const DUMMY_SNAPSHOT = {
-  created_at: new Date().toISOString(),
-  from_turn: 1,
-  to_turn: 5,
-  confidence: "med",
-  topics: [
-    { slug: "example-topic", gloss: "one-line gloss of what was discussed" },
-    { slug: "second-topic", gloss: "another compact description" },
-  ],
-  key_details: [
-    "key detail #1 (≤ 12 words)",
-    "key detail #2 (≤ 12 words)",
-    "key detail #3 (≤ 12 words)",
-  ],
-  decisions: ["picked option B for phase 1"],
-  open_questions: ["confirm permit timeline with city"],
-  actions: [{ text: "draft follow-up email", owner: "trevor" }],
-  entities: ["Columbus Zoo", "Zoobezi Bay"],
-  links: ["columbuszoo.org", "press-release.pdf"],
-  model: { provider: "openai", model: "gpt-4o-mini" },
-};
+// build a fresh dummy every time we need one
+function makeDummySnapshot() {
+  return {
+    created_at: new Date().toISOString(),
+    from_turn: 1,
+    to_turn: 5,
+    confidence: "med",
+    topics: [
+      { slug: "example-topic", gloss: "one-line gloss of what was discussed" },
+      { slug: "second-topic", gloss: "another compact description" },
+    ],
+    key_details: [
+      "key detail #1 (≤ 12 words)",
+      "key detail #2 (≤ 12 words)",
+      "key detail #3 (≤ 12 words)",
+    ],
+    decisions: ["picked option B for phase 1"],
+    open_questions: ["confirm permit timeline with city"],
+    actions: [{ text: "draft follow-up email", owner: "trevor" }],
+    entities: ["Columbus Zoo", "Zoobezi Bay"],
+    links: ["columbuszoo.org", "press-release.pdf"],
+    model: { provider: "openai", model: "gpt-4o-mini" },
+  };
+}
 
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
@@ -65,15 +68,15 @@ export default function RightPanel() {
     [inspector]
   );
 
-  // Choose what to render in the PREVIEW card:
-  // If the latest snapshot is empty/minimal, fall back to the dummy preview.
-  const preview = useMemo(() => {
+  // Decide preview: if latest is empty OR no snapshots yet, show a *fresh* dummy
+  const { preview, usingDummy } = useMemo(() => {
     const latest = snapshots.at(-1);
     const tooEmpty =
       !latest ||
       ((Array.isArray(latest.topics) ? latest.topics.length : 0) === 0 &&
         (Array.isArray(latest.key_details) ? latest.key_details.length : 0) === 0);
-    return tooEmpty ? DUMMY_SNAPSHOT : latest;
+    if (tooEmpty) return { preview: makeDummySnapshot(), usingDummy: true };
+    return { preview: latest, usingDummy: false };
   }, [snapshots]);
 
   async function copyPreview() {
@@ -105,34 +108,40 @@ export default function RightPanel() {
           session: <code>{sessionId || "—"}</code>
         </div>
 
-        {/* Compact Snapshots list (pills/rows) */}
-        <div className="mb-1 text-sm font-semibold text-slate-800">Snapshots</div>
-        {snapshots.length === 0 ? (
-          <p className="mt-1 text-xs leading-5 text-slate-600">
-            No snapshots yet. They’ll appear here automatically every few turns.
-          </p>
-        ) : (
-          <div className="mt-2 space-y-1">
-            {snapshots.slice(-8).map((s, i) => (
-              <div
-                key={`${s.created_at}-${s.from_turn}-${s.to_turn}-${i}`}
-                className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600"
-              >
-                <span>
-                  turns {s.from_turn}–{s.to_turn} • {new Date(s.created_at).toLocaleString()}
-                </span>
-                {s.confidence && (
-                  <span className="rounded-full border px-1.5 py-0.5">{s.confidence}</span>
-                )}
+        {/* Snapshots list ONLY when we have a real snapshot */}
+        {!usingDummy && (
+          <>
+            <div className="mb-1 text-sm font-semibold text-slate-800">Snapshots</div>
+            {snapshots.length === 0 ? (
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                No snapshots yet. They’ll appear automatically every few turns.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1">
+                {snapshots.slice(-8).map((s, i) => (
+                  <div
+                    key={`${s.created_at}-${s.from_turn}-${s.to_turn}-${i}`}
+                    className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1.5 text-[11px] text-slate-600"
+                  >
+                    <span>
+                      turns {s.from_turn}–{s.to_turn} • {new Date(s.created_at).toLocaleString()}
+                    </span>
+                    {s.confidence && (
+                      <span className="rounded-full border px-1.5 py-0.5">{s.confidence}</span>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
-        {/* PREVIEW card (expanded) — always shown; has the Copy button */}
+        {/* PREVIEW card — always shown (dummy or real) with Copy */}
         <div className="mt-4 border-t border-slate-200 pt-3">
           <div className="mb-1 flex items-center justify-between">
-            <div className="text-sm font-semibold text-slate-800">Preview</div>
+            <div className="text-sm font-semibold text-slate-800">
+              {usingDummy ? "Preview (waiting for snapshot…)" : "Preview"}
+            </div>
             <button
               onClick={copyPreview}
               className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-50 active:scale-[0.99]"
