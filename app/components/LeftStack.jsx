@@ -26,17 +26,37 @@ function Section({ title, defaultOpen = false, children }) {
   );
 }
 
-function Row({ label, onClick, muted = false, active = false }) {
+function Row({ label, onClick, muted = false, active = false, pill = false }) {
+  // Base
+  let cls =
+    "relative w-full text-left transition outline-none select-none";
+
+  // Size/typography
+  cls += " text-[15px] leading-6";
+
+  if (pill) {
+    // Match the chat input pill
+    // height ≈ input, rounded-full, double-outline vibe
+    cls += " h-[52px] rounded-full px-4"; // adjust to h-[56px] if your input is taller
+    cls += active
+      ? " bg-white text-slate-900 border-2 border-[#176A82] ring-2 ring-[#176A82]/40 shadow-[inset_0_0_0_1px_rgba(23,106,130,0.25)]"
+      : " bg-white/80 text-slate-800 border border-slate-300 hover:bg-white focus-visible:ring-2 focus-visible:ring-[#176A82]/40";
+  } else {
+    // Original card-ish style for non-chat rows
+    cls += " px-3 py-2.5 rounded-lg ring-1 ring-black/5";
+    cls += active
+      ? " bg-white border font-semibold shadow outline outline-2 outline-[#C7EBEA]/70"
+      : " !hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50 hover:!border-[#C7EBEA]/60";
+  }
+
+  if (muted) cls += " text-slate-500 italic";
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "w-full text-left px-3 py-2.5 rounded-lg ring-1 ring-black/5",
-        "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50 hover:!border-[#C7EBEA]/60",
-        muted ? "text-slate-500 italic" : "text-slate-800",
-        active ? "bg-white shadow border" : "",
-      ].join(" ")}
+      aria-current={active ? "true" : undefined}
+      className={cls}
       title={label}
     >
       {label}
