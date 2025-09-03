@@ -1,5 +1,7 @@
+// app/components/TopBar.jsx
 "use client";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 function ChevronDown({ className = "h-4 w-4" }) {
@@ -26,6 +28,28 @@ export default function TopBar() {
     selectedModel: s.selectedModel,
   }));
 
+  // Upload dropdown state
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const uploadWrapRef = useRef(null);
+
+  // Close upload menu on outside click
+  useEffect(() => {
+    const onDocDown = (e) => {
+      if (!uploadWrapRef.current) return;
+      if (!uploadWrapRef.current.contains(e.target)) setUploadOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, []);
+
+  // Fire a simple window event for wiring elsewhere
+  function openUpload(kind) {
+    try {
+      window.dispatchEvent(new CustomEvent("upload:open", { detail: { type: kind } }));
+    } catch {}
+    setUploadOpen(false);
+  }
+
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
@@ -33,7 +57,12 @@ export default function TopBar() {
           {/* LEFT: logo + workspace */}
           <div className="flex items-center gap-4 shrink-0">
             <Link href="/" className="flex items-center">
-              <img src="/lynk-logo.png" alt="Lynk" className={`${logoSizeClass} w-auto select-none`} draggable="false" />
+              <img
+                src="/lynk-logo.png"
+                alt="Lynk"
+                className={`${logoSizeClass} w-auto select-none`}
+                draggable="false"
+              />
             </Link>
 
             <div className="hidden items-center gap-2 sm:flex text-gray-600">
@@ -68,16 +97,56 @@ export default function TopBar() {
           </div>
 
           {/* RIGHT: actions */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="relative flex items-center gap-3 shrink-0">
             <button
-              onClick={() => createSession(selectedModel)} // ✅ use the pill’s selection
+              onClick={() => createSession(selectedModel)}
               className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
             >
               New Chat
             </button>
-            <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-              Upload
-            </button>
+
+            {/* Upload dropdown */}
+            <div ref={uploadWrapRef} className="relative">
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={uploadOpen}
+                onClick={() => setUploadOpen((v) => !v)}
+                className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 inline-flex items-center gap-1"
+                title="Upload"
+              >
+                Upload
+                <span className={`transition-transform ${uploadOpen ? "rotate-90" : ""}`} aria-hidden>
+                  ▸
+                </span>
+              </button>
+
+              {uploadOpen && (
+                <div
+                  role="listbox"
+                  className="absolute right-0 mt-2 w-44 rounded-2xl overflow-hidden shadow-xl !bg-[#176A82] z-[101]"
+                >
+                  <button
+                    role="option"
+                    type="button"
+                    onClick={() => openUpload("context")}
+                    className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10 font-semibold"
+                    style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
+                  >
+                    Context File
+                  </button>
+                  <button
+                    role="option"
+                    type="button"
+                    onClick={() => openUpload("reference")}
+                    className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10 font-semibold"
+                  >
+                    Reference
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
               Settings
             </button>
