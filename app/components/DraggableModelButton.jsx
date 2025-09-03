@@ -119,17 +119,10 @@ export default function DraggableModelButton({ model, setModel }) {
         onDragStart={(e) => e.preventDefault()}
         title={`${selected.label} — ${selected.provider}`}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="flex items-center justify-center rounded-full bg-white flex-none" style={{ width: 36, height: 36 }}>
-            <Image
-              src={selected.icon || "/OpenAI-Logo.png"}
-              alt={selected.provider}
-              width={28}
-              height={28}
-              className="object-contain"
-              priority
-            />
-          </span>
+       <span className="min-w-0 truncate text-base leading-tight font-heading font-semibold tracking-normal">
+  {selected.label}
+</span>
+
           <span className="text-base leading-tight font-heading font-semibold tracking-normal truncate">
             {selected.label}
           </span>
