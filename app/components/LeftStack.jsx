@@ -27,27 +27,39 @@ function Section({ title, defaultOpen = false, children }) {
 }
 
 function Row({ label, onClick, muted = false, active = false, pill = false }) {
-  // Base
-  let cls =
-    "relative w-full text-left transition outline-none select-none";
+  // EXACTLY match your chat input field visual
+  // input classes: rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 focus:ring-2 focus:ring-[#176A82]
+  const baseInput =
+    "w-full rounded-full bg-white px-4 py-3 text-base leading-6 text-slate-800 " +
+    "transition outline-none select-none";
 
-  // Size/typography
-  cls += " text-[15px] leading-6";
+  const inactive =
+    "border border-slate-300 hover:border-[#176A82] hover:ring-1 hover:ring-[#176A82]/30";
 
-  if (pill) {
-    // Match the chat input pill
-    // height ≈ input, rounded-full, double-outline vibe
-    cls += " h-[52px] rounded-full px-4"; // adjust to h-[56px] if your input is taller
-    cls += active
-      ? " bg-white text-slate-900 border-2 border-[#176A82] ring-2 ring-[#176A82]/40 shadow-[inset_0_0_0_1px_rgba(23,106,130,0.25)]"
-      : " bg-white/80 text-slate-800 border border-slate-300 hover:bg-white focus-visible:ring-2 focus-visible:ring-[#176A82]/40";
-  } else {
-    // Original card-ish style for non-chat rows
-    cls += " px-3 py-2.5 rounded-lg ring-1 ring-black/5";
-    cls += active
-      ? " bg-white border font-semibold shadow outline outline-2 outline-[#C7EBEA]/70"
-      : " !hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50 hover:!border-[#C7EBEA]/60";
-  }
+  const activeCls =
+    "border-2 border-[#176A82] ring-2 ring-[#176A82]/40 " +
+    "shadow-[inset_0_0_0_1px_rgba(23,106,130,0.20)] font-medium";
+
+  const nonPill =
+    "px-3 py-2.5 rounded-lg ring-1 ring-black/5 hover:bg-white/70";
+
+  const cls = pill
+    ? [baseInput, active ? activeCls : inactive, muted ? "text-slate-500 italic" : ""].join(" ")
+    : [nonPill, active ? "bg-white border font-semibold shadow" : "", muted ? "text-slate-500 italic" : ""].join(" ");
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "true" : undefined}
+      className={cls}
+      title={label}
+    >
+      {label}
+    </button>
+  );
+}
+
 
   if (muted) cls += " text-slate-500 italic";
 
@@ -101,25 +113,21 @@ export default function LeftStack({ onActivate }) {
 
       {/* REAL Recent Chats */}
       <Section title="Recent Chats" defaultOpen>
-        {recent.length === 0 ? (
-          <>
-            <Row label="(no chats yet)" muted />
-            <Row
-              label="Start a new chat"
-              onClick={() => createSession({ label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" })}
-            />
-          </>
-        ) : (
-          recent.map((s) => (
-            <Row
-              key={s.id}
-              label={s.title || "New chat"}
-              active={s.id === activeId}
-              onClick={() => selectSession(s.id)}
-            />
-          ))
-        )}
-      </Section>
+  {recent.length === 0 ? (
+    <Row label="(no chats yet)" muted pill />
+  ) : (
+    recent.map((s) => (
+      <Row
+        key={s.id}
+        label={s.title || "New chat"}
+        active={s.id === activeId}
+        onClick={() => selectSession(s.id)}
+        pill
+      />
+    ))
+  )}
+</Section>
+
 
       <div className="mt-4 text-sm text-slate-500 px-2">
         <span className="opacity-70">Lynk account</span>

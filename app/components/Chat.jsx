@@ -4,24 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function Chat({ selectedModel }) {
-  // Your memory-aware endpoint
+  // Memory-aware endpoint
   const endpoint = "/api/session";
-  const label = selectedModel?.label || "OpenAI";
+  const fallbackLabel = selectedModel?.label || "OpenAI";
 
-  const { activeId, sessions, createSession, appendToActive } = useSessionStore((s) => s);
+  const { activeId, sessions, appendToActive } = useSessionStore((s) => s);
 
-  // Guarantee there is an active session
-  useEffect(() => {
-    if (!activeId) {
-      createSession(
-        selectedModel || { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" }
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  // Derive the thread/model from the active session
+  const thread = useMemo(
+    () => (activeId ? sessions[activeId]?.messages || [] : []),
+    [activeId, sessions]
+  );
 
-  // Derive the thread from the active session
-  const thread = useMemo(() => (activeId ? sessions[activeId]?.messages || [] : []), [activeId, sessions]);
   const sessionModel = useMemo(
     () => (activeId ? sessions[activeId]?.model : selectedModel),
     [activeId, sessions, selectedModel]
@@ -35,7 +29,16 @@ export default function Chat({ selectedModel }) {
 
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.log("[Chat] Using model:", sessionModel?.label, sessionModel?.provider, sessionModel?.model, "→", endpoint, "sessionId:", activeId);
+    console.log(
+      "[Chat] Using model:",
+      sessionModel?.label,
+      sessionModel?.provider,
+      sessionModel?.model,
+      "→",
+      endpoint,
+      "sessionId:",
+      activeId
+    );
   }, [endpoint, sessionModel, activeId]);
 
   // Always scroll to newest message
@@ -59,8 +62,8 @@ export default function Chat({ selectedModel }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: activeId, // server uses this to keep memory
-          message: text,       // send only the latest turn; server already has memory
+          sessionId: activeId, // server keeps memory keyed by this
+          message: text,       // send only the latest turn
           model: {
             label: sessionModel?.label,
             provider: sessionModel?.provider,
@@ -70,17 +73,19 @@ export default function Chat({ selectedModel }) {
       });
 
       let assistantText = "";
-
       const ct = (res.headers.get("content-type") || "").toLowerCase();
+
       if (res.ok && ct.includes("application/json")) {
         const data = await res.json().catch(() => ({}));
         assistantText = data?.text || "Okay.";
         if (data?.inspector && typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+          window.dispatchEvent(
+            new CustomEvent("inspector:update", { detail: data.inspector })
+          );
         }
         appendToActive({ role: "assistant", content: assistantText });
       } else if (res.ok && res.body && ct.includes("text")) {
-        // streaming text fallback
+        // streaming fallback
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -93,9 +98,11 @@ export default function Chat({ selectedModel }) {
         assistantText = await res.text();
         appendToActive({ role: "assistant", content: assistantText || " " });
       } else {
-        let err = `Sorry, ${label} endpoint returned ${res.status}.`;
+        let err = `Sorry, ${sessionModel?.label || fallbackLabel} endpoint returned ${res.status}.`;
         try {
-          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
+          err = ct.includes("application/json")
+            ? JSON.stringify(await res.json())
+            : await res.text();
         } catch {}
         appendToActive({ role: "assistant", content: `(error) ${err}` });
       }
@@ -107,19 +114,66 @@ export default function Chat({ selectedModel }) {
     }
   }
 
+  // ========= EMPTY STATE (no active chat yet) =========
+  if (!activeId) {
+    return (
+      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
+        {/* Status line */}
+        <div className="px-6 pt-2 text-xs text-slate-500">
+          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code>
+        </div>
+
+        {/* Center message */}
+        <div className="min-h-0 flex items-center justify-center px-6">
+          <div className="text-center text-slate-500">
+            <div className="text-base font-semibold mb-1">No chats yet</div>
+            <div className="text-sm">
+              Click <span className="font-semibold">New Chat</span> to get started.
+            </div>
+          </div>
+        </div>
+
+        {/* Disabled input look-alike */}
+        <div className="border-t bg-white/95 backdrop-blur px-4 py-3">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+            <input
+              disabled
+              placeholder={`Ask anything… (${fallbackLabel})`}
+              className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 opacity-50"
+            />
+            <button
+              disabled
+              className="rounded-full px-5 py-3 font-medium text-white opacity-50"
+              style={{ backgroundColor: "#176A82" }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // ====================================================
+
   return (
-    <div className="grid h-full min-h-0 grid-rows-[1fr_auto] pb-4">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
       {/* Status line */}
       <div className="px-6 pt-2 text-xs text-slate-500">
-        Using: <b>{sessionModel?.label || label}</b> → <code>{endpoint}</code>
+        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code>
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
+      <div
+        ref={scrollRef}
+        className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4"
+      >
         {thread.map((m) => {
           const isUser = m.role === "user";
           return (
-            <div key={m.id} className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}>
+            <div
+              key={m.id}
+              className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}
+            >
               {m.content}
             </div>
           );
@@ -134,7 +188,7 @@ export default function Chat({ selectedModel }) {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`Ask anything… (${sessionModel?.label || label})`}
+            placeholder={`Ask anything… (${sessionModel?.label || fallbackLabel})`}
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
           />
           <button
