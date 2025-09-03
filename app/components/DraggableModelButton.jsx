@@ -1,53 +1,24 @@
-// app/components/DraggableModelButton.jsx
 "use client";
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSessionStore } from "../hooks/useSessionStore";
 
-/**
- * Model choices shown in the floating pill.
- * All route through /api/session so memory/inspector stay consistent.
- */
+/** Model choices for the floating pill */
 const MODELS = [
-  {
-    label: "Claude",
-    provider: "anthropic",
-    model: "claude-3-haiku-20240307",
-    endpoint: "/api/session",
-    icon: "/anthropic-logo.png",
-  },
-  {
-    label: "OpenAI",
-    provider: "openai",
-    model: "gpt-4o-mini",
-    endpoint: "/api/session",
-    icon: "/OpenAI-Logo.png",
-  },
-  {
-    label: "Gemini",
-    provider: "gemini",
-    model: "gemini-1.5-flash",
-    endpoint: "/api/session",
-    icon: "/google-logo.png",
-  },
-   {
-     label: "Grok",
-     provider: "xai",
-     model: "grok-2",         // or "grok-4" if your key has access
-     endpoint: "/api/session",
-     icon: "/xai-logo.png",   // you said you added this to /public
-   },
-
+  { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307", endpoint: "/api/session", icon: "/anthropic-logo.png" },
+  { label: "OpenAI", provider: "openai", model: "gpt-4o-mini", endpoint: "/api/session", icon: "/OpenAI-Logo.png" },
+  { label: "Gemini", provider: "gemini", model: "gemini-1.5-flash", endpoint: "/api/session", icon: "/google-logo.png" },
+  { label: "Grok",   provider: "xai",     model: "grok-2",               endpoint: "/api/session", icon: "/xai-logo.png" },
 ];
 
-const STORAGE_KEY = "lynk_pill_pos_v10"; // bump so old cache doesn't clash
+const STORAGE_KEY = "lynk_pill_pos_v10";
 const CLICK_DRAG_THRESHOLD = 6;
 const PILL_W = 192;
 const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  // accept either string or object; default to Claude
   const initial = useMemo(
     () => (typeof model === "string" ? model : model?.label) || "Claude",
     [model]
@@ -58,16 +29,19 @@ export default function DraggableModelButton({ model, setModel }) {
   const [dragging, setDragging] = useState(false);
   const [pos, setPos] = useState({ x: 24, y: 160 });
 
+  const setSelectedModel = useSessionStore((s) => s.setSelectedModel);
+
   const wrapRef = useRef(null);
   const press = useRef({ x: 0, y: 0, moved: 0, offX: 0, offY: 0 });
 
-  // Lift selection: parent gets { label, provider, model, endpoint, icon }
+  // Lift selection to parent AND store (store also updates active session's model)
   useEffect(() => {
     const selected = MODELS.find((m) => m.label === current) || MODELS[0];
     setModel?.(selected);
-  }, [current, setModel]);
+    setSelectedModel(selected);
+  }, [current, setModel, setSelectedModel]);
 
-  // Load/save pos
+  // Load/save pill position
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -96,10 +70,7 @@ export default function DraggableModelButton({ model, setModel }) {
     const h = el?.offsetHeight ?? PILL_H;
     const maxX = Math.max(EDGE, (window.innerWidth || 0) - w - EDGE);
     const maxY = Math.max(EDGE, (window.innerHeight || 0) - h - EDGE);
-    return {
-      x: Math.min(Math.max(EDGE, nx), maxX),
-      y: Math.min(Math.max(EDGE, ny), maxY),
-    };
+    return { x: Math.min(Math.max(EDGE, nx), maxX), y: Math.min(Math.max(EDGE, ny), maxY) };
   };
 
   function onPointerDown(e) {
@@ -115,7 +86,6 @@ export default function DraggableModelButton({ model, setModel }) {
     setDragging(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
-
   function onPointerMove(e) {
     if (!dragging) return;
     const dx = e.clientX - press.current.x;
@@ -123,7 +93,6 @@ export default function DraggableModelButton({ model, setModel }) {
     press.current.moved = Math.hypot(dx, dy);
     setPos(clamp(e.clientX - press.current.offX, e.clientY - press.current.offY));
   }
-
   function onPointerUp(e) {
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -136,11 +105,7 @@ export default function DraggableModelButton({ model, setModel }) {
   const selected = MODELS.find((m) => m.label === current) || MODELS[0];
 
   return (
-    <div
-      ref={wrapRef}
-      className="fixed z-[10001] select-none"
-      style={{ left: pos.x, top: pos.y }}
-    >
+    <div ref={wrapRef} className="fixed z-[10001] select-none" style={{ left: pos.x, top: pos.y }}>
       {/* Pill */}
       <div
         role="button"
@@ -151,13 +116,11 @@ export default function DraggableModelButton({ model, setModel }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDragStart={(e) => e.preventDefault()}
         title={`${selected.label} — ${selected.provider}`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span
-            className="flex items-center justify-center rounded-full bg-white flex-none"
-            style={{ width: 36, height: 36 }}
-          >
+          <span className="flex items-center justify-center rounded-full bg-white flex-none" style={{ width: 36, height: 36 }}>
             <Image
               src={selected.icon || "/OpenAI-Logo.png"}
               alt={selected.provider}
@@ -171,20 +134,14 @@ export default function DraggableModelButton({ model, setModel }) {
             {selected.label}
           </span>
         </span>
-        <span
-          className={`transition-transform select-none flex-none ${open ? "rotate-90" : ""}`}
-          aria-hidden
-        >
+        <span className={`transition-transform select-none flex-none ${open ? "rotate-90" : ""}`} aria-hidden>
           ▸
         </span>
       </div>
 
-      {/* Dropdown — simple style like your “desired” screenshot */}
+      {/* Dropdown */}
       {open && (
-        <div
-          role="listbox"
-          className="mt-2 w-[200px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]"
-        >
+        <div role="listbox" className="mt-2 w-[220px] rounded-2xl overflow-hidden shadow-xl !bg-[#176a82]">
           {MODELS.map((m, i) => {
             const isActive = m.label === selected.label;
             return (
@@ -199,14 +156,14 @@ export default function DraggableModelButton({ model, setModel }) {
                 }}
                 className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10"
                 style={{
-                  fontWeight: isActive ? 800 : 700, // bold labels like the simple version
-                  borderBottom:
-                    i < MODELS.length - 1
-                      ? "1px dotted rgba(201,238,237,0.85)"
-                      : "none",
+                  fontWeight: isActive ? 800 : 700,
+                  borderBottom: i < MODELS.length - 1 ? "1px dotted rgba(201,238,237,0.85)" : "none",
                 }}
               >
-                {m.label}
+                <span className="flex items-center gap-2">
+                  <Image src={m.icon || "/OpenAI-Logo.png"} alt={m.provider} width={20} height={20} className="object-contain" />
+                  <span>{m.label}</span>
+                </span>
               </button>
             );
           })}

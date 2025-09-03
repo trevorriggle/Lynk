@@ -21,7 +21,10 @@ function Magnifier({ className = "h-4 w-4" }) {
 
 export default function TopBar() {
   const logoSizeClass = "h-12";
-  const createSession = useSessionStore((s) => s.createSession);
+  const { createSession, selectedModel } = useSessionStore((s) => ({
+    createSession: s.createSession,
+    selectedModel: s.selectedModel,
+  }));
 
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
@@ -30,12 +33,7 @@ export default function TopBar() {
           {/* LEFT: logo + workspace */}
           <div className="flex items-center gap-4 shrink-0">
             <Link href="/" className="flex items-center">
-              <img
-                src="/lynk-logo.png"
-                alt="Lynk"
-                className={`${logoSizeClass} w-auto select-none`}
-                draggable="false"
-              />
+              <img src="/lynk-logo.png" alt="Lynk" className={`${logoSizeClass} w-auto select-none`} draggable="false" />
             </Link>
 
             <div className="hidden items-center gap-2 sm:flex text-gray-600">
@@ -72,13 +70,7 @@ export default function TopBar() {
           {/* RIGHT: actions */}
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={() =>
-                createSession({
-                  label: "Claude",
-                  provider: "anthropic",
-                  model: "claude-3-haiku-20240307",
-                })
-              }
+              onClick={() => createSession(selectedModel)} // ✅ use the pill’s selection
               className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
             >
               New Chat
@@ -90,7 +82,7 @@ export default function TopBar() {
               Settings
             </button>
 
-            {/* AC button (still links to /account) */}
+            {/* AC button */}
             <Link href="/account">
               <div
                 className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
@@ -106,5 +98,3 @@ export default function TopBar() {
     </header>
   );
 }
-
-
