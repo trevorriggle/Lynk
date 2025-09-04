@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -8,35 +7,25 @@ export default function Callback() {
   const [status, setStatus] = useState("Validating link…");
 
   useEffect(() => {
-    async function run() {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const access_token = hash.get("access_token");
+    const refresh_token = hash.get("refresh_token");
+    (async () => {
       try {
-        const hash = new URLSearchParams(window.location.hash.slice(1));
-        const access_token = hash.get("access_token");
-        if (!access_token) {
-          setStatus("Invalid link. Please request a new one.");
-          return;
-        }
+        if (!access_token) throw new Error("Missing token");
         const r = await fetch("/api/auth/finish", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ access_token }),
+          body: JSON.stringify({ access_token, refresh_token }),
         });
-        if (!r.ok) {
-          setStatus("Sign-in failed. Try again.");
-          return;
-        }
+        if (!r.ok) throw new Error("Sign-in failed");
         setStatus("Signed in. Redirecting…");
         setTimeout(() => router.replace("/chat"), 600);
-      } catch {
-        setStatus("Unexpected error.");
+      } catch (e) {
+        setStatus("Invalid or expired link. Please request a new one.");
       }
-    }
-    run();
+    })();
   }, [router]);
 
-  return (
-    <main className="min-h-screen flex items-center justify-center">
-      <p className="text-slate-700">{status}</p>
-    </main>
-  );
+  return <main className="min-h-screen grid place-items-center"><p>{status}</p></main>;
 }

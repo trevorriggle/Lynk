@@ -3,12 +3,20 @@ export const runtime = "nodejs";
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// REST helpers
+function setCookieHeaders({ access_token, refresh_token, maxAgeSec = 60 * 60 * 12 }) {
+  const base = `Path=/; SameSite=Lax; Secure; HttpOnly; Max-Age=${maxAgeSec}`;
+  return [
+    `sb-access-token=${access_token}; ${base}`,
+    `sb-refresh-token=${refresh_token}; ${base}`
+  ];
+}
+
 async function supaGET(path, headers = {}) {
   const r = await fetch(`${SUPA_URL}${path}`, { headers });
   if (!r.ok) throw new Error(await r.text().catch(() => String(r.status)));
   return r.json();
 }
+
 async function supaUpsert(table, row, onConflictCol) {
   const params = onConflictCol ? `?on_conflict=${onConflictCol}` : "";
   const r = await fetch(`${SUPA_URL}/rest/v1/${table}${params}`, {
@@ -26,24 +34,21 @@ async function supaUpsert(table, row, onConflictCol) {
 
 export async function POST(req) {
   try {
-    const { access_token } = await req.json();
+    const { access_token, refresh_token } = await req.json();
     if (!access_token) return new Response("no token", { status: 400 });
 
-    // 1) Get the user info from Supabase Auth
+    // 1) Lookup user via auth
     const user = await supaGET(`/auth/v1/user`, {
-      apikey: SERVICE,                 // we can call with service
+      apikey: SERVICE,
       Authorization: `Bearer ${access_token}`,
     });
-
-    const userId = user?.id;
-    const email = user?.email || null;
+    const userId = user?.id, email = user?.email || null;
     if (!userId) return new Response("bad token", { status: 401 });
 
-    // 2) Upsert profile (id matches auth.users.id)
+    // 2) Ensure profile
     await supaUpsert("profiles", { id: userId, email }, "id");
 
-    // 3) Ensure a default project exists
-    // check if any project exists for this user
+    // 3) Ensure default project
     const pr = await supaGET(
       `/rest/v1/projects?user_id=eq.${userId}&select=id&limit=1`,
       { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` }
@@ -61,10 +66,15 @@ export async function POST(req) {
       });
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    // 4) Set httpOnly cookies for session
+    const headers = new Headers({ "content-type": "application/json" });
+    if (access_token && refresh_token) {
+      const cookies = setCookieHeaders({ access_token, refresh_token });
+      headers.append("Set-Cookie", cookies[0]);
+      headers.append("Set-Cookie", cookies[1]);
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (e) {
     return new Response(`finish error: ${e.message}`, { status: 500 });
   }
