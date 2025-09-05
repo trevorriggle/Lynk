@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-function setCookieHeaders({ access_token, refresh_token, maxAgeSec = 60 * 60 * 12 }) {
+function setCookieHeaders({ access_token, refresh_token, maxAgeSec = 60 * 60 * 24 * 7 }) {
   const base = `Path=/; SameSite=Lax; Secure; HttpOnly; Max-Age=${maxAgeSec}`;
   return [
     `sb-access-token=${access_token}; ${base}`,
@@ -35,15 +35,27 @@ async function supaUpsert(table, row, onConflictCol) {
 export async function POST(req) {
   try {
     const { access_token, refresh_token } = await req.json();
-    if (!access_token) return new Response("no token", { status: 400 });
+    if (!access_token) {
+      return new Response(JSON.stringify({ error: "no token" }), { 
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+    }
 
     // 1) Lookup user via auth
     const user = await supaGET(`/auth/v1/user`, {
       apikey: SERVICE,
       Authorization: `Bearer ${access_token}`,
     });
-    const userId = user?.id, email = user?.email || null;
-    if (!userId) return new Response("bad token", { status: 401 });
+    const userId = user?.id;
+    const email = user?.email || null;
+    
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "bad token" }), { 
+        status: 401,
+        headers: { "content-type": "application/json" }
+      });
+    }
 
     // 2) Ensure profile
     await supaUpsert("profiles", { id: userId, email }, "id");
@@ -66,7 +78,7 @@ export async function POST(req) {
       });
     }
 
-    // 4) Set httpOnly cookies for session
+    // 4) Set httpOnly cookies for session - THIS IS THE KEY FIX
     const headers = new Headers({ "content-type": "application/json" });
     if (access_token && refresh_token) {
       const cookies = setCookieHeaders({ access_token, refresh_token });
@@ -74,8 +86,15 @@ export async function POST(req) {
       headers.append("Set-Cookie", cookies[1]);
     }
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+    return new Response(JSON.stringify({ ok: true, userId, email }), { 
+      status: 200, 
+      headers 
+    });
   } catch (e) {
-    return new Response(`finish error: ${e.message}`, { status: 500 });
+    console.error("Auth finish error:", e);
+    return new Response(JSON.stringify({ error: `finish error: ${e.message}` }), { 
+      status: 500,
+      headers: { "content-type": "application/json" }
+    });
   }
 }

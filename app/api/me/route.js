@@ -1,44 +1,74 @@
 export const runtime = "nodejs";
 
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// tiny cookie parser
-function parseCookie(h = "") {
-  const m = {};
-  h.split(/; */).forEach(p => {
-    const [k, ...v] = p.split("=");
-    if (!k || !v) return;
-    m[k.trim()] = decodeURIComponent(v.join("="));
+// Improved cookie parser
+function parseCookie(cookieHeader = "") {
+  const cookies = {};
+  cookieHeader.split(/; */).forEach(part => {
+    const [key, ...values] = part.split("=");
+    if (!key || values.length === 0) return;
+    cookies[key.trim()] = decodeURIComponent(values.join("="));
   });
-  return m;
+  return cookies;
 }
 
 export async function GET(req) {
   try {
-    // 1) read auth cookie set by /api/auth/finish
+    // 1) Read auth cookies set by /api/auth/finish
     const cookies = parseCookie(req.headers.get("cookie") || "");
     const access_token = cookies["sb-access-token"];
-    if (!access_token) return new Response("unauthorized", { status: 401 });
+    
+    if (!access_token) {
+      return new Response("unauthorized", { status: 401 });
+    }
 
-    // 2) who am I?
-    const u = await fetch(`${SUPA_URL}/auth/v1/user`, {
-      headers: { apikey: SERVICE, Authorization: `Bearer ${access_token}` },
+    // 2) Verify the token with Supabase and get user info
+    const userResponse = await fetch(`${SUPA_URL}/auth/v1/user`, {
+      headers: { 
+        apikey: SERVICE, 
+        Authorization: `Bearer ${access_token}` 
+      },
     });
-    if (!u.ok) return new Response("unauthorized", { status: 401 });
-    const user = await u.json();
+    
+    if (!userResponse.ok) {
+      return new Response("unauthorized", { status: 401 });
+    }
+    
+    const user = await userResponse.json();
     const userId = user?.id;
+    const userEmail = user?.email;
 
-    // 3) get (first) project for this user
-    const pr = await fetch(
+    if (!userId) {
+      return new Response("unauthorized", { status: 401 });
+    }
+
+    // 3) Get user's project info
+    const projectResponse = await fetch(
       `${SUPA_URL}/rest/v1/projects?user_id=eq.${userId}&select=id,name&order=created_at.asc&limit=1`,
-      { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } }
+      { 
+        headers: { 
+          apikey: SERVICE, 
+          Authorization: `Bearer ${SERVICE}` 
+        } 
+      }
     );
-    const rows = pr.ok ? await pr.json() : [];
-    const project = rows?.[0] || null;
+    
+    const projects = projectResponse.ok ? await projectResponse.json() : [];
+    const project = projects?.[0] || null;
 
-    return Response.json({ ok: true, userId, projectId: project?.id || null, project });
+    return Response.json({ 
+      ok: true, 
+      userId, 
+      projectId: project?.id || null, 
+      project: {
+        ...project,
+        email: userEmail
+      }
+    });
   } catch (e) {
+    console.error("Me endpoint error:", e);
     return new Response(`me error: ${e.message}`, { status: 500 });
   }
 }
