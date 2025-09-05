@@ -11,11 +11,13 @@ export default function Chat({ selectedModel }) {
   const fallbackLabel = selectedModel?.label || "OpenAI";
   const { activeId, sessions, appendToActive, guestMessageCount } = useSessionStore((s) => s);
 
-  // ======== identity from /api/me ========
-  const [identity, setIdentity] = useState({
-    ready: false,
+  // ======== IMPROVED: Better auth state management ========
+  const [authState, setAuthState] = useState({
+    loading: true,
+    authenticated: false,
     userId: null,
     projectId: null,
+    userEmail: null,
     error: null,
   });
 
@@ -23,27 +25,88 @@ export default function Chat({ selectedModel }) {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(meEndpoint, { cache: "no-store" });
+        const r = await fetch(meEndpoint, { 
+          cache: "no-store",
+          credentials: "include", // Important for cookies
+        });
         if (cancelled) return;
+        
         if (r.status === 401) {
-          setIdentity({ ready: true, userId: null, projectId: null, error: "unauthorized" });
+          // Clearly unauthorized - user is a guest
+          setAuthState({ 
+            loading: false, 
+            authenticated: false, 
+            userId: null, 
+            projectId: null, 
+            userEmail: null,
+            error: "guest" 
+          });
           return;
         }
-        if (!r.ok) throw new Error(await r.text().catch(() => String(r.status)));
-        const j = await r.json();
-        setIdentity({
-          ready: true,
-          userId: j?.userId || null,
-          projectId: j?.projectId || null,
-          error: null,
-        });
+        
+        if (!r.ok) {
+          // Server error - treat as guest but log the issue
+          console.warn("Auth check failed with status:", r.status);
+          setAuthState({ 
+            loading: false, 
+            authenticated: false, 
+            userId: null, 
+            projectId: null, 
+            userEmail: null,
+            error: "server_error" 
+          });
+          return;
+        }
+
+        const data = await r.json();
+        if (data?.userId) {
+          // Successfully authenticated
+          setAuthState({
+            loading: false,
+            authenticated: true,
+            userId: data.userId,
+            projectId: data.projectId || null,
+            userEmail: data.project?.email || null,
+            error: null,
+          });
+        } else {
+          // Invalid response format - treat as guest
+          setAuthState({ 
+            loading: false, 
+            authenticated: false, 
+            userId: null, 
+            projectId: null, 
+            userEmail: null,
+            error: "invalid_response" 
+          });
+        }
       } catch (e) {
-        setIdentity({ ready: true, userId: null, projectId: null, error: e?.message || "error" });
+        if (cancelled) return;
+        // Network error - treat as guest
+        console.warn("Auth check network error:", e.message);
+        setAuthState({ 
+          loading: false, 
+          authenticated: false, 
+          userId: null, 
+          projectId: null, 
+          userEmail: null,
+          error: "network_error" 
+        });
       }
     })();
     return () => { cancelled = true; };
   }, []);
-  // =======================================
+
+  // ======== IMPROVED: Different message limits based on auth status ========
+  const getMessageLimit = () => {
+    if (authState.authenticated) {
+      return 20; // Authenticated users get 20 messages
+    }
+    return 10; // Guests get 10 messages
+  };
+
+  const hasHitLimit = !authState.authenticated && guestMessageCount >= getMessageLimit();
+  const currentLimit = getMessageLimit();
 
   // Derive the thread/model from the active session
   const thread = useMemo(
@@ -62,12 +125,7 @@ export default function Chat({ selectedModel }) {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
-  // NEW: Check if user has hit the 5-message limit
-  const isAuthenticated = identity.ready && !identity.error;
-  const hasHitLimit = !isAuthenticated && guestMessageCount >= 10;
-
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.log(
       "[Chat] Using model:",
       sessionModel?.label,
@@ -77,12 +135,12 @@ export default function Chat({ selectedModel }) {
       endpoint,
       "sessionId:",
       activeId,
-      "projectId:",
-      identity.projectId,
-      "guestMessages:",
-      guestMessageCount
+      "auth:",
+      authState.authenticated ? "authenticated" : "guest",
+      "messages:",
+      `${guestMessageCount}/${currentLimit}`
     );
-  }, [endpoint, sessionModel, activeId, identity.projectId, guestMessageCount]);
+  }, [endpoint, sessionModel, activeId, authState, guestMessageCount, currentLimit]);
 
   // Always scroll to newest message
   useEffect(() => {
@@ -95,21 +153,16 @@ export default function Chat({ selectedModel }) {
     const text = input.trim();
     if (!text || sending || !activeId) return;
 
-    // If identity not ready, block send gracefully
-    if (!identity.ready) return;
+    // Wait for auth state to be determined
+    if (authState.loading) return;
 
-    // NEW: Block if guest user has hit 5-message limit
+    // Block if guest user has hit limit
     if (hasHitLimit) {
       appendToActive({
         role: "assistant",
-        content: "You've reached the 5-message limit. Please create an account to continue chatting! Click the 'AC' button in the top right to sign up.",
+        content: `You've reached the ${currentLimit}-message limit for guest users. Please create an account to get ${authState.authenticated ? 'unlimited' : '20'} messages! Click the "Sign In/Create Account" button in the top right.`,
       });
       return;
-    }
-
-    // If unauthorized but under limit, allow sending
-    if (identity.error === "unauthorized" && guestMessageCount < 5) {
-      // Continue with normal flow
     }
 
     // 1) optimistic user message
@@ -121,10 +174,11 @@ export default function Chat({ selectedModel }) {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include", // Important for auth cookies
         body: JSON.stringify({
-          sessionId: activeId, // server keeps memory keyed by this
-          message: text,       // send only the latest turn
-          projectId: identity.projectId, // NEW: wire project to server
+          sessionId: activeId,
+          message: text,
+          projectId: authState.projectId,
           model: {
             label: sessionModel?.label,
             provider: sessionModel?.provider,
@@ -175,24 +229,22 @@ export default function Chat({ selectedModel }) {
     }
   }
 
-  // ========= REMOVED: Don't hide chat when limit reached =========
+  // ======== IMPROVED: Status line shows auth state clearly ========
+  const getStatusText = () => {
+    if (authState.loading) return "• loading identity…";
+    if (authState.authenticated) {
+      return `• authenticated • project: ${authState.projectId || "—"}`;
+    }
+    return `• guest mode (${guestMessageCount}/${currentLimit} messages)`;
+  };
 
-  // ========= EMPTY STATE (no active chat yet) =========
+  // ======== EMPTY STATE (no active chat yet) =========
   if (!activeId) {
     return (
       <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
         {/* Status line */}
         <div className="px-6 pt-2 text-xs text-slate-500">
-          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code>{" "}
-          {identity.ready ? (
-            identity.error ? (
-              <span className="text-rose-600">• guest mode ({guestMessageCount}/5 messages)</span>
-            ) : (
-              <span>• project: <code>{identity.projectId || "—"}</code></span>
-            )
-          ) : (
-            <span>• loading identity…</span>
-          )}
+          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
         </div>
 
         {/* Center message */}
@@ -201,6 +253,10 @@ export default function Chat({ selectedModel }) {
             <div className="text-base font-semibold mb-1">No chats yet</div>
             <div className="text-sm">
               Click <span className="font-semibold">New Chat</span> to get started.
+              {authState.authenticated 
+                ? ` You have ${currentLimit} messages available.`
+                : ` As a guest, you get ${currentLimit} free messages.`
+              }
             </div>
           </div>
         </div>
@@ -225,22 +281,12 @@ export default function Chat({ selectedModel }) {
       </div>
     );
   }
-  // ====================================================
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
       {/* Status line */}
       <div className="px-6 pt-2 text-xs text-slate-500">
-        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code>{" "}
-        {identity.ready ? (
-          identity.error ? (
-            <span className="text-rose-600">• guest mode ({guestMessageCount}/10 messages)</span>
-          ) : (
-            <span>• project: <code>{identity.projectId || "—"}</code></span>
-          )
-        ) : (
-          <span>• loading identity…</span>
-        )}
+        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
       </div>
 
       {/* Messages */}
@@ -275,11 +321,11 @@ export default function Chat({ selectedModel }) {
                 : `Ask anything… (${sessionModel?.label || fallbackLabel})`
             }
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
-            disabled={hasHitLimit}
+            disabled={hasHitLimit || authState.loading}
           />
           <button
             type="submit"
-            disabled={sending || !input.trim() || hasHitLimit || !identity.ready}
+            disabled={sending || !input.trim() || hasHitLimit || authState.loading}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#176A82" }}
           >
