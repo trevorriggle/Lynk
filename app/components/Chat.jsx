@@ -305,32 +305,24 @@ export default function Chat({ selectedModel }) {
               {isUser ? (
                 m.content
               ) : (
-                <ReactMarkdown 
-                  className="markdown-content"
-                  components={{
-                    p: ({children}) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
-                    h1: ({children}) => <h1 className="text-xl font-bold mb-3 mt-4 first:mt-0">{children}</h1>,
-                    h2: ({children}) => <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                    h3: ({children}) => <h3 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h3>,
-                    ul: ({children}) => <ul className="mb-3 ml-4 list-disc space-y-1">{children}</ul>,
-                    ol: ({children}) => <ol className="mb-3 ml-4 list-decimal space-y-1">{children}</ol>,
-                    li: ({children}) => <li className="leading-relaxed">{children}</li>,
-                    code: ({children, className}) => {
-                      const isBlock = className?.includes('language-');
-                      if (isBlock) {
-                        return <code className="block bg-gray-100 p-3 rounded text-sm overflow-x-auto font-mono">{children}</code>;
-                      }
-                      return <code className="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>;
-                    },
-                    pre: ({children}) => <div className="mb-3">{children}</div>,
-                    blockquote: ({children}) => <blockquote className="border-l-4 border-gray-300 pl-4 mb-3 italic">{children}</blockquote>,
-                    strong: ({children}) => <strong className="font-semibold">{children}</strong>,
-                    em: ({children}) => <em className="italic">{children}</em>,
-                    a: ({children, href}) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                  }}
-                >
-                  {m.content}
-                </ReactMarkdown>
+                <div className="markdown-content">
+                  <ReactMarkdown 
+                    components={{
+                      p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+                      h1: ({children}) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({children}) => <h2 className="text-base font-bold mb-2 mt-2 first:mt-0">{children}</h2>,
+                      h3: ({children}) => <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      ul: ({children}) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                      ol: ({children}) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                      code: ({children}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                      pre: ({children}) => <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto mb-2">{children}</pre>,
+                      strong: ({children}) => <strong className="font-semibold">{children}</strong>,
+                      em: ({children}) => <em className="italic">{children}</em>,
+                    }}
+                  >
+                    {m.content}
+                  </ReactMarkdown>
+                </div>
               )}
             </div>
           );
