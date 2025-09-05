@@ -175,22 +175,7 @@ export default function Chat({ selectedModel }) {
     }
   }
 
-  // ========= not signed in (or identity missing) =========
-  if (identity.ready && identity.error === "unauthorized" && hasHitLimit) {
-    return (
-      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
-        <div className="px-6 pt-2 text-xs text-slate-500">
-          Status: <b>5-message limit reached</b> — go to <a className="underline" href="/account">/account</a> to create an account and continue.
-        </div>
-        <div className="min-h-0 flex items-center justify-center px-6">
-          <div className="text-center text-slate-500">
-            <div className="text-base font-semibold mb-1">Account Required</div>
-            <div className="text-sm">You've used your 5 free messages. Create an account to keep chatting!</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // ========= REMOVED: Don't hide chat when limit reached =========
 
   // ========= EMPTY STATE (no active chat yet) =========
   if (!activeId) {
@@ -249,7 +234,7 @@ export default function Chat({ selectedModel }) {
         Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code>{" "}
         {identity.ready ? (
           identity.error ? (
-            <span className="text-rose-600">• guest mode ({guestMessageCount}/5 messages)</span>
+            <span className="text-rose-600">• guest mode ({guestMessageCount}/10 messages)</span>
           ) : (
             <span>• project: <code>{identity.projectId || "—"}</code></span>
           )
