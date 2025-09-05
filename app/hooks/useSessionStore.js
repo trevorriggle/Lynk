@@ -138,6 +138,6 @@ export const useSessionStore = create(
         set({ guestMessageCount: 0 });
       },
     }),
-    { name: "lynk-sessions-v1" }
+    { name: "lynk-sessions-v2" }
   )
 );
