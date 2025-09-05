@@ -232,7 +232,7 @@ export default function AccountPage() {
         {/* Reset Password Info */}
         <div className="text-xs text-gray-500 text-center">
           Forgot your password? You can send a reset email from Supabase,
-          or we can wire <code>/api/auth/reset</code> later.
+          or we can wire the reset endpoint later.
         </div>
       </div>
     </div>
