@@ -64,7 +64,7 @@ export default function Chat({ selectedModel }) {
 
   // NEW: Check if user has hit the 5-message limit
   const isAuthenticated = identity.ready && !identity.error;
-  const hasHitLimit = !isAuthenticated && guestMessageCount >= 5;
+  const hasHitLimit = !isAuthenticated && guestMessageCount >= 10;
 
   useEffect(() => {
     // eslint-disable-next-line no-console
