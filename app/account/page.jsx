@@ -6,15 +6,15 @@ function safeJsonParse(text) {
   try {
     return JSON.parse(text);
   } catch {
-    return { _raw: text }; // fallback to raw text for debugging
+    return { _raw: text };
   }
 }
 
 export default function AccountPage() {
-  const [mode, setMode] = useState("signup"); // "login" | "signup"
+  const [mode, setMode] = useState("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState(""); // confirm password (signup only)
+  const [confirm, setConfirm] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,13 +40,11 @@ export default function AccountPage() {
         throw new Error(reason);
       }
 
-      // Success states
       if (mode === "signup") {
         if (data?.needs_confirmation) {
           setMsg("Account created. Please confirm via email to complete sign-up.");
         } else {
           setMsg("Account created and signed in!");
-          // Reset guest message counter on successful signup
           if (typeof window !== "undefined") {
             try {
               const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
@@ -59,7 +57,6 @@ export default function AccountPage() {
           setTimeout(() => (window.location.href = "/"), 1200);
         }
       } else {
-        // Login success - also reset guest counter
         setMsg("Signed in!");
         if (typeof window !== "undefined") {
           try {
@@ -111,12 +108,10 @@ export default function AccountPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
-        {/* Header */}
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-8">Account</h1>
         </div>
 
-        {/* Mode Tabs */}
         <div className="flex rounded-lg overflow-hidden border border-gray-300 mb-6">
           <button
             onClick={() => setMode("login")}
@@ -140,45 +135,41 @@ export default function AccountPage() {
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="space-y-4">
-          {/* Email */}
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              disabled={busy}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#176A82] focus:border-[#176A82] disabled:opacity-50"
-              placeholder="Enter your email"
-            />
-          </div>
-
-          {/* Password */}
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              disabled={busy}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#176A82] focus:border-[#176A82] disabled:opacity-50"
-              placeholder="Enter your password"
-            />
-          </div>
-
-          {/* Confirm Password (signup only) */}
-          {mode === "signup" && (
+        <div className="h-80">
+          <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }} className="space-y-4">
             <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                disabled={busy}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#176A82] focus:border-[#176A82] disabled:opacity-50"
+                placeholder="Enter your email"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                disabled={busy}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#176A82] focus:border-[#176A82] disabled:opacity-50"
+                placeholder="Enter your password"
+              />
+            </div>
+
+            <div className={mode === "login" ? "opacity-0 pointer-events-none" : ""}>
               <label htmlFor="confirm" className="block text-sm font-medium text-gray-700 mb-1">
                 Confirm password
               </label>
@@ -188,14 +179,13 @@ export default function AccountPage() {
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 autoComplete="new-password"
-                disabled={busy}
+                disabled={busy || mode === "login"}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-[#176A82] focus:border-[#176A82] disabled:opacity-50"
                 placeholder="Confirm your password"
+                tabIndex={mode === "login" ? -1 : undefined}
               />
             </div>
-          )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={busy}
@@ -206,7 +196,6 @@ export default function AccountPage() {
           </form>
         </div>
 
-        {/* Status Message */}
         {msg && (
           <div className={`text-sm text-center p-3 rounded-md ${
             msg.includes("Error") || msg.includes("do not match") || msg.includes("at least") 
@@ -217,10 +206,8 @@ export default function AccountPage() {
           </div>
         )}
 
-        {/* Divider */}
         <hr className="my-6 border-gray-300" />
 
-        {/* Logout Button */}
         <button
           onClick={onLogout}
           disabled={busy}
@@ -229,10 +216,8 @@ export default function AccountPage() {
           Log out
         </button>
 
-        {/* Reset Password Info */}
         <div className="text-xs text-gray-500 text-center">
-          Forgot your password? You can send a reset email from Supabase,
-          or we can wire the reset endpoint later.
+          Forgot your password? You can send a reset email from Supabase.
         </div>
       </div>
     </div>
