@@ -28,7 +28,6 @@ export default function AccountPage() {
         body: JSON.stringify(body),
       });
 
-      // Try to parse JSON if present; don't explode if empty
       const text = await r.text().catch(() => "");
       const data = safeJsonParse(text);
 
@@ -47,11 +46,31 @@ export default function AccountPage() {
           setMsg("Account created. Please confirm via email to complete sign-up.");
         } else {
           setMsg("Account created and signed in!");
-          setTimeout(() => (window.location.href = "/"), 600);
+          // Reset guest message counter on successful signup
+          if (typeof window !== "undefined") {
+            try {
+              const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
+              if (store.state) {
+                store.state.guestMessageCount = 0;
+                localStorage.setItem("lynk-sessions-v2", JSON.stringify(store));
+              }
+            } catch {}
+          }
+          setTimeout(() => (window.location.href = "/"), 1200);
         }
       } else {
+        // Login success - also reset guest counter
         setMsg("Signed in!");
-        setTimeout(() => (window.location.href = "/"), 600);
+        if (typeof window !== "undefined") {
+          try {
+            const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
+            if (store.state) {
+              store.state.guestMessageCount = 0;
+              localStorage.setItem("lynk-sessions-v2", JSON.stringify(store));
+            }
+          } catch {}
+        }
+        setTimeout(() => (window.location.href = "/"), 1200);
       }
     } catch (e) {
       setMsg(`Error: ${e.message || "Unexpected error"}`);
