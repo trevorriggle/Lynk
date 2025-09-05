@@ -5,14 +5,13 @@ import ReactMarkdown from "react-markdown";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function Chat({ selectedModel }) {
-  // API endpoints
   const endpoint = "/api/session";
   const meEndpoint = "/api/me";
-
   const fallbackLabel = selectedModel?.label || "OpenAI";
+  
   const { activeId, sessions, appendToActive, guestMessageCount } = useSessionStore((s) => s);
 
-  // ======== IMPROVED: Better auth state management ========
+  // Auth state management
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
@@ -22,18 +21,18 @@ export default function Chat({ selectedModel }) {
     error: null,
   });
 
+  // Check authentication
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const r = await fetch(meEndpoint, { 
           cache: "no-store",
-          credentials: "include", // Important for cookies
+          credentials: "include",
         });
         if (cancelled) return;
         
         if (r.status === 401) {
-          // Clearly unauthorized - user is a guest
           setAuthState({ 
             loading: false, 
             authenticated: false, 
@@ -46,7 +45,6 @@ export default function Chat({ selectedModel }) {
         }
         
         if (!r.ok) {
-          // Server error - treat as guest but log the issue
           console.warn("Auth check failed with status:", r.status);
           setAuthState({ 
             loading: false, 
@@ -61,7 +59,6 @@ export default function Chat({ selectedModel }) {
 
         const data = await r.json();
         if (data?.userId) {
-          // Successfully authenticated
           setAuthState({
             loading: false,
             authenticated: true,
@@ -71,7 +68,6 @@ export default function Chat({ selectedModel }) {
             error: null,
           });
         } else {
-          // Invalid response format - treat as guest
           setAuthState({ 
             loading: false, 
             authenticated: false, 
@@ -83,7 +79,6 @@ export default function Chat({ selectedModel }) {
         }
       } catch (e) {
         if (cancelled) return;
-        // Network error - treat as guest
         console.warn("Auth check network error:", e.message);
         setAuthState({ 
           loading: false, 
@@ -98,18 +93,7 @@ export default function Chat({ selectedModel }) {
     return () => { cancelled = true; };
   }, []);
 
-  // ======== IMPROVED: Different message limits based on auth status ========
-  const getMessageLimit = () => {
-    if (authState.authenticated) {
-      return 20; // Authenticated users get 20 messages
-    }
-    return 10; // Guests get 10 messages
-  };
-
-  const hasHitLimit = !authState.authenticated && guestMessageCount >= getMessageLimit();
-  const currentLimit = getMessageLimit();
-
-  // Derive the thread/model from the active session
+  // Get current thread and model
   const thread = useMemo(
     () => (activeId ? sessions[activeId]?.messages || [] : []),
     [activeId, sessions]
@@ -120,64 +104,79 @@ export default function Chat({ selectedModel }) {
     [activeId, sessions, selectedModel]
   );
 
+  // Message counting and limits
+  const getUserMessageCount = () => {
+    return thread.filter(m => m && m.role === "user").length;
+  };
+
+  const getMessageLimit = () => {
+    return authState.authenticated ? 20 : 10;
+  };
+
+  const getCurrentCount = () => {
+    return authState.authenticated ? getUserMessageCount() : guestMessageCount;
+  };
+
+  const hasHitLimit = () => {
+    if (authState.authenticated) {
+      return getUserMessageCount() >= 20;
+    } else {
+      return guestMessageCount >= 10;
+    }
+  };
+
+  // Status text with message counts
+  const getStatusText = () => {
+    if (authState.loading) return "• loading identity…";
+    
+    const currentCount = getCurrentCount();
+    const limit = getMessageLimit();
+    
+    if (authState.authenticated) {
+      return `• authenticated (${currentCount}/${limit} messages) • project: ${authState.projectId || "—"}`;
+    }
+    return `• guest mode (${currentCount}/${limit} messages)`;
+  };
+
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Debug logging
   useEffect(() => {
-    console.log(
-      "[Chat] Using model:",
-      sessionModel?.label,
-      sessionModel?.provider,
-      sessionModel?.model,
-      "→",
-      endpoint,
-      "sessionId:",
-      activeId,
-      "auth:",
-      authState.authenticated ? "authenticated" : "guest",
-      "messages:",
-      `${guestMessageCount}/${currentLimit}`
-    );
-  }, [endpoint, sessionModel, activeId, authState, guestMessageCount, currentLimit]);
+    console.log("[Chat] Auth:", authState.authenticated, "Count:", getCurrentCount(), "Limit:", getMessageLimit());
+  }, [authState, thread, guestMessageCount]);
 
-  // Always scroll to newest message
+  // Auto scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread, sending]);
 
+  // Handle form submission
   async function handleSubmit(e) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending || !activeId) return;
+    if (!text || sending || !activeId || authState.loading) return;
 
-    // Wait for auth state to be determined
-    if (authState.loading) return;
-
-    // Block if user has hit their message limit
-    if (hasHitLimit) {
-      const userMessageCount = thread.filter(m => m.role === "user").length;
+    // Check message limits
+    if (hasHitLimit()) {
       if (authState.authenticated) {
-        if (userMessageCount >= 20) {
-          appendToActive({
-            role: "assistant",
-            content: "You've reached the 20-message limit for authenticated users. Upgrade to Premium for unlimited messaging!",
-          });
-          return;
-        }
+        appendToActive({
+          role: "assistant",
+          content: "You've reached the 20-message limit for authenticated users. Upgrade to Premium for unlimited messaging!",
+        });
       } else {
         appendToActive({
           role: "assistant",
-          content: "You've reached the 10-message limit for guest users. Please create an account to get 20 messages! Click the 'Sign In/Create Account' button in the top right.",
+          content: "You've reached the 10-message limit for guest users. Please create an account to get 20 messages! Click 'Sign In/Create Account' in the top right.",
         });
-        return;
       }
+      return;
     }
 
-    // 1) optimistic user message
+    // Send message
     appendToActive({ role: "user", content: text });
     setInput("");
     setSending(true);
@@ -186,7 +185,7 @@ export default function Chat({ selectedModel }) {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include", // Important for auth cookies
+        credentials: "include",
         body: JSON.stringify({
           sessionId: activeId,
           message: text,
@@ -212,7 +211,6 @@ export default function Chat({ selectedModel }) {
         }
         appendToActive({ role: "assistant", content: assistantText });
       } else if (res.ok && res.body && ct.includes("text")) {
-        // streaming fallback
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
@@ -241,39 +239,25 @@ export default function Chat({ selectedModel }) {
     }
   }
 
-  // ======== IMPROVED: Status line shows auth state clearly ========
-  const getStatusText = () => {
-    if (authState.loading) return "• loading identity…";
-    if (authState.authenticated) {
-      return `• authenticated • project: ${authState.projectId || "—"}`;
-    }
-    return `• guest mode (${guestMessageCount}/${currentLimit} messages)`;
-  };
-
-  // ======== EMPTY STATE (no active chat yet) =========
+  // Empty state (no active chat)
   if (!activeId) {
     return (
       <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
-        {/* Status line */}
         <div className="px-6 pt-2 text-xs text-slate-500">
           Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
         </div>
-
-        {/* Center message */}
         <div className="min-h-0 flex items-center justify-center px-6">
           <div className="text-center text-slate-500">
             <div className="text-base font-semibold mb-1">No chats yet</div>
             <div className="text-sm">
               Click <span className="font-semibold">New Chat</span> to get started.
               {authState.authenticated 
-                ? ` You have ${currentLimit} messages available.`
-                : ` As a guest, you get ${currentLimit} free messages.`
+                ? ` You have ${getMessageLimit()} messages available.`
+                : ` As a guest, you get ${getMessageLimit()} free messages.`
               }
             </div>
           </div>
         </div>
-
-        {/* Disabled input look-alike */}
         <div className="border-t bg-white/95 backdrop-blur px-4 py-3">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
             <input
@@ -294,6 +278,7 @@ export default function Chat({ selectedModel }) {
     );
   }
 
+  // Main chat interface
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
       {/* Status line */}
@@ -349,20 +334,20 @@ export default function Chat({ selectedModel }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              hasHitLimit 
+              hasHitLimit() 
                 ? "Message limit reached - create account to continue" 
                 : `Ask anything… (${sessionModel?.label || fallbackLabel})`
             }
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
-            disabled={hasHitLimit || authState.loading}
+            disabled={hasHitLimit() || authState.loading}
           />
           <button
             type="submit"
-            disabled={sending || !input.trim() || hasHitLimit || authState.loading}
+            disabled={sending || !input.trim() || hasHitLimit() || authState.loading}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#176A82" }}
           >
-            {hasHitLimit ? "Account Required" : "Send"}
+            {hasHitLimit() ? "Account Required" : "Send"}
           </button>
         </div>
       </form>
