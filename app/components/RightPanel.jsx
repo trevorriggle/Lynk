@@ -1,27 +1,32 @@
+// components/RightPanel.jsx - Fixed to show dummies every 5 user messages
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSessionStore } from "../hooks/useSessionStore";
 
 // build a fresh dummy card
-function makeDummyCard(seqKey) {
+function makeDummyCard(seqKey, userMessageCount) {
+  const fromTurn = Math.max(1, ((userMessageCount - 1) * 2) - 8); // rough estimate
+  const toTurn = userMessageCount * 2; // rough estimate including assistant responses
+  
   return {
     key: String(seqKey),
     created_at: new Date().toISOString(),
-    from_turn: 1,
-    to_turn: 5,
+    from_turn: fromTurn,
+    to_turn: toTurn,
     confidence: "med",
     topics: [
-      { slug: "example-topic", gloss: "one-line gloss of what was discussed" },
-      { slug: "second-topic", gloss: "another compact description" },
+      { slug: "conversation-topic", gloss: "key themes from recent discussion" },
+      { slug: "user-interest", gloss: "areas of focus and questions" },
     ],
     key_details: [
-      "key detail #1 (≤ 12 words)",
-      "key detail #2 (≤ 12 words)",
-      "key detail #3 (≤ 12 words)",
+      "Important information shared in recent messages",
+      "Key facts or decisions discussed",
+      "Notable preferences or requirements mentioned",
     ],
-    decisions: ["picked option B for phase 1"],
-    open_questions: ["confirm permit timeline with city"],
-    actions: [{ text: "draft follow-up email", owner: "trevor" }],
+    decisions: ["Key decision or choice made in conversation"],
+    open_questions: ["Questions still being explored"],
+    actions: [{ text: "follow up on discussed topics", owner: "user" }],
     hydrated: false, // mark until snapshot merges
   };
 }
@@ -30,7 +35,7 @@ function makeDummyCard(seqKey) {
 function formatCardForCopy(c) {
   const lines = [];
   lines.push(
-    `Turns ${c.from_turn ?? "?"}–${c.to_turn ?? "?"} • ${new Date(
+    `Turns ${c.from_turn ?? "?"}—${c.to_turn ?? "?"} • ${new Date(
       c.created_at
     ).toLocaleString()} • ${c.confidence}`
   );
@@ -63,93 +68,141 @@ function formatCardForCopy(c) {
 
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
-  const [sessionId, setSessionId] = useState(null);
-  const [cards, setCards] = useState([]); // stack of dummy/snapshots
+  const [cards, setCards] = useState([]);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [lastSnapshotCount, setLastSnapshotCount] = useState(0);
+  const [lastUserMessageCount, setLastUserMessageCount] = useState(0);
 
-  // Discover session id
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const sid = localStorage.getItem("lynk_session_id");
-    setSessionId(sid || null);
-  }, []);
+  // Get active session and messages from store
+  const { activeId, sessions } = useSessionStore((s) => ({
+    activeId: s.activeId,
+    sessions: s.sessions
+  }));
 
-  // Listen for inspector updates
+  // Get current thread and count user messages
+  const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
+  const currentUserMessageCount = currentThread.filter(m => m?.role === "user").length;
+
+  // Listen for inspector updates from backend
   useEffect(() => {
     function onUpdate(e) {
-      if (e?.detail) setInspector(e.detail);
+      if (e?.detail) {
+        console.log("RightPanel received inspector update:", e.detail);
+        setInspector(e.detail);
+      }
     }
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // Poll GET to refresh inspector
+  // Poll backend for inspector data
   useEffect(() => {
-    if (!sessionId) return;
+    if (!activeId) {
+      setInspector(null);
+      setCards([]);
+      setLastUserMessageCount(0);
+      return;
+    }
+
     const load = async () => {
       try {
-        const r = await fetch(
-          `/api/session?sessionId=${encodeURIComponent(sessionId)}`
-        );
+        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`);
         const j = await r.json();
-        if (j?.inspector) setInspector(j.inspector);
-      } catch {}
+        if (j?.inspector) {
+          setInspector(j.inspector);
+        }
+      } catch (e) {
+        console.warn("RightPanel polling error:", e);
+      }
     };
+    
     load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
-  }, [sessionId]);
+  }, [activeId]);
 
-  // Watch snapshots to spawn & hydrate
+  // Generate dummy cards every 5 user messages
   useEffect(() => {
-    const snaps = inspector?.snapshots || [];
-    const count = snaps.length;
-
-    // Spawn new dummy if snapshot count increased
-    if (count > lastSnapshotCount) {
-      const seqKey = `${count}-${Date.now()}`;
-      setCards((prev) => [makeDummyCard(seqKey), ...prev]);
-      setLastSnapshotCount(count);
-    } else if (count < lastSnapshotCount) {
-      // reset
-      setCards([]);
-      setLastSnapshotCount(count);
+    if (!activeId || currentUserMessageCount === 0) {
+      if (lastUserMessageCount > 0) {
+        // Session changed, reset
+        setCards([]);
+        setLastUserMessageCount(0);
+      }
+      return;
     }
 
-    // Hydrate the top N cards with real snapshots
-    if (count > 0) {
-      setCards((prev) => {
+    // Calculate how many snapshots should exist based on user message count
+    const expectedSnapshots = Math.floor(currentUserMessageCount / 5);
+    const currentSnapshots = cards.length;
+
+    console.log("RightPanel: userMessages =", currentUserMessageCount, "expected =", expectedSnapshots, "current =", currentSnapshots);
+
+    if (expectedSnapshots > currentSnapshots) {
+      // Need to add new dummy cards
+      const newCards = [];
+      for (let i = currentSnapshots; i < expectedSnapshots; i++) {
+        const snapshotNumber = i + 1;
+        const seqKey = `snapshot-${snapshotNumber}-${Date.now()}`;
+        const userCountForThisSnapshot = (i + 1) * 5; // 5, 10, 15, etc.
+        newCards.push(makeDummyCard(seqKey, userCountForThisSnapshot));
+      }
+      
+      setCards(prev => [...newCards, ...prev]); // newest first
+      console.log("RightPanel: Added", newCards.length, "new dummy cards");
+      
+    } else if (expectedSnapshots < currentSnapshots) {
+      // Too many cards, trim to expected count
+      setCards(prev => prev.slice(0, expectedSnapshots));
+      console.log("RightPanel: Trimmed cards to", expectedSnapshots);
+    }
+
+    setLastUserMessageCount(currentUserMessageCount);
+  }, [activeId, currentUserMessageCount, cards.length, lastUserMessageCount]);
+
+  // Hydrate dummy cards with real snapshot data when available
+  useEffect(() => {
+    const snaps = inspector?.snapshots || [];
+    
+    if (snaps.length > 0 && cards.length > 0) {
+      setCards(prev => {
         const updated = [...prev];
-        for (let i = 0; i < count && i < updated.length; i++) {
-          const snap = snaps[snaps.length - 1 - i]; // newest snapshot hydrates newest card
-          const card = updated[i];
+        
+        // Hydrate cards with real snapshot data (newest snapshot goes to newest card)
+        for (let i = 0; i < Math.min(snaps.length, updated.length); i++) {
+          const snap = snaps[snaps.length - 1 - i]; // newest snapshot first
+          const card = updated[i]; // newest card first
+          
           if (card && !card.hydrated) {
             updated[i] = {
               ...card,
               ...snap,
+              key: card.key, // preserve the dummy key
               hydrated: true,
             };
+            console.log("RightPanel: Hydrated card", i, "with real snapshot data");
           }
         }
+        
         return updated;
       });
     }
-  }, [inspector, lastSnapshotCount]);
+  }, [inspector?.snapshots, cards.length]);
 
   async function copyCard(c) {
     try {
       await navigator.clipboard.writeText(formatCardForCopy(c));
       setCopiedKey(c.key);
       setTimeout(() => setCopiedKey(null), 1200);
-    } catch {}
+    } catch {
+      console.warn("Failed to copy card to clipboard");
+    }
   }
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-[10px] text-slate-400">
-          session: <code>{sessionId || "—"}</code>
+          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount}
         </div>
 
         <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
@@ -159,15 +212,19 @@ export default function RightPanel() {
           </p>
         ) : (
           <div className="mt-2 space-y-3">
-            {cards.map((c) => (
+            {cards.map((c, index) => (
               <div
                 key={c.key}
-                className="rounded-md border border-slate-200 p-2 text-xs leading-5 text-slate-700"
+                className={`rounded-md border p-2 text-xs leading-5 transition-colors ${
+                  c.hydrated 
+                    ? "border-green-200 bg-green-50 text-slate-700" 
+                    : "border-slate-200 bg-slate-50 text-slate-600"
+                }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-1">
                   <div className="text-[11px] text-slate-500">
-                    turns {c.from_turn ?? "?"}–{c.to_turn ?? "?"} •{" "}
-                    {new Date(c.created_at).toLocaleString()}
+                    turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}
+                    {!c.hydrated && <span className="ml-2 text-orange-500">(generating...)</span>}
                   </div>
                   <div className="flex items-center gap-1.5">
                     {c.confidence && (
