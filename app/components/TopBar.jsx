@@ -204,7 +204,7 @@ export default function TopBar() {
             ) : (
               <Link href="/account">
                 <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
-                  Sign In
+                  Sign In/Create Account
                 </button>
               </Link>
             )}
