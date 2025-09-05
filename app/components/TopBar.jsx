@@ -28,6 +28,42 @@ export default function TopBar() {
     selectedModel: s.selectedModel,
   }));
 
+  // Check authentication status
+  const [authState, setAuthState] = useState({
+    loading: true,
+    authenticated: false,
+    userEmail: null,
+  });
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          setAuthState({
+            loading: false,
+            authenticated: !!data.userId,
+            userEmail: data.project?.email || null,
+          });
+        } else {
+          setAuthState({
+            loading: false,
+            authenticated: false,
+            userEmail: null,
+          });
+        }
+      } catch {
+        setAuthState({
+          loading: false,
+          authenticated: false,
+          userEmail: null,
+        });
+      }
+    };
+    checkAuth();
+  }, []);
+
   // Upload dropdown state
   const [uploadOpen, setUploadOpen] = useState(false);
   const uploadWrapRef = useRef(null);
@@ -147,16 +183,31 @@ export default function TopBar() {
               )}
             </div>
 
-            {/* AC button */}
-            <Link href="/account">
-              <div
-                className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
-                aria-label="Account"
-                title="Account"
-              >
-                AC
+            {/* Auth button - dynamic based on login state */}
+            {authState.loading ? (
+              <div className="flex h-9 w-16 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-400">
+                ...
               </div>
-            </Link>
+            ) : authState.authenticated ? (
+              <Link href="/account">
+                <div
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
+                  aria-label="Account"
+                  title="Account"
+                >
+                  {authState.userEmail 
+                    ? authState.userEmail.slice(0, 2).toUpperCase() 
+                    : "AC"
+                  }
+                </div>
+              </Link>
+            ) : (
+              <Link href="/account">
+                <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+                  Sign In
+                </button>
+              </Link>
+            )}
           </div>
         </div>
       </div>
