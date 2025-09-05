@@ -157,13 +157,24 @@ export default function Chat({ selectedModel }) {
     // Wait for auth state to be determined
     if (authState.loading) return;
 
-    // Block if guest user has hit limit
+    // Block if user has hit their message limit
     if (hasHitLimit) {
-      appendToActive({
-        role: "assistant",
-        content: `You've reached the ${currentLimit}-message limit${authState.authenticated ? ' for authenticated users' : ' for guest users'}. ${authState.authenticated ? 'Upgrade to Premium for unlimited messaging!' : 'Please create an account to get 20 messages! Click the "Sign In/Create Account" button in the top right.'}`,
-      });
-      return;
+      const userMessageCount = thread.filter(m => m.role === "user").length;
+      if (authState.authenticated) {
+        if (userMessageCount >= 20) {
+          appendToActive({
+            role: "assistant",
+            content: "You've reached the 20-message limit for authenticated users. Upgrade to Premium for unlimited messaging!",
+          });
+          return;
+        }
+      } else {
+        appendToActive({
+          role: "assistant",
+          content: "You've reached the 10-message limit for guest users. Please create an account to get 20 messages! Click the 'Sign In/Create Account' button in the top right.",
+        });
+        return;
+      }
     }
 
     // 1) optimistic user message
