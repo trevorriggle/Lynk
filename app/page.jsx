@@ -19,6 +19,29 @@ export default function Page() {
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
 
+  // Handle auth tokens from email verification
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (hash.includes('access_token')) {
+      const params = new URLSearchParams(hash);
+      const access_token = params.get('access_token');
+      const refresh_token = params.get('refresh_token');
+      
+      if (access_token) {
+        // Call finish endpoint to set cookies
+        fetch('/api/auth/finish', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ access_token, refresh_token })
+        }).then(() => {
+          // Clear hash and reload to update auth state
+          window.history.replaceState({}, document.title, '/');
+          window.location.reload();
+        }).catch(console.error);
+      }
+    }
+  }, []);
+
   const handleActivate = (ctx) => {
     setActive(true);
     setActiveContext(ctx);
