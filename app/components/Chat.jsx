@@ -301,7 +301,23 @@ export default function Chat({ selectedModel }) {
               key={m.id}
               className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}
             >
-              {m.content}
+              {isUser ? (
+                m.content
+              ) : (
+                <ReactMarkdown 
+                  className="prose prose-sm max-w-none prose-slate"
+                  components={{
+                    // Customize specific elements if needed
+                    p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({children}) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
+                    ol: ({children}) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                    code: ({children}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{children}</code>,
+                    pre: ({children}) => <pre className="bg-gray-100 p-2 rounded text-sm overflow-x-auto">{children}</pre>,
+                  }}
+                >
+                  {m.content}
+                </ReactMarkdown>
+              )}
             </div>
           );
         })}
