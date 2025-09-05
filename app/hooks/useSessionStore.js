@@ -25,8 +25,11 @@ export const useSessionStore = create(
       // currently selected session id (or null if none)
       activeId: /** @type {string|null} */ (null),
 
-      // ✅ the model chosen in the floating pill (also used as default for new chats)
+      // the model chosen in the floating pill (also used as default for new chats)
       selectedModel: { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" },
+
+      // NEW: Track guest message count
+      guestMessageCount: 0,
 
       /** Update the UI-selected model AND immediately apply it to the active session (if any). */
       setSelectedModel(model) {
@@ -115,11 +118,24 @@ export const useSessionStore = create(
             messages: [...cur.messages, { id: `m_${uid()}`, ts: now, ...msg }],
           };
 
+          // NEW: Increment guest counter for user messages when not authenticated
+          const newGuestCount = msg.role === "user" ? s.guestMessageCount + 1 : s.guestMessageCount;
+
           return {
             sessions: { ...s.sessions, [id]: updated },
             order: [id, ...s.order.filter((x) => x !== id)],
+            guestMessageCount: newGuestCount,
           };
         });
+      },
+
+      // NEW: Helper functions for guest message management
+      getGuestMessageCount() {
+        return get().guestMessageCount;
+      },
+
+      resetGuestMessageCount() {
+        set({ guestMessageCount: 0 });
       },
     }),
     { name: "lynk-sessions-v1" }

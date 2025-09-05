@@ -4,11 +4,46 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function Chat({ selectedModel }) {
-  // Memory-aware endpoint
+  // API endpoints
   const endpoint = "/api/session";
-  const fallbackLabel = selectedModel?.label || "OpenAI";
+  const meEndpoint = "/api/me";
 
-  const { activeId, sessions, appendToActive } = useSessionStore((s) => s);
+  const fallbackLabel = selectedModel?.label || "OpenAI";
+  const { activeId, sessions, appendToActive, guestMessageCount } = useSessionStore((s) => s);
+
+  // ======== identity from /api/me ========
+  const [identity, setIdentity] = useState({
+    ready: false,
+    userId: null,
+    projectId: null,
+    error: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(meEndpoint, { cache: "no-store" });
+        if (cancelled) return;
+        if (r.status === 401) {
+          setIdentity({ ready: true, userId: null, projectId: null, error: "unauthorized" });
+          return;
+        }
+        if (!r.ok) throw new Error(await r.text().catch(() => String(r.status)));
+        const j = await r.json();
+        setIdentity({
+          ready: true,
+          userId: j?.userId || null,
+          projectId: j?.projectId || null,
+          error: null,
+        });
+      } catch (e) {
+        setIdentity({ ready: true, userId: null, projectId: null, error: e?.message || "error" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // =======================================
 
   // Derive the thread/model from the active session
   const thread = useMemo(
@@ -27,6 +62,10 @@ export default function Chat({ selectedModel }) {
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  // NEW: Check if user has hit the 5-message limit
+  const isAuthenticated = identity.ready && !identity.error;
+  const hasHitLimit = !isAuthenticated && guestMessageCount >= 5;
+
   useEffect(() => {
     // eslint-disable-next-line no-console
     console.log(
@@ -37,9 +76,13 @@ export default function Chat({ selectedModel }) {
       "→",
       endpoint,
       "sessionId:",
-      activeId
+      activeId,
+      "projectId:",
+      identity.projectId,
+      "guestMessages:",
+      guestMessageCount
     );
-  }, [endpoint, sessionModel, activeId]);
+  }, [endpoint, sessionModel, activeId, identity.projectId, guestMessageCount]);
 
   // Always scroll to newest message
   useEffect(() => {
@@ -51,6 +94,23 @@ export default function Chat({ selectedModel }) {
     e.preventDefault();
     const text = input.trim();
     if (!text || sending || !activeId) return;
+
+    // If identity not ready, block send gracefully
+    if (!identity.ready) return;
+
+    // NEW: Block if guest user has hit 5-message limit
+    if (hasHitLimit) {
+      appendToActive({
+        role: "assistant",
+        content: "You've reached the 5-message limit. Please create an account to continue chatting! Click the 'AC' button in the top right to sign up.",
+      });
+      return;
+    }
+
+    // If unauthorized but under limit, allow sending
+    if (identity.error === "unauthorized" && guestMessageCount < 5) {
+      // Continue with normal flow
+    }
 
     // 1) optimistic user message
     appendToActive({ role: "user", content: text });
@@ -64,6 +124,7 @@ export default function Chat({ selectedModel }) {
         body: JSON.stringify({
           sessionId: activeId, // server keeps memory keyed by this
           message: text,       // send only the latest turn
+          projectId: identity.projectId, // NEW: wire project to server
           model: {
             label: sessionModel?.label,
             provider: sessionModel?.provider,
@@ -107,11 +168,28 @@ export default function Chat({ selectedModel }) {
         appendToActive({ role: "assistant", content: `(error) ${err}` });
       }
     } catch (e) {
-      appendToActive({ role: "assistant", content: `Couldn’t reach ${endpoint}.` });
+      appendToActive({ role: "assistant", content: `Couldn't reach ${endpoint}.` });
     } finally {
       setSending(false);
       inputRef.current?.focus();
     }
+  }
+
+  // ========= not signed in (or identity missing) =========
+  if (identity.ready && identity.error === "unauthorized" && hasHitLimit) {
+    return (
+      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
+        <div className="px-6 pt-2 text-xs text-slate-500">
+          Status: <b>5-message limit reached</b> — go to <a className="underline" href="/account">/account</a> to create an account and continue.
+        </div>
+        <div className="min-h-0 flex items-center justify-center px-6">
+          <div className="text-center text-slate-500">
+            <div className="text-base font-semibold mb-1">Account Required</div>
+            <div className="text-sm">You've used your 5 free messages. Create an account to keep chatting!</div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ========= EMPTY STATE (no active chat yet) =========
@@ -120,7 +198,16 @@ export default function Chat({ selectedModel }) {
       <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
         {/* Status line */}
         <div className="px-6 pt-2 text-xs text-slate-500">
-          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code>
+          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code>{" "}
+          {identity.ready ? (
+            identity.error ? (
+              <span className="text-rose-600">• guest mode ({guestMessageCount}/5 messages)</span>
+            ) : (
+              <span>• project: <code>{identity.projectId || "—"}</code></span>
+            )
+          ) : (
+            <span>• loading identity…</span>
+          )}
         </div>
 
         {/* Center message */}
@@ -159,7 +246,16 @@ export default function Chat({ selectedModel }) {
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
       {/* Status line */}
       <div className="px-6 pt-2 text-xs text-slate-500">
-        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code>
+        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code>{" "}
+        {identity.ready ? (
+          identity.error ? (
+            <span className="text-rose-600">• guest mode ({guestMessageCount}/5 messages)</span>
+          ) : (
+            <span>• project: <code>{identity.projectId || "—"}</code></span>
+          )
+        ) : (
+          <span>• loading identity…</span>
+        )}
       </div>
 
       {/* Messages */}
@@ -188,16 +284,21 @@ export default function Chat({ selectedModel }) {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`Ask anything… (${sessionModel?.label || fallbackLabel})`}
+            placeholder={
+              hasHitLimit 
+                ? "Message limit reached - create account to continue" 
+                : `Ask anything… (${sessionModel?.label || fallbackLabel})`
+            }
             className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none focus:ring-2 focus:ring-[#176A82]"
+            disabled={hasHitLimit}
           />
           <button
             type="submit"
-            disabled={sending || !input.trim()}
+            disabled={sending || !input.trim() || hasHitLimit || !identity.ready}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#176A82" }}
           >
-            Send
+            {hasHitLimit ? "Account Required" : "Send"}
           </button>
         </div>
       </form>
