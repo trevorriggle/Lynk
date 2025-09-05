@@ -161,7 +161,7 @@ export default function Chat({ selectedModel }) {
     if (hasHitLimit) {
       appendToActive({
         role: "assistant",
-        content: `You've reached the ${currentLimit}-message limit for guest users. Please create an account to get ${authState.authenticated ? 'unlimited' : '20'} messages! Click the "Sign In/Create Account" button in the top right.`,
+        content: `You've reached the ${currentLimit}-message limit${authState.authenticated ? ' for authenticated users' : ' for guest users'}. ${authState.authenticated ? 'Upgrade to Premium for unlimited messaging!' : 'Please create an account to get 20 messages! Click the "Sign In/Create Account" button in the top right.'}`,
       });
       return;
     }

@@ -58,11 +58,15 @@ export const useSessionStore = create(
           messages: [],
         };
 
+        // 🔥 CRITICAL FIX: Sync session ID to localStorage when creating/activating
+        if (typeof window !== "undefined") {
+          localStorage.setItem("lynk_session_id", id);
+        }
+
         set((s) => ({
           sessions: { ...s.sessions, [id]: session },
           order: [id, ...s.order.filter((x) => x !== id)],
-          // keep whatever is active; do NOT auto-activate the newly created session
-          activeId: s.activeId,
+          activeId: id, // 🔥 AUTO-ACTIVATE new sessions for better UX
         }));
 
         return id;
@@ -129,13 +133,25 @@ export const useSessionStore = create(
         });
       },
 
-      // NEW: Helper functions for guest message management
+      // NEW: Helper functions for message management
       getGuestMessageCount() {
         return get().guestMessageCount;
       },
 
+      getAuthMessageCount() {
+        return get().authMessageCount;
+      },
+
       resetGuestMessageCount() {
         set({ guestMessageCount: 0 });
+      },
+
+      resetAuthMessageCount() {
+        set({ authMessageCount: 0 });
+      },
+
+      resetAllMessageCounts() {
+        set({ guestMessageCount: 0, authMessageCount: 0 });
       },
     }),
     { name: "lynk-sessions-v2" }
