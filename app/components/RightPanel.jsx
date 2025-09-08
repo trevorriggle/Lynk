@@ -1,4 +1,4 @@
-// components/RightPanel.jsx - v8 with working copy functions
+// components/RightPanel.jsx - Complete working version with all copy functions
 "use client";
 
 import { useEffect, useState } from "react";
