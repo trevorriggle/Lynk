@@ -4,39 +4,42 @@
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-// pretty plaintext for copy
+// Create a clean, actionable summary for copy
 function formatCardForCopy(c) {
   const lines = [];
-  lines.push(
-    `Turns ${c.from_turn ?? "?"}—${c.to_turn ?? "?"} • ${new Date(
-      c.created_at
-    ).toLocaleString()} • ${c.confidence}`
-  );
-  if (c.topics?.length) {
-    lines.push("\nTopics:");
-    c.topics.forEach((t) =>
-      lines.push(`- ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
-    );
+  
+  // Key details section
+  if (c.key_details?.length > 0) {
+    lines.push("Key Details:");
+    c.key_details.forEach((detail) => lines.push(`• ${detail}`));
+    lines.push(""); // blank line
   }
-  if (c.key_details?.length) {
-    lines.push("\nKey details:");
-    c.key_details.forEach((k) => lines.push(`- ${k}`));
+  
+  // Actions section  
+  if (c.actions?.length > 0) {
+    lines.push("Actions:");
+    c.actions.forEach((action) => {
+      const actionText = typeof action === 'string' ? action : action.text;
+      const owner = action.owner ? ` (${action.owner})` : "";
+      lines.push(`• ${actionText}${owner}`);
+    });
+    lines.push(""); // blank line
   }
-  if (c.decisions?.length) {
-    lines.push("\nDecisions:");
-    c.decisions.forEach((x) => lines.push(`- ${x}`));
+  
+  // Open questions section
+  if (c.open_questions?.length > 0) {
+    lines.push("Open Questions:");
+    c.open_questions.forEach((question) => lines.push(`• ${question}`));
+    lines.push(""); // blank line
   }
-  if (c.open_questions?.length) {
-    lines.push("\nOpen questions:");
-    c.open_questions.forEach((q) => lines.push(`- ${q}`));
+  
+  // Decisions section
+  if (c.decisions?.length > 0) {
+    lines.push("Decisions Made:");
+    c.decisions.forEach((decision) => lines.push(`• ${decision}`));
   }
-  if (c.actions?.length) {
-    lines.push("\nActions:");
-    c.actions.forEach((a) =>
-      lines.push(`- ${a.text}${a.owner ? ` — ${a.owner}` : ""}`)
-    );
-  }
-  return lines.join("\n");
+  
+  return lines.join("\n").trim();
 }
 
 export default function RightPanel() {
