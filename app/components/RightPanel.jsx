@@ -112,7 +112,7 @@ export default function RightPanel() {
   const threadUserMessageCount = currentThread.filter(m => m?.role === "user").length;
   
   // Use appropriate message count based on auth status
-  const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : guestMessageCount;
+  const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : Math.floor(guestMessageCount / 2); // Convert guest total to user messages
 
   // Listen for inspector updates from backend
   useEffect(() => {
