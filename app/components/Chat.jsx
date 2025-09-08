@@ -274,7 +274,7 @@ export default function Chat({ selectedModel }) {
         {thread.map((m) => {
           const isUser = m.role === "user";
           return (
-            <div key={m.id} className={`${isUser ? "ml-auto text-slate-800 max-w-xl" : ""}`}>
+            <div key={m.id} className={`${isUser ? "ml-auto text-slate-800 max-w-[85%]" : ""}`}>
               {isUser ? (
                 <div className="text-right text-slate-800 font-normal break-words overflow-wrap-anywhere">
                   {m.content}
