@@ -1,35 +1,8 @@
-// components/RightPanel.jsx - Fixed to show dummies based on auth status
+// components/RightPanel.jsx - Simplified to only show real snapshots
 "use client";
 
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
-
-// build a fresh dummy card
-function makeDummyCard(seqKey, userMessageCount) {
-  const fromTurn = Math.max(1, ((userMessageCount - 1) * 2) - 8); // rough estimate
-  const toTurn = userMessageCount * 2; // rough estimate including assistant responses
-  
-  return {
-    key: String(seqKey),
-    created_at: new Date().toISOString(),
-    from_turn: fromTurn,
-    to_turn: toTurn,
-    confidence: "med",
-    topics: [
-      { slug: "conversation-topic", gloss: "key themes from recent discussion" },
-      { slug: "user-interest", gloss: "areas of focus and questions" },
-    ],
-    key_details: [
-      "Important information shared in recent messages",
-      "Key facts or decisions discussed",
-      "Notable preferences or requirements mentioned",
-    ],
-    decisions: ["Key decision or choice made in conversation"],
-    open_questions: ["Questions still being explored"],
-    actions: [{ text: "follow up on discussed topics", owner: "user" }],
-    hydrated: false, // mark until snapshot merges
-  };
-}
 
 // pretty plaintext for copy
 function formatCardForCopy(c) {
@@ -68,9 +41,7 @@ function formatCardForCopy(c) {
 
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
-  const [cards, setCards] = useState([]);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [lastUserMessageCount, setLastUserMessageCount] = useState(0);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
 
   // Get active session and messages from store
@@ -111,8 +82,8 @@ export default function RightPanel() {
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserMessageCount = currentThread.filter(m => m?.role === "user").length;
   
-  // Use appropriate message count based on auth status
-  const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : Math.floor(guestMessageCount / 2); // Convert guest total to user messages
+  // Use appropriate message count
+  const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : guestMessageCount;
 
   // Listen for inspector updates from backend
   useEffect(() => {
@@ -130,8 +101,6 @@ export default function RightPanel() {
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
-      setCards([]);
-      setLastUserMessageCount(0);
       return;
     }
 
@@ -152,112 +121,41 @@ export default function RightPanel() {
     return () => clearInterval(timer);
   }, [activeId]);
 
-  // Generate dummy cards based on auth status and message count
-  useEffect(() => {
-    if (!activeId || currentUserMessageCount === 0 || authState.loading) {
-      if (lastUserMessageCount > 0) {
-        // Session changed, reset
-        setCards([]);
-        setLastUserMessageCount(0);
-      }
-      return;
-    }
-
-    // Different snapshot thresholds based on auth status
-    const snapshotInterval = authState.authenticated ? 5 : 2; // Every 5 for auth, every 2 for guests
-    const expectedSnapshots = Math.floor(currentUserMessageCount / snapshotInterval);
-    const currentSnapshots = cards.length;
-
-    console.log("RightPanel: userMessages =", currentUserMessageCount, "expected =", expectedSnapshots, "current =", currentSnapshots, "auth =", authState.authenticated);
-
-    if (expectedSnapshots > currentSnapshots) {
-      // Need to add new dummy cards
-      const newCards = [];
-      for (let i = currentSnapshots; i < expectedSnapshots; i++) {
-        const snapshotNumber = i + 1;
-        const seqKey = `snapshot-${snapshotNumber}-${Date.now()}`;
-        const userCountForThisSnapshot = (i + 1) * snapshotInterval; // 5,10,15 for auth or 2,4,6 for guests
-        newCards.push(makeDummyCard(seqKey, userCountForThisSnapshot));
-      }
-      
-      setCards(prev => [...newCards, ...prev]); // newest first
-      console.log("RightPanel: Added", newCards.length, "new dummy cards");
-      
-    } else if (expectedSnapshots < currentSnapshots) {
-      // Too many cards, trim to expected count
-      setCards(prev => prev.slice(0, expectedSnapshots));
-      console.log("RightPanel: Trimmed cards to", expectedSnapshots);
-    }
-
-    setLastUserMessageCount(currentUserMessageCount);
-  }, [activeId, currentUserMessageCount, cards.length, lastUserMessageCount, authState.authenticated, authState.loading]);
-
-  // Hydrate dummy cards with real snapshot data when available
-  useEffect(() => {
-    const snaps = inspector?.snapshots || [];
-    
-    if (snaps.length > 0 && cards.length > 0) {
-      setCards(prev => {
-        const updated = [...prev];
-        
-        // Hydrate cards with real snapshot data (newest snapshot goes to newest card)
-        for (let i = 0; i < Math.min(snaps.length, updated.length); i++) {
-          const snap = snaps[snaps.length - 1 - i]; // newest snapshot first
-          const card = updated[i]; // newest card first
-          
-          if (card && !card.hydrated) {
-            updated[i] = {
-              ...card,
-              ...snap,
-              key: card.key, // preserve the dummy key
-              hydrated: true,
-            };
-            console.log("RightPanel: Hydrated card", i, "with real snapshot data");
-          }
-        }
-        
-        return updated;
-      });
-    }
-  }, [inspector?.snapshots, cards.length]);
-
   async function copyCard(c) {
     try {
       await navigator.clipboard.writeText(formatCardForCopy(c));
-      setCopiedKey(c.key);
+      setCopiedKey(c.key || Math.random().toString());
       setTimeout(() => setCopiedKey(null), 1200);
     } catch {
       console.warn("Failed to copy card to clipboard");
     }
   }
 
+  // Get snapshots from inspector (real data only)
+  const snapshots = inspector?.snapshots || [];
+
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-[10px] text-slate-400">
-          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"}
+          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"} • snapshots: {snapshots.length}
         </div>
 
         <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
-        {cards.length === 0 ? (
+        {snapshots.length === 0 ? (
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            A preview will appear here as soon as the first snapshot is created.
+            Previews will appear here after every 5 messages as the AI creates conversation snapshots.
           </p>
         ) : (
           <div className="mt-2 space-y-3">
-            {cards.map((c, index) => (
+            {snapshots.slice().reverse().map((c, index) => (
               <div
-                key={c.key}
-                className={`rounded-md border p-2 text-xs leading-5 transition-colors ${
-                  c.hydrated 
-                    ? "border-green-200 bg-green-50 text-slate-700" 
-                    : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}
+                key={c.created_at + index}
+                className="rounded-md border border-green-200 bg-green-50 p-2 text-xs leading-5 text-slate-700"
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-[11px] text-slate-500">
                     turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}
-                    {!c.hydrated && <span className="ml-2 text-orange-500">(generating...)</span>}
                   </div>
                   <div className="flex items-center gap-1.5">
                     {c.confidence && (
@@ -270,7 +168,7 @@ export default function RightPanel() {
                       className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-50 active:scale-[0.99]"
                       title="Copy preview text"
                     >
-                      {copiedKey === c.key ? "Copied!" : "Copy"}
+                      {copiedKey === (c.key || (c.created_at + index)) ? "Copied!" : "Copy"}
                     </button>
                   </div>
                 </div>
