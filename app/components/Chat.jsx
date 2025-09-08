@@ -274,27 +274,31 @@ export default function Chat({ selectedModel }) {
         {thread.map((m) => {
           const isUser = m.role === "user";
           return (
-            <div key={m.id} className={`max-w-xl ${isUser ? "brand-user ml-auto" : "brand-agent"}`}>
+            <div key={m.id} className={`max-w-xl ${isUser ? "ml-auto text-slate-800" : ""}`}>
               {isUser ? (
-                m.content
+                <div className="text-right text-slate-800 font-medium">
+                  {m.content}
+                </div>
               ) : (
-                <div className="markdown-content">
+                <div className="bg-[#ededed] text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200">
                   <ReactMarkdown
                     components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-2 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0">{children}</h3>,
-                      ul: ({ children }) => <ul className="mb-2 ml-4 list-disc">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal">{children}</ol>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 font-medium text-slate-800">{children}</p>,
+                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0 text-slate-800">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-2 first:mt-0 text-slate-800">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0 text-slate-800">{children}</h3>,
+                      ul: ({ children }) => <ul className="mb-2 ml-4 list-disc text-slate-800">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal text-slate-800">{children}</ol>,
+                      li: ({ children }) => <li className="text-slate-800 font-medium">{children}</li>,
                       code: ({ children }) => (
-                        <code className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+                        <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono text-slate-800">{children}</code>
                       ),
                       pre: ({ children }) => (
-                        <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto mb-2">{children}</pre>
+                        <pre className="bg-gray-200 p-3 rounded text-sm overflow-x-auto mb-2 text-slate-800 font-mono border">{children}</pre>
                       ),
-                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
+                      strong: ({ children }) => <strong className="font-bold text-slate-800">{children}</strong>,
+                      em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
+                      a: ({ children, href }) => <a href={href} className="text-blue-600 underline font-medium">{children}</a>,
                     }}
                   >
                     {m.content}
