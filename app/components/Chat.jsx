@@ -330,7 +330,7 @@ export default function Chat({ selectedModel }) {
                   ? "Message limit reached - create account to continue"
                   : `Ask anything… (${sessionModel?.label || fallbackLabel})`
               }
-              className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-none border-0 leading-6 max-h-40 overflow-hidden"
+              className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-0 border-0 leading-6 max-h-32 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent focus:outline-0"
               disabled={hasHitLimit() || authState.loading}
               aria-label="Message"
             />
