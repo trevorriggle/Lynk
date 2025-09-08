@@ -1,4 +1,4 @@
-// components/RightPanel.jsx - Fixed to show dummies every 5 user messages
+// components/RightPanel.jsx - Fixed to show dummies based on auth status
 "use client";
 
 import { useEffect, useState } from "react";
@@ -71,16 +71,48 @@ export default function RightPanel() {
   const [cards, setCards] = useState([]);
   const [copiedKey, setCopiedKey] = useState(null);
   const [lastUserMessageCount, setLastUserMessageCount] = useState(0);
+  const [authState, setAuthState] = useState({ loading: true, authenticated: false });
 
   // Get active session and messages from store
-  const { activeId, sessions } = useSessionStore((s) => ({
+  const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
-    sessions: s.sessions
+    sessions: s.sessions,
+    guestMessageCount: s.guestMessageCount
   }));
+
+  // Check auth status
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          setAuthState({
+            loading: false,
+            authenticated: !!data.userId,
+          });
+        } else {
+          setAuthState({
+            loading: false,
+            authenticated: false,
+          });
+        }
+      } catch {
+        setAuthState({
+          loading: false,
+          authenticated: false,
+        });
+      }
+    };
+    checkAuth();
+  }, []);
 
   // Get current thread and count user messages
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
-  const currentUserMessageCount = currentThread.filter(m => m?.role === "user").length;
+  const threadUserMessageCount = currentThread.filter(m => m?.role === "user").length;
+  
+  // Use appropriate message count based on auth status
+  const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : guestMessageCount;
 
   // Listen for inspector updates from backend
   useEffect(() => {
@@ -120,9 +152,9 @@ export default function RightPanel() {
     return () => clearInterval(timer);
   }, [activeId]);
 
-  // Generate dummy cards every 5 user messages
+  // Generate dummy cards based on auth status and message count
   useEffect(() => {
-    if (!activeId || currentUserMessageCount === 0) {
+    if (!activeId || currentUserMessageCount === 0 || authState.loading) {
       if (lastUserMessageCount > 0) {
         // Session changed, reset
         setCards([]);
@@ -131,11 +163,12 @@ export default function RightPanel() {
       return;
     }
 
-    // Calculate how many snapshots should exist based on user message count
-    const expectedSnapshots = Math.floor(currentUserMessageCount / 5);
+    // Different snapshot thresholds based on auth status
+    const snapshotInterval = authState.authenticated ? 5 : 2; // Every 5 for auth, every 2 for guests
+    const expectedSnapshots = Math.floor(currentUserMessageCount / snapshotInterval);
     const currentSnapshots = cards.length;
 
-    console.log("RightPanel: userMessages =", currentUserMessageCount, "expected =", expectedSnapshots, "current =", currentSnapshots);
+    console.log("RightPanel: userMessages =", currentUserMessageCount, "expected =", expectedSnapshots, "current =", currentSnapshots, "auth =", authState.authenticated);
 
     if (expectedSnapshots > currentSnapshots) {
       // Need to add new dummy cards
@@ -143,7 +176,7 @@ export default function RightPanel() {
       for (let i = currentSnapshots; i < expectedSnapshots; i++) {
         const snapshotNumber = i + 1;
         const seqKey = `snapshot-${snapshotNumber}-${Date.now()}`;
-        const userCountForThisSnapshot = (i + 1) * 5; // 5, 10, 15, etc.
+        const userCountForThisSnapshot = (i + 1) * snapshotInterval; // 5,10,15 for auth or 2,4,6 for guests
         newCards.push(makeDummyCard(seqKey, userCountForThisSnapshot));
       }
       
@@ -157,7 +190,7 @@ export default function RightPanel() {
     }
 
     setLastUserMessageCount(currentUserMessageCount);
-  }, [activeId, currentUserMessageCount, cards.length, lastUserMessageCount]);
+  }, [activeId, currentUserMessageCount, cards.length, lastUserMessageCount, authState.authenticated, authState.loading]);
 
   // Hydrate dummy cards with real snapshot data when available
   useEffect(() => {
@@ -202,7 +235,7 @@ export default function RightPanel() {
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-[10px] text-slate-400">
-          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount}
+          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"}
         </div>
 
         <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
