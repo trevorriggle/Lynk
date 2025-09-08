@@ -111,9 +111,7 @@ export default function Chat({ selectedModel }) {
     const current = getCurrentCount();
     const limit = getMessageLimit();
     return authState.authenticated
-      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId || "—"}`
-      : `• guest mode (${current}/${limit} messages)`;
-  };
+      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId ||
 
   // ---------------------- UI state ----------------------
   const [input, setInput] = useState("");
