@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global reset */
+/* ========= Global reset ========= */
 :root {
   color-scheme: light;
   background-color: #FFFFFF;
@@ -14,45 +14,83 @@ html, body {
   padding: 0;
 }
 
-/* === Brand Helpers ===
-   Uses classes defined in tailwind.config.js:
+/* Prevent layout jump when scrollbars appear */
+html { scrollbar-gutter: stable; }
+
+/* ========= Brand + UI helpers =========
+   Tailwind tokens assumed from tailwind.config.js:
    - colors: brand.teal (#196A82), brand.aqua (#C9EEED)
    - fonts:  font-heading (Poppins), font-body (Poppins)
 */
 @layer components {
-  .brand-heading {
-    @apply font-heading font-black text-brand-teal;
-  }
-
-  .brand-body {
-    @apply font-body font-normal text-slate-800;
-  }
+  .brand-heading { @apply font-heading font-black text-brand-teal; }
+  .brand-body    { @apply font-body text-slate-800; }
 
   /* Left panel backdrop */
-  .brand-panel {
-    @apply bg-brand-aqua;
+  .brand-panel { @apply bg-brand-aqua; }
+
+  /* Model pill / teal badges */
+  .brand-panelBubble { @apply bg-brand-teal text-white; }
+
+  /* Chat bubbles */
+  .brand-agent { @apply bg-white text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200; }
+  .brand-user  { @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3; }
+
+  /* Markdown inside assistant bubble */
+  .markdown-content {
+    @apply prose prose-sm max-w-none;
+  }
+  .markdown-content pre { @apply bg-slate-100 p-2 rounded text-xs overflow-x-auto; }
+  .markdown-content code { @apply bg-slate-100 px-1 py-0.5 rounded text-xs font-mono; }
+
+  /* ====== Chat composer (pill) ======
+     Use with:
+       <div class="composer-pill"> <textarea class="composer-textarea"> … </textarea> </div>
+     In Chat.jsx we use Tailwind utilities directly, but these classes keep parity if you reuse elsewhere.
+  */
+  .composer-pill {
+    @apply rounded-full ring-1 ring-slate-300 bg-white overflow-hidden
+           focus-within:ring-2 focus-within:ring-[#176A82];
+  }
+  .composer-textarea {
+    @apply block w-full bg-transparent px-4 py-3 text-slate-800 leading-6 outline-none
+           border-0 resize-none no-scrollbar;
   }
 
-  /* Teal chat bubble (model pill / system bubble) */
-  .brand-panelBubble {
-    @apply bg-brand-teal text-white;
-  }
-
-  /* Assistant bubble (white, dark ink) */
-  .brand-agent {
-    @apply bg-white text-slate-800 rounded-xl p-3;
-  }
-
-  /* User bubble (spec grey D9D9D9) */
-  .brand-user {
-    @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3;
+  /* Primary button (matches your Send button color) */
+  .btn-primary {
+    @apply rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: #176A82;
   }
 }
-/* Focus ring */
+
+/* ========= Focus styles ========= */
 *:focus-visible {
   outline: 2px solid rgba(23,106,130,.55);
   outline-offset: 2px;
 }
 
-/* Subtle input placeholder weight */
-input::placeholder { color: #7A8791; opacity: .9; }
+/* ========= Inputs ========= */
+input::placeholder,
+textarea::placeholder { color: #7A8791; opacity: .9; }
+
+/* Remove default textarea border/resize handles on some browsers */
+textarea { border: 0; resize: none; }
+
+/* ========= Scrollbar control for the expanding textarea =========
+   Add `no-scrollbar` to the <textarea>. We toggle overflowY in JS.
+*/
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Optional: lighter global scrollbars elsewhere (not the composer) */
+*::-webkit-scrollbar {
+  width: 10px; height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(2, 6, 23, 0.15);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
