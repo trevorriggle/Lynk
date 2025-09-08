@@ -192,7 +192,19 @@ export default function RightPanel() {
 
                 {c.key_details?.length > 0 && (
                   <div className="mt-1">
-                    <div className="font-medium">Key details</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">Key details</div>
+                      <button
+                        onClick={() => {
+                          const detailsText = c.key_details.map(k => `• ${k}`).join('\n');
+                          copySection(detailsText, `details-${index}`);
+                        }}
+                        className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                        title="Copy key details"
+                      >
+                        {copiedKey === `details-${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                     <ul className="list-disc pl-4">
                       {c.key_details.map((k, i) => (
                         <li key={i}>{k}</li>
@@ -203,7 +215,19 @@ export default function RightPanel() {
 
                 {c.decisions?.length > 0 && (
                   <div className="mt-1">
-                    <div className="font-medium">Decisions</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">Decisions</div>
+                      <button
+                        onClick={() => {
+                          const decisionsText = c.decisions.map(d => `• ${d}`).join('\n');
+                          copySection(decisionsText, `decisions-${index}`);
+                        }}
+                        className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                        title="Copy decisions"
+                      >
+                        {copiedKey === `decisions-${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                     <ul className="list-disc pl-4">
                       {c.decisions.map((d, i) => (
                         <li key={i}>{d}</li>
@@ -214,7 +238,19 @@ export default function RightPanel() {
 
                 {c.open_questions?.length > 0 && (
                   <div className="mt-1">
-                    <div className="font-medium">Open questions</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">Open questions</div>
+                      <button
+                        onClick={() => {
+                          const questionsText = c.open_questions.map(q => `• ${q}`).join('\n');
+                          copySection(questionsText, `questions-${index}`);
+                        }}
+                        className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                        title="Copy open questions"
+                      >
+                        {copiedKey === `questions-${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                     <ul className="list-disc pl-4">
                       {c.open_questions.map((q, i) => (
                         <li key={i}>{q}</li>
@@ -225,11 +261,27 @@ export default function RightPanel() {
 
                 {c.actions?.length > 0 && (
                   <div className="mt-1">
-                    <div className="font-medium">Actions</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">Actions</div>
+                      <button
+                        onClick={() => {
+                          const actionsText = c.actions.map(a => {
+                            const actionText = typeof a === 'string' ? a : a.text;
+                            const owner = a.owner ? ` (${a.owner})` : "";
+                            return `• ${actionText}${owner}`;
+                          }).join('\n');
+                          copySection(actionsText, `actions-${index}`);
+                        }}
+                        className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                        title="Copy actions"
+                      >
+                        {copiedKey === `actions-${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                     <ul className="list-disc pl-4">
                       {c.actions.map((a, i) => (
                         <li key={i}>
-                          {a.text}
+                          {typeof a === 'string' ? a : a.text}
                           {a.owner ? (
                             <span className="text-slate-500"> — {a.owner}</span>
                           ) : null}
