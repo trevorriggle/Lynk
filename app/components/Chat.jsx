@@ -276,7 +276,7 @@ export default function Chat({ selectedModel }) {
           return (
             <div key={m.id} className={`${isUser ? "ml-auto text-slate-800 max-w-xl" : ""}`}>
               {isUser ? (
-                <div className="text-right text-slate-800 font-normal">
+                <div className="text-right text-slate-800 font-normal break-words overflow-wrap-anywhere">
                   {m.content}
                 </div>
               ) : (
