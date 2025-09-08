@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 function safeJsonParse(text) {
   if (!text || !text.trim()) return {};
@@ -10,7 +10,172 @@ function safeJsonParse(text) {
   }
 }
 
-export default function AccountPage() {
+// Dashboard component for authenticated users
+function AccountDashboard({ userEmail, userId, onLogout }) {
+  const [stats, setStats] = useState({
+    messagesUsed: 0,
+    messagesLimit: 20,
+    accountCreated: null,
+    totalSessions: 0
+  });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // Get usage stats from localStorage (your Zustand store)
+    try {
+      const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
+      const state = store.state;
+      
+      if (state) {
+        const sessions = state.sessions || {};
+        const sessionCount = Object.keys(sessions).length;
+        
+        // Count total user messages across all sessions
+        let totalMessages = 0;
+        Object.values(sessions).forEach(session => {
+          if (session.messages) {
+            totalMessages += session.messages.filter(m => m.role === "user").length;
+          }
+        });
+
+        setStats({
+          messagesUsed: totalMessages,
+          messagesLimit: 20, // authenticated users get 20
+          accountCreated: new Date().toLocaleDateString(), // placeholder
+          totalSessions: sessionCount
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to load usage stats:", e);
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Account Dashboard</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Manage your Lynk account and view usage statistics
+          </p>
+        </div>
+
+        {/* Account Info Card */}
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h2>
+          
+          <div className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm font-medium text-gray-700">Email</span>
+              <span className="text-sm text-gray-900">{userEmail}</span>
+            </div>
+            
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm font-medium text-gray-700">Account Type</span>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Free Account
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm font-medium text-gray-700">User ID</span>
+              <span className="text-sm text-gray-500 font-mono">{userId?.slice(0, 8)}...</span>
+            </div>
+            
+            <div className="flex justify-between items-center py-2">
+              <span className="text-sm font-medium text-gray-700">Member Since</span>
+              <span className="text-sm text-gray-900">{stats.accountCreated}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Usage Stats Card */}
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Usage Statistics</h2>
+          
+          <div className="space-y-4">
+            {/* Message Usage */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Messages This Month</span>
+                <span className="text-sm text-gray-900">
+                  {stats.messagesUsed} / {stats.messagesLimit}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-[#176A82] h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min((stats.messagesUsed / stats.messagesLimit) * 100, 100)}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {stats.messagesLimit - stats.messagesUsed} messages remaining
+              </p>
+            </div>
+
+            {/* Session Count */}
+            <div className="flex justify-between items-center py-2 border-b border-gray-100">
+              <span className="text-sm font-medium text-gray-700">Total Conversations</span>
+              <span className="text-sm text-gray-900">{stats.totalSessions}</span>
+            </div>
+
+            {/* AI Models Available */}
+            <div>
+              <span className="text-sm font-medium text-gray-700 block mb-2">Available AI Models</span>
+              <div className="flex flex-wrap gap-2">
+                {["Claude", "OpenAI", "Gemini", "Grok"].map((model) => (
+                  <span 
+                    key={model}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#176A82] text-white"
+                  >
+                    {model}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Account Actions Card */}
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Actions</h2>
+          
+          <div className="space-y-3">
+            <button className="w-full text-left px-4 py-3 rounded-md border border-gray-300 hover:bg-gray-50 transition-colors">
+              <div className="font-medium text-gray-900">Change Password</div>
+              <div className="text-sm text-gray-500">Update your account password</div>
+            </button>
+            
+            <button className="w-full text-left px-4 py-3 rounded-md border border-gray-300 hover:bg-gray-50 transition-colors">
+              <div className="font-medium text-gray-900">Export Data</div>
+              <div className="text-sm text-gray-500">Download your conversation history</div>
+            </button>
+            
+            <button className="w-full text-left px-4 py-3 rounded-md border border-red-300 text-red-700 hover:bg-red-50 transition-colors">
+              <div className="font-medium">Delete Account</div>
+              <div className="text-sm text-red-600">Permanently delete your account and data</div>
+            </button>
+          </div>
+        </div>
+
+        {/* Logout Button */}
+        <div className="text-center">
+          <button
+            onClick={onLogout}
+            disabled={busy}
+            className="w-full sm:w-auto px-6 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#176A82] disabled:opacity-50"
+          >
+            {busy ? "Signing out..." : "Sign Out"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Login/Signup component for unauthenticated users
+function AuthForms() {
   const [mode, setMode] = useState("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,11 +197,7 @@ export default function AccountPage() {
       const data = safeJsonParse(text);
 
       if (!r.ok) {
-        const reason =
-          data?.error ||
-          data?.message ||
-          data?._raw ||
-          `HTTP ${r.status}`;
+        const reason = data?.error || data?.message || data?._raw || `HTTP ${r.status}`;
         throw new Error(reason);
       }
 
@@ -93,16 +254,6 @@ export default function AccountPage() {
       return hit("/api/auth/signup", { email, password });
     }
     return hit("/api/auth/login", { email, password });
-  }
-
-  async function onLogout() {
-    setBusy(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-      window.location.reload();
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
@@ -206,20 +357,91 @@ export default function AccountPage() {
           </div>
         )}
 
-        <hr className="my-6 border-gray-300" />
-
-        <button
-          onClick={onLogout}
-          disabled={busy}
-          className="w-full py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#176A82] disabled:opacity-50"
-        >
-          Log out
-        </button>
-
         <div className="text-xs text-gray-500 text-center">
           Forgot your password? You can send a reset email from Supabase.
         </div>
       </div>
     </div>
   );
+}
+
+// Main component that handles auth state
+export default function AccountPage() {
+  const [authState, setAuthState] = useState({
+    loading: true,
+    authenticated: false,
+    userId: null,
+    userEmail: null,
+  });
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const r = await fetch("/api/me", { 
+          cache: "no-store",
+          credentials: "include",
+        });
+        
+        if (r.ok) {
+          const data = await r.json();
+          setAuthState({
+            loading: false,
+            authenticated: !!data.userId,
+            userId: data.userId,
+            userEmail: data.project?.email || null,
+          });
+        } else {
+          setAuthState({
+            loading: false,
+            authenticated: false,
+            userId: null,
+            userEmail: null,
+          });
+        }
+      } catch (e) {
+        console.warn("Auth check error:", e);
+        setAuthState({
+          loading: false,
+          authenticated: false,
+          userId: null,
+          userEmail: null,
+        });
+      }
+    };
+    
+    checkAuth();
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.reload();
+    } catch (e) {
+      console.warn("Logout error:", e);
+      window.location.reload();
+    }
+  }
+
+  if (authState.loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#176A82] mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading account information...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState.authenticated) {
+    return (
+      <AccountDashboard 
+        userEmail={authState.userEmail}
+        userId={authState.userId}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  return <AuthForms />;
 }
