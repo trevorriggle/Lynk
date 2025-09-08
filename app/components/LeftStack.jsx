@@ -33,14 +33,14 @@ function Section({ title, defaultOpen = false, children }) {
 function Row({ label, onClick, muted = false, active = false, pill = false }) {
   // EXACT match to your chat input pill styles
   const pillBase =
-    "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none";
+    "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none truncate";
   const pillInactive =
     "border border-slate-300 hover:border-[#176A82] hover:ring-1 hover:ring-[#176A82]/30";
   const pillActive =
     "border-2 border-[#176A82] ring-2 ring-[#176A82]/40 shadow-[inset_0_0_0_1px_rgba(23,106,130,0.20)] font-medium";
 
   const nonPillBase =
-    "w-full text-left px-3 py-2.5 rounded-lg ring-1 ring-black/5 transition";
+    "w-full text-left px-3 py-2.5 rounded-lg ring-1 ring-black/5 transition truncate";
   const nonPillInactive =
     "!hover:bg-[#C7EBEA]/30 active:!bg-[#C7EBEA]/50 hover:!border-[#C7EBEA]/60";
   const nonPillActive = "bg-white border font-semibold shadow";
@@ -86,9 +86,10 @@ export default function LeftStack({ onActivate }) {
       </Section>
 
       <Section title="Commands">
-        <Row label="Carolina?" onClick={() => onActivate?.({ type: "command", key: "carolina?" })} />
+        <Row label="Research?" onClick={() => onActivate?.({ type: "command", key: "research?" })} />
         <Row label="Fort-rapids?" onClick={() => onActivate?.({ type: "command", key: "fort-rapids?" })} />
-        <Row label="Courses?" onClick={() => onActivate?.({ type: "command", key: "courses?" })} />
+        <Row label="Analyze?" onClick={() => onActivate?.({ type: "command", key: "analyze?" })} />
+        <Row label="Brainstorm?" onClick={() => onActivate?.({ type: "command", key: "brainstorm?" })} />
         <div className="pt-1">
           <Row label="See All" onClick={() => onActivate?.({ type: "command", key: "see-all" })} muted />
         </div>
@@ -134,10 +135,6 @@ export default function LeftStack({ onActivate }) {
           })
         )}
       </Section>
-
-      <div className="mt-4 text-sm text-slate-500 px-2">
-        <span className="opacity-70">Lynk account</span>
-      </div>
     </aside>
   );
 }
