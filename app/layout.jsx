@@ -1,15 +1,23 @@
+"use client";
 import "./globals.css";
 import TopBar from "./components/TopBar";
+import { usePathname } from "next/navigation";
 
 export const metadata = { title: "Lynk", description: "Conversational workspace" };
 
 export default function RootLayout({ children }) {
+  const pathname = usePathname();
+  const isAccountPage = pathname === "/account";
+
   return (
     <html lang="en">
-      {/* Pin app to the viewport and prevent page-level scrolling */}
-      <body className="h-dvh overflow-hidden bg-white flex flex-col" style={{ "--header-h": "56px" }}>
+      <body 
+        className={`h-dvh bg-white flex flex-col ${
+          isAccountPage ? "" : "overflow-hidden"
+        }`} 
+        style={{ "--header-h": "56px" }}
+      >
         <TopBar />
-        {/* Give the app area below the header full height and no outer overflow */}
         <div className="-mt-px flex-1 min-h-0 overflow-hidden">
           {children}
         </div>
