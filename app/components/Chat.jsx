@@ -242,7 +242,7 @@ export default function Chat({ selectedModel }) {
           </div>
         </div>
         <div className="border-t bg-white/95 backdrop-blur px-4 py-3">
-          <div className="mx-auto flex w/full max-w-3xl items-center gap-2">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
             <input
               disabled
               placeholder={`Ask anything… (${fallbackLabel})`}
@@ -307,10 +307,10 @@ export default function Chat({ selectedModel }) {
         {sending && <div className="max-w-xl brand-agent">Thinking…</div>}
       </div>
 
-      {/* Composer — same visual style, expanding textarea */}
+      {/* Composer — clean expanding textarea */}
       <form onSubmit={handleSubmit} className="border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
-          <div className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-0">
+          <div className="flex-1 rounded-full border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-[#176A82] focus-within:border-[#176A82] transition-all">
             <textarea
               ref={taRef}
               rows={1}
@@ -330,7 +330,7 @@ export default function Chat({ selectedModel }) {
                   ? "Message limit reached - create account to continue"
                   : `Ask anything… (${sessionModel?.label || fallbackLabel})`
               }
-              className="block w-full resize-none bg-transparent py-3 text-slate-800 outline-none leading-6 max-h-40 overflow-auto"
+              className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-none border-none leading-6 max-h-40 overflow-auto"
               disabled={hasHitLimit() || authState.loading}
               aria-label="Message"
               style={{ scrollbarGutter: "stable" }}
