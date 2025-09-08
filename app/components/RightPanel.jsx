@@ -1,46 +1,8 @@
-// components/RightPanel.jsx - Simplified to only show real snapshots
+// components/RightPanel.jsx - v8 with working copy functions
 "use client";
 
 import { useEffect, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
-
-// Create a clean, actionable summary for copy
-function formatCardForCopy(c) {
-  const lines = [];
-  
-  // Key details section
-  if (c.key_details?.length > 0) {
-    lines.push("Key Details:");
-    c.key_details.forEach((detail) => lines.push(`• ${detail}`));
-    lines.push(""); // blank line
-  }
-  
-  // Actions section  
-  if (c.actions?.length > 0) {
-    lines.push("Actions:");
-    c.actions.forEach((action) => {
-      const actionText = typeof action === 'string' ? action : action.text;
-      const owner = action.owner ? ` (${action.owner})` : "";
-      lines.push(`• ${actionText}${owner}`);
-    });
-    lines.push(""); // blank line
-  }
-  
-  // Open questions section
-  if (c.open_questions?.length > 0) {
-    lines.push("Open Questions:");
-    c.open_questions.forEach((question) => lines.push(`• ${question}`));
-    lines.push(""); // blank line
-  }
-  
-  // Decisions section
-  if (c.decisions?.length > 0) {
-    lines.push("Decisions Made:");
-    c.decisions.forEach((decision) => lines.push(`• ${decision}`));
-  }
-  
-  return lines.join("\n").trim();
-}
 
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
@@ -124,14 +86,55 @@ export default function RightPanel() {
     return () => clearInterval(timer);
   }, [activeId]);
 
-  async function copyCard(c) {
+  // Copy function for individual sections
+  async function copySection(content, sectionKey) {
     try {
-      await navigator.clipboard.writeText(formatCardForCopy(c));
-      setCopiedKey(c.key || Math.random().toString());
+      await navigator.clipboard.writeText(content);
+      setCopiedKey(sectionKey);
       setTimeout(() => setCopiedKey(null), 1200);
     } catch {
-      console.warn("Failed to copy card to clipboard");
+      console.warn("Failed to copy section to clipboard");
     }
+  }
+
+  // Copy all sections function
+  function copyAllSections(c, index) {
+    const sections = [];
+    
+    if (c.topics?.length > 0) {
+      sections.push("Topics:");
+      sections.push(...c.topics.map(t => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`));
+      sections.push("");
+    }
+    
+    if (c.key_details?.length > 0) {
+      sections.push("Key Details:");
+      sections.push(...c.key_details.map(k => `• ${k}`));
+      sections.push("");
+    }
+    
+    if (c.decisions?.length > 0) {
+      sections.push("Decisions:");
+      sections.push(...c.decisions.map(d => `• ${d}`));
+      sections.push("");
+    }
+    
+    if (c.open_questions?.length > 0) {
+      sections.push("Open Questions:");
+      sections.push(...c.open_questions.map(q => `• ${q}`));
+      sections.push("");
+    }
+    
+    if (c.actions?.length > 0) {
+      sections.push("Actions:");
+      sections.push(...c.actions.map(a => {
+        const actionText = typeof a === 'string' ? a : a.text;
+        const owner = a.owner ? ` (${a.owner})` : "";
+        return `• ${actionText}${owner}`;
+      }));
+    }
+    
+    copySection(sections.join('\n').trim(), `all-${index}`);
   }
 
   // Get snapshots from inspector (real data only)
@@ -160,25 +163,30 @@ export default function RightPanel() {
                   <div className="text-[11px] text-slate-500">
                     turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {c.confidence && (
-                      <span className="text-[10px] rounded-full border px-1.5 py-0.5 text-slate-500">
-                        {c.confidence}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => copyCard(c)}
-                      className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-50 active:scale-[0.99]"
-                      title="Copy preview text"
-                    >
-                      {copiedKey === (c.key || (c.created_at + index)) ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => copyAllSections(c, index)}
+                    className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-100 active:scale-[0.99] font-medium"
+                    title="Copy all sections"
+                  >
+                    {copiedKey === `all-${index}` ? "Copied!" : "Copy All"}
+                  </button>
                 </div>
 
                 {c.topics?.length > 0 && (
                   <div className="mt-1">
-                    <div className="font-medium">Topics</div>
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">Topics</div>
+                      <button
+                        onClick={() => {
+                          const topicsText = c.topics.map(t => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`).join('\n');
+                          copySection(topicsText, `topics-${index}`);
+                        }}
+                        className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                        title="Copy topics"
+                      >
+                        {copiedKey === `topics-${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
                     <ul className="list-disc pl-4">
                       {c.topics.map((t, i) => (
                         <li key={i}>
