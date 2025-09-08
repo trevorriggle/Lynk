@@ -33,7 +33,7 @@ html { scrollbar-gutter: stable; }
   .brand-panelBubble { @apply bg-brand-teal text-white; }
 
   /* Chat bubbles */
-  .brand-agent { @apply bg-white text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200; }
+  .brand-agent { @apply bg-gray-100 text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200; }
   .brand-user  { @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3; }
 
   /* Markdown inside assistant bubble (uses Typography plugin) */
