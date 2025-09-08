@@ -226,15 +226,15 @@ export default function Chat({ selectedModel }) {
   // ---------------------- Empty state ----------------------
   if (!activeId) {
     return (
-      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
-        <div className="px-6 pt-2 text-xs text-slate-500">
-          Using: <b>{fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
+      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
+        <div className="px-6 pt-2 text-xs text-slate-500 font-light">
+          Using: <b className="font-medium">{fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
         </div>
         <div className="min-h-0 flex items-center justify-center px-6">
           <div className="text-center text-slate-500">
-            <div className="text-base font-semibold mb-1">No chats yet</div>
-            <div className="text-sm">
-              Click <span className="font-semibold">New Chat</span> to get started.
+            <div className="text-base font-medium mb-1">No chats yet</div>
+            <div className="text-sm font-light">
+              Click <span className="font-medium">New Chat</span> to get started.
               {authState.authenticated
                 ? ` You have ${getMessageLimit()} messages available.`
                 : ` As a guest, you get ${getMessageLimit()} free messages.`}
@@ -246,7 +246,7 @@ export default function Chat({ selectedModel }) {
             <input
               disabled
               placeholder={`Ask anything… (${fallbackLabel})`}
-              className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 opacity-50"
+              className="flex-1 rounded-full border border-slate-300 bg-white px-4 py-3 text-slate-800 opacity-50 font-light"
             />
             <button
               disabled
@@ -263,10 +263,10 @@ export default function Chat({ selectedModel }) {
 
   // ---------------------- Main chat ----------------------
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
       {/* Status line */}
-      <div className="px-6 pt-2 text-xs text-slate-500">
-        Using: <b>{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
+      <div className="px-6 pt-2 text-xs text-slate-500 font-light">
+        Using: <b className="font-medium">{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
       </div>
 
       {/* Messages */}
@@ -274,31 +274,31 @@ export default function Chat({ selectedModel }) {
         {thread.map((m) => {
           const isUser = m.role === "user";
           return (
-            <div key={m.id} className={`max-w-xl ${isUser ? "ml-auto text-slate-800" : ""}`}>
+            <div key={m.id} className={`${isUser ? "ml-auto text-slate-800 max-w-xl" : ""}`}>
               {isUser ? (
-                <div className="text-right text-slate-800 font-medium">
+                <div className="text-right text-slate-800 font-normal">
                   {m.content}
                 </div>
               ) : (
-                <div className="bg-[#ededed] text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200">
+                <div className="bg-[#ededed] text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 inline-block max-w-[85%]">
                   <ReactMarkdown
                     components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0 font-medium text-slate-800">{children}</p>,
-                      h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0 text-slate-800">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-2 first:mt-0 text-slate-800">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-bold mb-1 mt-2 first:mt-0 text-slate-800">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 font-normal text-slate-800">{children}</p>,
+                      h1: ({ children }) => <h1 className="text-lg font-medium mb-2 mt-3 first:mt-0 text-slate-800">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-base font-medium mb-2 mt-2 first:mt-0 text-slate-800">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0 text-slate-800">{children}</h3>,
                       ul: ({ children }) => <ul className="mb-2 ml-4 list-disc text-slate-800">{children}</ul>,
                       ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal text-slate-800">{children}</ol>,
-                      li: ({ children }) => <li className="text-slate-800 font-medium">{children}</li>,
+                      li: ({ children }) => <li className="text-slate-800 font-normal">{children}</li>,
                       code: ({ children }) => (
                         <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono text-slate-800">{children}</code>
                       ),
                       pre: ({ children }) => (
                         <pre className="bg-gray-200 p-3 rounded text-sm overflow-x-auto mb-2 text-slate-800 font-mono border">{children}</pre>
                       ),
-                      strong: ({ children }) => <strong className="font-bold text-slate-800">{children}</strong>,
+                      strong: ({ children }) => <strong className="font-medium text-slate-800">{children}</strong>,
                       em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
-                      a: ({ children, href }) => <a href={href} className="text-blue-600 underline font-medium">{children}</a>,
+                      a: ({ children, href }) => <a href={href} className="text-[#176A82] underline font-normal hover:text-[#0d4a5a] transition-colors">{children}</a>,
                     }}
                   >
                     {m.content}
@@ -308,7 +308,7 @@ export default function Chat({ selectedModel }) {
             </div>
           );
         })}
-        {sending && <div className="max-w-xl brand-agent">Thinking…</div>}
+        {sending && <div className="inline-block brand-agent font-light">Thinking…</div>}
       </div>
 
       {/* Composer — clean expanding textarea */}
@@ -334,7 +334,7 @@ export default function Chat({ selectedModel }) {
                   ? "Message limit reached - create account to continue"
                   : `Ask anything… (${sessionModel?.label || fallbackLabel})`
               }
-              className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-0 border-0 leading-6 max-h-32 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent focus:outline-0"
+              className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-0 border-0 leading-6 max-h-32 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent focus:outline-0 font-normal"
               disabled={hasHitLimit() || authState.loading}
               aria-label="Message"
             />
