@@ -20,7 +20,7 @@ html { scrollbar-gutter: stable; }
 /* ========= Brand + UI helpers =========
    Tailwind tokens assumed from tailwind.config.js:
    - colors: brand.teal (#196A82), brand.aqua (#C9EEED)
-   - fonts:  font-heading (Poppins), font-body (Poppins)
+   - fonts:  font-heading / font-body (Poppins via CSS var)
 */
 @layer components {
   .brand-heading { @apply font-heading font-black text-brand-teal; }
@@ -36,17 +36,11 @@ html { scrollbar-gutter: stable; }
   .brand-agent { @apply bg-white text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200; }
   .brand-user  { @apply bg-[#D9D9D9] text-slate-800 rounded-xl p-3; }
 
-  /* Markdown inside assistant bubble */
-  .markdown-content {
-    @apply prose prose-sm max-w-none;
-  }
-  .markdown-content pre { @apply bg-slate-100 p-2 rounded text-xs overflow-x-auto; }
-  .markdown-content code { @apply bg-slate-100 px-1 py-0.5 rounded text-xs font-mono; }
+  /* Markdown inside assistant bubble (uses Typography plugin) */
+  .markdown-content { @apply prose prose-sm max-w-none; }
 
   /* ====== Chat composer (pill) ======
-     Use with:
-       <div class="composer-pill"> <textarea class="composer-textarea"> … </textarea> </div>
-     In Chat.jsx we use Tailwind utilities directly, but these classes keep parity if you reuse elsewhere.
+     Optional utility classes if you reuse the composer outside Chat.jsx
   */
   .composer-pill {
     @apply rounded-full ring-1 ring-slate-300 bg-white overflow-hidden
@@ -84,13 +78,9 @@ textarea { border: 0; resize: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Optional: lighter global scrollbars elsewhere (not the composer) */
-*::-webkit-scrollbar {
-  width: 10px; height: 10px;
-}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb {
   background: rgba(2, 6, 23, 0.15);
   border-radius: 8px;
 }
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
+*::-webkit-scrollbar-track { background: transparent; }
