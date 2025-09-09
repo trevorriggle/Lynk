@@ -186,8 +186,8 @@ export default function RightPanel() {
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
-      {/* Command Notifications */}
-      {newCommands.length > 0 && (
+      {/* Command Notifications - only render on client side */}
+      {typeof window !== 'undefined' && newCommands.length > 0 && (
         <div className="fixed top-4 right-4 z-50 space-y-2">
           {newCommands.map((cmd, index) => (
             <div
