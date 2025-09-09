@@ -474,8 +474,17 @@ export async function GET(req) {
   const userId = await getUserFromRequest(req);
   
   if (sessionId) {
-    const sessionKey = userId ? `${userId}:${sessionId}` : `guest:${sessionId}`;
-    const s = SESSIONS.get(sessionKey);
+    // Try both session key formats for debugging
+    const authSessionKey = userId ? `${userId}:${sessionId}` : null;
+    const guestSessionKey = `guest:${sessionId}`;
+    const simpleKey = sessionId; // fallback to original format
+    
+    const authSession = authSessionKey ? SESSIONS.get(authSessionKey) : null;
+    const guestSession = SESSIONS.get(guestSessionKey);
+    const simpleSession = SESSIONS.get(simpleKey);
+    
+    const s = authSession || guestSession || simpleSession;
+    
     return Response.json(
       s
         ? { 
@@ -483,9 +492,27 @@ export async function GET(req) {
             inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] }, 
             turns: s.turns.length,
             isGuest: s.isGuest,
-            userId: s.userId
+            userId: s.userId,
+            debug: {
+              requestUserId: userId,
+              triedKeys: {
+                auth: authSessionKey,
+                guest: guestSessionKey,
+                simple: simpleKey
+              },
+              foundWith: authSession ? 'auth' : guestSession ? 'guest' : 'simple',
+              allSessionKeys: Array.from(SESSIONS.keys())
+            }
           }
-        : { ok: false, error: "session not found" },
+        : { 
+            ok: false, 
+            error: "session not found",
+            debug: {
+              requestUserId: userId,
+              searchedFor: sessionId,
+              allSessionKeys: Array.from(SESSIONS.keys())
+            }
+          },
       { headers: H }
     );
   }
@@ -496,6 +523,7 @@ export async function GET(req) {
       now: new Date().toISOString(),
       expects: "POST { sessionId, message, model: { label, provider, model } }",
       userId: userId || "guest",
+      allSessionKeys: Array.from(SESSIONS.keys())
     },
     { headers: H }
   );

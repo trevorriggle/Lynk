@@ -178,9 +178,10 @@ export default function RightPanel() {
     confidence: "high"
   };
 
-  // Determine what to show
+  // Determine what to show - dummy only at turn 5+ when real snapshots should exist but don't
   const hasRealSnapshots = snapshots.length > 0;
-  const shouldShowDummy = showDummy && !hasRealSnapshots && currentUserMessageCount > 0;
+  const shouldHaveSnapshots = currentUserMessageCount >= 5 && currentUserMessageCount % 5 === 0;
+  const shouldShowDummy = showDummy && !hasRealSnapshots && shouldHaveSnapshots;
   const previewsToShow = hasRealSnapshots ? snapshots : (shouldShowDummy ? [dummyPreview] : []);
 
   return (
