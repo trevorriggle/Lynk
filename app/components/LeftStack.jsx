@@ -126,73 +126,55 @@ export default function LeftStack({ onActivate }) {
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
       <Section title="Context Files">
-        <Row 
-          label="sys-prompt.txt" 
-          onClick={() => onActivate?.({ type: "file", key: "sys-prompt.txt" })}
-          onDelete={() => handleDeleteFile("sys-prompt.txt")}
-          deletable
-        />
+        {contextFiles.map(file => (
+          <Row 
+            key={file.key}
+            label={file.label} 
+            onClick={() => onActivate?.({ type: "file", key: file.key })}
+            onDelete={() => deleteContextFile(file.key)}
+            deletable
+          />
+        ))}
         <Row label="Add More" onClick={() => onActivate?.({ type: "file", key: "upload" })} muted />
       </Section>
 
       <Section title="Behaviors">
-        <Row 
-          label="Respond cordially and friendly." 
-          onClick={() => onActivate?.({ type: "behavior", key: "cordial" })}
-          onDelete={() => handleDeleteBehavior("cordial")}
-          deletable
-        />
+        {behaviors.map(behavior => (
+          <Row 
+            key={behavior.key}
+            label={behavior.label} 
+            onClick={() => onActivate?.({ type: "behavior", key: behavior.key })}
+            onDelete={() => deleteBehavior(behavior.key)}
+            deletable
+          />
+        ))}
       </Section>
 
       <Section title="Commands">
-        <Row 
-          label="Research?" 
-          onClick={() => onActivate?.({ type: "command", key: "research?" })}
-          onDelete={() => handleDeleteCommand("research?")}
-          deletable
-        />
-        <Row 
-          label="Fort-rapids?" 
-          onClick={() => onActivate?.({ type: "command", key: "fort-rapids?" })}
-          onDelete={() => handleDeleteCommand("fort-rapids?")}
-          deletable
-        />
-        <Row 
-          label="Analyze?" 
-          onClick={() => onActivate?.({ type: "command", key: "analyze?" })}
-          onDelete={() => handleDeleteCommand("analyze?")}
-          deletable
-        />
-        <Row 
-          label="Brainstorm?" 
-          onClick={() => onActivate?.({ type: "command", key: "brainstorm?" })}
-          onDelete={() => handleDeleteCommand("brainstorm?")}
-          deletable
-        />
+        {commands.map(command => (
+          <Row 
+            key={command.key}
+            label={command.label} 
+            onClick={() => onActivate?.({ type: "command", key: command.key })}
+            onDelete={() => deleteCommand(command.key)}
+            deletable
+          />
+        ))}
         <div className="pt-1">
           <Row label="See All" onClick={() => onActivate?.({ type: "command", key: "see-all" })} muted />
         </div>
       </Section>
 
       <Section title="Projects">
-        <Row 
-          label="Carolina Research" 
-          onClick={() => onActivate?.({ type: "project", key: "carolina" })}
-          onDelete={() => handleDeleteProject("carolina")}
-          deletable
-        />
-        <Row 
-          label="Graphic Design" 
-          onClick={() => onActivate?.({ type: "project", key: "graphic-design" })}
-          onDelete={() => handleDeleteProject("graphic-design")}
-          deletable
-        />
-        <Row 
-          label="Coding Support" 
-          onClick={() => onActivate?.({ type: "project", key: "coding-support" })}
-          onDelete={() => handleDeleteProject("coding-support")}
-          deletable
-        />
+        {projects.map(project => (
+          <Row 
+            key={project.key}
+            label={project.label} 
+            onClick={() => onActivate?.({ type: "project", key: project.key })}
+            onDelete={() => deleteProject(project.key)}
+            deletable
+          />
+        ))}
       </Section>
 
       {/* Recent Chats - now defaultOpen=false (collapsed by default) */}

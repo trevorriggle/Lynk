@@ -31,6 +31,28 @@ export const useSessionStore = create(
       // NEW: Track guest message count
       guestMessageCount: 0,
 
+      // NEW: Left panel lists
+      contextFiles: [
+        { key: "sys-prompt.txt", label: "sys-prompt.txt" }
+      ],
+      
+      behaviors: [
+        { key: "cordial", label: "Respond cordially and friendly." }
+      ],
+      
+      commands: [
+        { key: "research", label: "Research?" },
+        { key: "fort-rapids", label: "Fort-rapids?" },
+        { key: "analyze", label: "Analyze?" },
+        { key: "brainstorm", label: "Brainstorm?" }
+      ],
+      
+      projects: [
+        { key: "carolina", label: "Carolina Research" },
+        { key: "graphic-design", label: "Graphic Design" },
+        { key: "coding-support", label: "Coding Support" }
+      ],
+
       /** Update the UI-selected model AND immediately apply it to the active session (if any). */
       setSelectedModel(model) {
         set((s) => {
@@ -132,6 +154,40 @@ export const useSessionStore = create(
           };
         });
       },
+
+      // NEW: Delete functions for left panel items
+      deleteContextFile: (key) => set((state) => ({
+        contextFiles: state.contextFiles.filter(f => f.key !== key)
+      })),
+
+      deleteBehavior: (key) => set((state) => ({
+        behaviors: state.behaviors.filter(b => b.key !== key)
+      })),
+
+      deleteCommand: (key) => set((state) => ({
+        commands: state.commands.filter(c => c.key !== key)
+      })),
+
+      deleteProject: (key) => set((state) => ({
+        projects: state.projects.filter(p => p.key !== key)
+      })),
+
+      // NEW: Add functions for left panel items
+      addContextFile: (file) => set((state) => ({
+        contextFiles: [...state.contextFiles, { key: uid(), ...file }]
+      })),
+
+      addBehavior: (behavior) => set((state) => ({
+        behaviors: [...state.behaviors, { key: uid(), ...behavior }]
+      })),
+
+      addCommand: (command) => set((state) => ({
+        commands: [...state.commands, { key: uid(), ...command }]
+      })),
+
+      addProject: (project) => set((state) => ({
+        projects: [...state.projects, { key: uid(), ...project }]
+      })),
 
       // NEW: Helper functions for message management
       getGuestMessageCount() {
