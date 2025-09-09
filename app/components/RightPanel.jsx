@@ -1,3 +1,44 @@
+// components/RightPanel.jsx - Suggestions + Snapshots
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSessionStore } from "../hooks/useSessionStore";
+
+export default function RightPanel() {
+  const [inspector, setInspector] = useState(null);
+  const [copiedKey, setCopiedKey] = useState(null);
+  const [authState, setAuthState] = useState({ loading: true, authenticated: false });
+  const [showDummy, setShowDummy] = useState(true);
+
+  // Get active session and messages from store
+  const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
+    activeId: s.activeId,
+    sessions: s.sessions,
+    guestMessageCount: s.guestMessageCount,
+  }));
+
+  // Check auth status
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          setAuthState({ loading: false, authenticated: !!data.userId });
+        } else {
+          setAuthState({ loading: false, authenticated: false });
+        }
+      } catch {
+        setAuthState({ loading: false, authenticated: false });
+      }
+    };
+    checkAuth();
+  }, []);
+
+  // Get current thread and count user messages
+  const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
+  const threadUserMessageCount = currentThread.filter((m) => m?.role === "user").length;
+
   // Use appropriate message count
   const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : guestMessageCount;
 
@@ -5,9 +46,7 @@
   useEffect(() => {
     function onUpdate(e) {
       if (e?.detail) {
-        console.log("RightPanel received inspector update:", e.detail);
         setInspector(e.detail);
-        // Hide dummy when real data arrives
         if (e.detail?.snapshots?.length > 0) setShowDummy(false);
       }
     }
@@ -41,7 +80,7 @@
     return () => clearInterval(timer);
   }, [activeId]);
 
-  // Copy function for individual sections
+  // Copy helpers
   async function copySection(content, sectionKey) {
     try {
       await navigator.clipboard.writeText(content);
@@ -52,34 +91,28 @@
     }
   }
 
-  // Copy all sections function
   function copyAllSections(c, index) {
     const sections = [];
-
     if (c.topics?.length > 0) {
       sections.push("Topics:");
       sections.push(...c.topics.map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`));
       sections.push("");
     }
-
     if (c.key_details?.length > 0) {
       sections.push("Key Details:");
       sections.push(...c.key_details.map((k) => `• ${k}`));
       sections.push("");
     }
-
     if (c.decisions?.length > 0) {
       sections.push("Decisions:");
       sections.push(...c.decisions.map((d) => `• ${d}`));
       sections.push("");
     }
-
     if (c.open_questions?.length > 0) {
       sections.push("Open Questions:");
       sections.push(...c.open_questions.map((q) => `• ${q}`));
       sections.push("");
     }
-
     if (c.actions?.length > 0) {
       sections.push("Actions:");
       sections.push(
@@ -90,15 +123,14 @@
         })
       );
     }
-
     copySection(sections.join("\n").trim(), `all-${index}`);
   }
 
-  // Get snapshots & commands (commands fire at 3/6/9… mentions)
+  // Data to render
   const snapshots = inspector?.snapshots || [];
   const commands = inspector?.commands || [];
 
-  // Dummy preview (only when no real snapshots exist at 5th, 10th, … user message)
+  // Dummy preview (only when no real snapshots exist at the 5th, 10th, … message)
   const dummyPreview = {
     created_at: new Date().toISOString(),
     from_turn: 1,
@@ -205,16 +237,12 @@
                     </button>
                   </div>
 
-                  {!shouldShowDummy &&
-                    hasRealSnapshots &&
-                    !c.topics?.length &&
-                    !c.key_details?.length &&
-                    !c.decisions?.length && (
-                      <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px]">
-                        <div className="font-medium text-yellow-800">Debug - Empty Snapshot:</div>
-                        <pre className="text-yellow-700 mt-1 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
-                      </div>
-                    )}
+                  {!shouldShowDummy && hasRealSnapshots && !c.topics?.length && !c.key_details?.length && !c.decisions?.length && (
+                    <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px]">
+                      <div className="font-medium text-yellow-800">Debug - Empty Snapshot:</div>
+                      <pre className="text-yellow-700 mt-1 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
+                    </div>
+                  )}
 
                   {c.topics?.length > 0 && (
                     <div className="mt-1">
@@ -222,9 +250,7 @@
                         <div className="font-medium">Topics</div>
                         <button
                           onClick={() => {
-                            const topicsText = c.topics
-                              .map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
-                              .join("\n");
+                            const topicsText = c.topics.map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`).join("\n");
                             copySection(topicsText, `topics-${index}`);
                           }}
                           className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
