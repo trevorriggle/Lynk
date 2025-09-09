@@ -182,11 +182,18 @@ function normalizeSlug(v) {
 // Count one mention per slug per *user turn*, then evaluate triggers
 function markTopicMention(session, slug) {
   if (!slug) return;
+  
   const userTurns = userTurnCount(session.turns);
   const seenAt = (session._topicSeenAt ||= {});
-  if (seenAt[slug] === userTurns) return; // already counted this slug for this user turn
+  
+  // Only count once per user turn
+  if (seenAt[slug] === userTurns) return;
+  
   seenAt[slug] = userTurns;
   session.topicCounts[slug] = (session.topicCounts[slug] || 0) + 1;
+  
+  console.log(`Topic "${slug}" mentioned ${session.topicCounts[slug]} times`); // Debug log
+  
   maybeSuggestCommand(session, slug);
 }
 
@@ -195,18 +202,25 @@ function maybeSuggestCommand(session, slug) {
   const n = session.topicCounts[slug] || 0;
   const st = (session.commandState ||= {});
   const nextAt = st[slug]?.nextAt ?? COMMAND_THRESHOLD;
+  
+  console.log(`Checking command for "${slug}": count=${n}, threshold=${nextAt}`); // Debug log
+  
   if (n >= nextAt) {
-    (session.commands ||= []).push({
+    const command = {
       slug,
       command: `${slug}?`,
       count: n,
       created_at: new Date().toISOString(),
-    });
+    };
+    
+    (session.commands ||= []).push(command);
     st[slug] = { nextAt: nextAt + COMMAND_THRESHOLD };
+    
+    console.log(`Generated command: ${command.command}`); // Debug log
   }
 }
 
-// Lightweight topic scrape from the raw user message
+// Enhanced topic scrape from the raw user message
 function trackMessageTopics(session, message) {
   const text = asText(message || "");
   const slugs = new Set();
@@ -215,24 +229,60 @@ function trackMessageTopics(session, message) {
   for (const m of text.matchAll(/#([a-z0-9][\w-]{1,60})/gi)) {
     slugs.add(normalizeSlug(m[1]));
   }
+  
   // 2) quoted phrases => "fort rapids" → fort-rapids
   for (const m of text.matchAll(/"([^"]{2,80})"/g)) {
     slugs.add(normalizeSlug(m[1]));
   }
-  // 3) simple keywords >3 chars (basic stopword trim)
+  
+  // 3) Enhanced keyword detection - more aggressive for common topics
   const stop = new Set([
     "the","and","for","that","with","this","from","your","you","are","was","have","will","into","about","just","like",
     "then","than","they","what","when","where","why","how","who","which","also","over","under","after","before",
+    "here","there","some","very","can","could","would","should","may","might","said","say","says"
   ]);
+  
+  // Extract all words, including shorter ones for common topics like "fruit"
   const words = text
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 4 && !stop.has(w))
-    .slice(0, 6);
-  for (const w of words) slugs.add(normalizeSlug(w));
+    .filter((w) => w.length >= 3 && !stop.has(w)) // Lowered from 4 to 3 chars to catch "fruit"
+    .slice(0, 10); // Increased from 6 to 10 words
+    
+  for (const w of words) {
+    const slug = normalizeSlug(w);
+    if (slug) slugs.add(slug);
+  }
 
-  for (const slug of slugs) if (slug) markTopicMention(session, slug);
+  // 4) Special handling for common topic patterns
+  const topicPatterns = [
+    /\bfruit\b/gi,
+    /\bfood\b/gi,
+    /\bnumber\b/gi,
+    /\bsequence\b/gi,
+    /\bmath\b/gi,
+    /\bcode\b/gi,
+    /\bprogram\b/gi,
+    /\bresearch\b/gi,
+    /\banalyze\b/gi,
+    /\bdata\b/gi
+  ];
+  
+  for (const pattern of topicPatterns) {
+    const matches = text.match(pattern);
+    if (matches) {
+      for (const match of matches) {
+        slugs.add(normalizeSlug(match));
+      }
+    }
+  }
+
+  console.log("Detected topic slugs:", Array.from(slugs)); // Debug log
+  
+  for (const slug of slugs) {
+    if (slug) markTopicMention(session, slug);
+  }
 }
 
 // ---------- Live Notes + Topics -> Commands (using cheapest model) ----------
@@ -437,6 +487,8 @@ export async function GET(req) {
               triedKeys: { auth: authSessionKey, guest: guestSessionKey, simple: simpleKey },
               foundWith: authSession ? "auth" : guestSession ? "guest" : "simple",
               allSessionKeys: Array.from(SESSIONS.keys()),
+              topicCounts: s.topicCounts, // Add this for debugging
+              commandState: s.commandState, // Add this for debugging
             },
           }
         : {
