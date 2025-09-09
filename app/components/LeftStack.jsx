@@ -30,7 +30,7 @@ function Section({ title, defaultOpen = false, children }) {
 }
 
 /** Row that can render as an input-like pill when `pill` is true */
-function Row({ label, onClick, muted = false, active = false, pill = false }) {
+function Row({ label, onClick, onDelete, muted = false, active = false, pill = false, deletable = false }) {
   // EXACT match to your chat input pill styles
   const pillBase =
     "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none truncate";
@@ -48,6 +48,34 @@ function Row({ label, onClick, muted = false, active = false, pill = false }) {
   const cls = pill
     ? [pillBase, active ? pillActive : pillInactive, muted ? "text-slate-500 italic" : ""].join(" ")
     : [nonPillBase, active ? nonPillActive : nonPillInactive, muted ? "text-slate-500 italic" : "text-slate-800"].join(" ");
+
+  if (deletable) {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={onClick}
+          aria-current={active ? "true" : undefined}
+          className={cls}
+          title={label}
+        >
+          {label}
+        </button>
+        <button
+          type="button"
+          title="Delete"
+          aria-label="Delete"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.();
+          }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-2xl leading-none"
+        >
+          ×
+        </button>
+      </div>
+    );
+  }
 
   return (
     <button
@@ -74,35 +102,101 @@ export default function LeftStack({ onActivate }) {
 
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
 
+  // Placeholder delete handlers for demonstration
+  const handleDeleteFile = (key) => {
+    console.log("Delete file:", key);
+    // TODO: Implement actual file deletion
+  };
+
+  const handleDeleteBehavior = (key) => {
+    console.log("Delete behavior:", key);
+    // TODO: Implement actual behavior deletion
+  };
+
+  const handleDeleteCommand = (key) => {
+    console.log("Delete command:", key);
+    // TODO: Implement actual command deletion
+  };
+
+  const handleDeleteProject = (key) => {
+    console.log("Delete project:", key);
+    // TODO: Implement actual project deletion
+  };
+
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
       <Section title="Context Files">
-        <Row label="sys-prompt.txt" onClick={() => onActivate?.({ type: "file", key: "sys-prompt.txt" })} />
+        <Row 
+          label="sys-prompt.txt" 
+          onClick={() => onActivate?.({ type: "file", key: "sys-prompt.txt" })}
+          onDelete={() => handleDeleteFile("sys-prompt.txt")}
+          deletable
+        />
         <Row label="Add More" onClick={() => onActivate?.({ type: "file", key: "upload" })} muted />
       </Section>
 
       <Section title="Behaviors">
-        <Row label="Respond cordially and friendly." onClick={() => onActivate?.({ type: "behavior", key: "cordial" })} />
+        <Row 
+          label="Respond cordially and friendly." 
+          onClick={() => onActivate?.({ type: "behavior", key: "cordial" })}
+          onDelete={() => handleDeleteBehavior("cordial")}
+          deletable
+        />
       </Section>
 
       <Section title="Commands">
-        <Row label="Research?" onClick={() => onActivate?.({ type: "command", key: "research?" })} />
-        <Row label="Fort-rapids?" onClick={() => onActivate?.({ type: "command", key: "fort-rapids?" })} />
-        <Row label="Analyze?" onClick={() => onActivate?.({ type: "command", key: "analyze?" })} />
-        <Row label="Brainstorm?" onClick={() => onActivate?.({ type: "command", key: "brainstorm?" })} />
+        <Row 
+          label="Research?" 
+          onClick={() => onActivate?.({ type: "command", key: "research?" })}
+          onDelete={() => handleDeleteCommand("research?")}
+          deletable
+        />
+        <Row 
+          label="Fort-rapids?" 
+          onClick={() => onActivate?.({ type: "command", key: "fort-rapids?" })}
+          onDelete={() => handleDeleteCommand("fort-rapids?")}
+          deletable
+        />
+        <Row 
+          label="Analyze?" 
+          onClick={() => onActivate?.({ type: "command", key: "analyze?" })}
+          onDelete={() => handleDeleteCommand("analyze?")}
+          deletable
+        />
+        <Row 
+          label="Brainstorm?" 
+          onClick={() => onActivate?.({ type: "command", key: "brainstorm?" })}
+          onDelete={() => handleDeleteCommand("brainstorm?")}
+          deletable
+        />
         <div className="pt-1">
           <Row label="See All" onClick={() => onActivate?.({ type: "command", key: "see-all" })} muted />
         </div>
       </Section>
 
       <Section title="Projects">
-        <Row label="Carolina Research" onClick={() => onActivate?.({ type: "project", key: "carolina" })} />
-        <Row label="Graphic Design" onClick={() => onActivate?.({ type: "project", key: "graphic-design" })} />
-        <Row label="Coding Support" onClick={() => onActivate?.({ type: "project", key: "coding-support" })} />
+        <Row 
+          label="Carolina Research" 
+          onClick={() => onActivate?.({ type: "project", key: "carolina" })}
+          onDelete={() => handleDeleteProject("carolina")}
+          deletable
+        />
+        <Row 
+          label="Graphic Design" 
+          onClick={() => onActivate?.({ type: "project", key: "graphic-design" })}
+          onDelete={() => handleDeleteProject("graphic-design")}
+          deletable
+        />
+        <Row 
+          label="Coding Support" 
+          onClick={() => onActivate?.({ type: "project", key: "coding-support" })}
+          onDelete={() => handleDeleteProject("coding-support")}
+          deletable
+        />
       </Section>
 
-      {/* REAL Recent Chats as pills + inline delete */}
-      <Section title="Recent Chats" defaultOpen>
+      {/* Recent Chats - now defaultOpen=false (collapsed by default) */}
+      <Section title="Recent Chats" defaultOpen={false}>
         {recent.length === 0 ? (
           <Row label="(no chats yet)" muted pill />
         ) : (
