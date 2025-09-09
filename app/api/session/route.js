@@ -24,22 +24,57 @@ const estTokens = (s) => Math.ceil((s || "").length / 4);
 const SNAPSHOT_INPUT_BUDGET = 700;   // approx input window to summarize
 const SNAPSHOT_OUTPUT_TOKENS = 200;  // strict cap; JSON-only output
 
-// --- Minimal in-memory session store ---
-// Session: { turns, last, live, topicCounts, commands, snapshots? }
+// --- Session store with user isolation ---
+// Session: { turns, last, live, topicCounts, commands, snapshots?, userId? }
 const SESSIONS = new Map();
-const getSession = (id) => {
-  if (!SESSIONS.has(id)) {
-    SESSIONS.set(id, {
+const getSession = (id, userId = null) => {
+  // Create session key that includes user context to prevent cross-contamination
+  const sessionKey = userId ? `${userId}:${id}` : `guest:${id}`;
+  
+  if (!SESSIONS.has(sessionKey)) {
+    SESSIONS.set(sessionKey, {
       turns: [],
       last: {},
       live: { gist: "", key_points: [], todos: [], entities: [] },
       topicCounts: {},
       commands: [],
       snapshots: [],
+      userId: userId, // Track which user owns this session
+      isGuest: !userId,
     });
   }
-  return SESSIONS.get(id);
+  return SESSIONS.get(sessionKey);
 };
+
+// Helper to get user ID from request (you'll need to implement based on your auth system)
+async function getUserFromRequest(req) {
+  try {
+    // Try to get user from your auth system
+    // This might involve checking cookies, JWT tokens, etc.
+    // For now, I'll assume you have an /api/me endpoint that returns user info
+    const authHeader = req.headers.get('cookie');
+    if (!authHeader) return null;
+    
+    // Make internal request to check auth (you might want to optimize this)
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const meResponse = await fetch(`${baseUrl}/api/me`, {
+      headers: {
+        cookie: authHeader,
+      },
+      cache: 'no-store',
+    });
+    
+    if (meResponse.ok) {
+      const userData = await meResponse.json();
+      return userData.userId || null;
+    }
+    
+    return null;
+  } catch (e) {
+    console.warn("Failed to get user from request:", e);
+    return null;
+  }
+}
 
 // --- helpers ---
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
@@ -436,11 +471,20 @@ export async function OPTIONS() {
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
+  const userId = await getUserFromRequest(req);
+  
   if (sessionId) {
-    const s = SESSIONS.get(sessionId);
+    const sessionKey = userId ? `${userId}:${sessionId}` : `guest:${sessionId}`;
+    const s = SESSIONS.get(sessionKey);
     return Response.json(
       s
-        ? { ok: true, inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] }, turns: s.turns.length }
+        ? { 
+            ok: true, 
+            inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] }, 
+            turns: s.turns.length,
+            isGuest: s.isGuest,
+            userId: s.userId
+          }
         : { ok: false, error: "session not found" },
       { headers: H }
     );
@@ -451,6 +495,7 @@ export async function GET(req) {
       sessions: SESSIONS.size,
       now: new Date().toISOString(),
       expects: "POST { sessionId, message, model: { label, provider, model } }",
+      userId: userId || "guest",
     },
     { headers: H }
   );
@@ -472,6 +517,9 @@ export async function POST(req) {
       }
     }
 
+    // Get user ID from request to properly isolate sessions
+    const userId = await getUserFromRequest(req);
+    
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic"); // "openai" | "anthropic" | "gemini" | "xai"
     const modelName = asText(
@@ -485,8 +533,8 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
-    // 1) append user turn
-    const s = getSession(sessionId);
+    // 1) append user turn - using user-aware session
+    const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
 
     // 2) call chosen provider
@@ -626,6 +674,10 @@ export async function POST(req) {
       JSON.stringify({
         text: assistantText,
         inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
+        sessionMeta: {
+          isGuest: s.isGuest,
+          userId: s.userId,
+        }
       }),
       { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );

@@ -10,6 +10,30 @@ function safeJsonParse(text) {
   }
 }
 
+// Helper function to completely clear guest session data
+function clearGuestSessionData() {
+  if (typeof window === "undefined") return;
+  
+  try {
+    // Get the current store
+    const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
+    
+    if (store.state) {
+      // Clear all guest-related data
+      store.state.guestMessageCount = 0;
+      store.state.sessions = {}; // Clear all sessions - guest sessions should not persist into authenticated accounts
+      store.state.currentSessionId = null;
+      
+      // Save the cleaned store back
+      localStorage.setItem("lynk-sessions-v2", JSON.stringify(store));
+    }
+  } catch (e) {
+    console.warn("Failed to clear guest session data:", e);
+    // If parsing fails, just clear the entire store
+    localStorage.removeItem("lynk-sessions-v2");
+  }
+}
+
 // Dashboard component for authenticated users
 function AccountDashboard({ userEmail, userId, onLogout }) {
   const [stats, setStats] = useState({
@@ -206,28 +230,14 @@ function AuthForms() {
           setMsg("Account created. Please confirm via email to complete sign-up.");
         } else {
           setMsg("Account created and signed in!");
-          if (typeof window !== "undefined") {
-            try {
-              const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
-              if (store.state) {
-                store.state.guestMessageCount = 0;
-                localStorage.setItem("lynk-sessions-v2", JSON.stringify(store));
-              }
-            } catch {}
-          }
+          // Clear guest session data completely when signing up
+          clearGuestSessionData();
           setTimeout(() => (window.location.href = "/"), 1200);
         }
       } else {
         setMsg("Signed in!");
-        if (typeof window !== "undefined") {
-          try {
-            const store = JSON.parse(localStorage.getItem("lynk-sessions-v2") || "{}");
-            if (store.state) {
-              store.state.guestMessageCount = 0;
-              localStorage.setItem("lynk-sessions-v2", JSON.stringify(store));
-            }
-          } catch {}
-        }
+        // Clear guest session data completely when logging in
+        clearGuestSessionData();
         setTimeout(() => (window.location.href = "/"), 1200);
       }
     } catch (e) {
@@ -384,12 +394,19 @@ export default function AccountPage() {
         
         if (r.ok) {
           const data = await r.json();
+          const isAuthenticated = !!data.userId;
+          
           setAuthState({
             loading: false,
-            authenticated: !!data.userId,
+            authenticated: isAuthenticated,
             userId: data.userId,
             userEmail: data.project?.email || null,
           });
+          
+          // If user is authenticated, clear any guest session data that might exist
+          if (isAuthenticated) {
+            clearGuestSessionData();
+          }
         } else {
           setAuthState({
             loading: false,
@@ -415,9 +432,17 @@ export default function AccountPage() {
   async function handleLogout() {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
+      // Clear all session data on logout
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("lynk-sessions-v2");
+      }
       window.location.reload();
     } catch (e) {
       console.warn("Logout error:", e);
+      // Still clear localStorage even if logout API fails
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("lynk-sessions-v2");
+      }
       window.location.reload();
     }
   }
