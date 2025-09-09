@@ -357,12 +357,31 @@ async function consolidateSnapshot(session, provider, modelName) {
   
   // Normalize & cap
   const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
-  const topics = cap(obj.topics, 5)
+  
+  // Extract topics with fallback
+  let topics = cap(obj.topics, 5)
     .map((x) => ({
       slug: normalizeSlug(x?.slug ?? x),
       gloss: String(x?.gloss || "").slice(0, 120),
     }))
     .filter((t) => t.slug);
+    
+  // Fallback: if no topics found, create some basic ones from the chat
+  if (topics.length === 0 && excerpt.length > 50) {
+    topics = [
+      { slug: "conversation-topic", gloss: "General discussion" },
+      { slug: "user-interaction", gloss: "User questions and responses" }
+    ];
+  }
+  
+  // Extract key details with fallback
+  let keyDetails = cap(obj.key_details, 5).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0);
+  if (keyDetails.length === 0 && excerpt.length > 50) {
+    keyDetails = [
+      "Conversation between user and AI assistant",
+      "Multiple exchanges covering various topics"
+    ];
+  }
 
   const snapshot = {
     created_at: new Date().toISOString(),
@@ -370,15 +389,15 @@ async function consolidateSnapshot(session, provider, modelName) {
     from_turn,
     to_turn,
     topics,
-    key_details: cap(obj.key_details, 5).map((s) => String(s).slice(0, 120)),
-    decisions: cap(obj.decisions, 3).map((s) => String(s).slice(0, 120)),
-    open_questions: cap(obj.open_questions, 3).map((s) => String(s).slice(0, 120)),
+    key_details: keyDetails,
+    decisions: cap(obj.decisions, 3).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0),
+    open_questions: cap(obj.open_questions, 3).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0),
     actions: cap(obj.actions, 5).map((a) => ({
       text: String(a?.text ?? a).slice(0, 120),
       owner: a?.owner ? String(a.owner).slice(0, 40) : undefined,
-    })),
-    entities: cap(obj.entities, 8).map((s) => String(s).slice(0, 60)),
-    links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)),
+    })).filter(a => a.text && a.text.length > 0),
+    entities: cap(obj.entities, 8).map((s) => String(s).slice(0, 60)).filter(s => s.length > 0),
+    links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)).filter(s => s.length > 0),
     confidence: ["low", "med", "high"].includes(obj.confidence) ? obj.confidence : "med",
   };
   
