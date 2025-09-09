@@ -1,4 +1,4 @@
-// components/RightPanel.jsx - Complete working version with all copy functions
+// components/RightPanel.jsx - Complete working version with dummy preview
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
+  const [showDummy, setShowDummy] = useState(true);
 
   // Get active session and messages from store
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
@@ -56,6 +57,10 @@ export default function RightPanel() {
       if (e?.detail) {
         console.log("RightPanel received inspector update:", e.detail);
         setInspector(e.detail);
+        // Hide dummy when real data arrives
+        if (e.detail?.snapshots?.length > 0) {
+          setShowDummy(false);
+        }
       }
     }
     window.addEventListener("inspector:update", onUpdate);
@@ -66,6 +71,7 @@ export default function RightPanel() {
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
+      setShowDummy(true);
       return;
     }
 
@@ -75,6 +81,10 @@ export default function RightPanel() {
         const j = await r.json();
         if (j?.inspector) {
           setInspector(j.inspector);
+          // Hide dummy when real data arrives
+          if (j.inspector?.snapshots?.length > 0) {
+            setShowDummy(false);
+          }
         }
       } catch (e) {
         console.warn("RightPanel polling error:", e);
@@ -139,6 +149,39 @@ export default function RightPanel() {
 
   // Get snapshots from inspector (real data only)
   const snapshots = inspector?.snapshots || [];
+  
+  // Create dummy preview data
+  const dummyPreview = {
+    created_at: new Date().toISOString(),
+    from_turn: 1,
+    to_turn: currentUserMessageCount,
+    topics: [
+      { slug: "conversation-preview", gloss: "Example of how topics will appear" },
+      { slug: "ai-assistance", gloss: "Discussion about AI capabilities" }
+    ],
+    key_details: [
+      "This is a sample preview showing how conversation summaries work",
+      "Previews appear automatically every 5 messages",
+      "Each section can be copied individually or all together"
+    ],
+    decisions: [
+      "User decided to explore the preview functionality"
+    ],
+    open_questions: [
+      "How will the real conversation data look?",
+      "What other features are available?"
+    ],
+    actions: [
+      { text: "Try the copy buttons above", owner: "user" },
+      { text: "Continue chatting to generate real previews", owner: "system" }
+    ],
+    confidence: "high"
+  };
+
+  // Determine what to show
+  const hasRealSnapshots = snapshots.length > 0;
+  const shouldShowDummy = showDummy && !hasRealSnapshots && currentUserMessageCount > 0;
+  const previewsToShow = hasRealSnapshots ? snapshots : (shouldShowDummy ? [dummyPreview] : []);
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
@@ -147,21 +190,41 @@ export default function RightPanel() {
           session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"} • snapshots: {snapshots.length}
         </div>
 
-        <div className="mb-1 text-sm font-semibold text-slate-800">Previews</div>
-        {snapshots.length === 0 ? (
+        <div className="mb-1 flex items-center justify-between">
+          <div className="text-sm font-semibold text-slate-800">Previews</div>
+          {shouldShowDummy && (
+            <button
+              onClick={() => setShowDummy(false)}
+              className="text-[10px] text-slate-500 hover:text-slate-700"
+              title="Hide dummy preview"
+            >
+              Hide Demo
+            </button>
+          )}
+        </div>
+
+        {previewsToShow.length === 0 ? (
           <p className="mt-1 text-xs leading-5 text-slate-600">
             Previews will appear here after every 5 messages as the AI creates conversation snapshots.
           </p>
         ) : (
           <div className="mt-2 space-y-3">
-            {snapshots.slice().reverse().map((c, index) => (
+            {previewsToShow.slice().reverse().map((c, index) => (
               <div
                 key={c.created_at + index}
-                className="rounded-md border border-green-200 bg-green-50 p-2 text-xs leading-5 text-slate-700"
+                className={`rounded-md border p-2 text-xs leading-5 text-slate-700 ${
+                  shouldShowDummy && !hasRealSnapshots 
+                    ? "border-blue-200 bg-blue-50" 
+                    : "border-green-200 bg-green-50"
+                }`}
               >
                 <div className="flex items-center justify-between mb-1">
                   <div className="text-[11px] text-slate-500">
-                    turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}
+                    {shouldShowDummy && !hasRealSnapshots ? (
+                      <span className="text-blue-600 font-medium">Demo Preview</span>
+                    ) : (
+                      <>turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}</>
+                    )}
                   </div>
                   <button
                     onClick={() => copyAllSections(c, index)}
@@ -296,6 +359,14 @@ export default function RightPanel() {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {shouldShowDummy && !hasRealSnapshots && (
+                  <div className="mt-2 pt-2 border-t border-blue-200">
+                    <p className="text-[10px] text-blue-600">
+                      This is a demo preview. Real conversation summaries will replace this after 5+ messages.
+                    </p>
                   </div>
                 )}
               </div>
