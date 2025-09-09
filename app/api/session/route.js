@@ -88,6 +88,19 @@ async function getUserFromRequest(req) {
 // --- helpers ---
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
 
+function shouldInjectIdentity(message) {
+  const identityTriggers = [
+    /who are you/i,
+    /what are you/i,
+    /what model/i,
+    /what ai/i,
+    /who built you/i,
+    /what is lynk/i,
+    /your identity/i,
+  ];
+  return identityTriggers.some(trigger => trigger.test(message));
+}
+
 const buildBudgetedTurns = (turns, maxTokens) => {
   const out = [];
   let used = 0;
