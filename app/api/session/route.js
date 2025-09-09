@@ -42,6 +42,14 @@ const estTokens = (s) => Math.ceil((s || "").length / 4);
 const SNAPSHOT_INPUT_BUDGET = 700;   // approx input window to summarize
 const SNAPSHOT_OUTPUT_TOKENS = 200;  // strict cap; JSON-only output
 
+// --- Cheapest models for background tasks ---
+const CHEAP_MODELS = {
+  openai: "gpt-4o-mini",
+  anthropic: "claude-3-haiku-20240307",
+  gemini: "gemini-1.5-flash",
+  xai: "grok-2", // xAI only has grok-2 currently
+};
+
 // --- Session store with user isolation ---
 // Session: { turns, last, live, topicCounts, commands, snapshots?, userId?, _topicSeenAt?, commandState? }
 const SESSIONS = new Map();
@@ -115,9 +123,6 @@ const buildBudgetedTurns = (turns, maxTokens) => {
 };
 
 const userTurnCount = (turns) => turns.reduce((n, t) => n + (t.role === "user" ? 1 : 0), 0);
-function userTurnIndex(session) {
-  return userTurnCount(session.turns); // 1-based (after pushing user turn)
-}
 
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
@@ -177,10 +182,10 @@ function normalizeSlug(v) {
 // Count one mention per slug per *user turn*, then evaluate triggers
 function markTopicMention(session, slug) {
   if (!slug) return;
-  const turn = userTurnIndex(session);
+  const userTurns = userTurnCount(session.turns);
   const seenAt = (session._topicSeenAt ||= {});
-  if (seenAt[slug] === turn) return; // already counted this slug for this user turn
-  seenAt[slug] = turn;
+  if (seenAt[slug] === userTurns) return; // already counted this slug for this user turn
+  seenAt[slug] = userTurns;
   session.topicCounts[slug] = (session.topicCounts[slug] || 0) + 1;
   maybeSuggestCommand(session, slug);
 }
@@ -230,8 +235,8 @@ function trackMessageTopics(session, message) {
   for (const slug of slugs) if (slug) markTopicMention(session, slug);
 }
 
-// ---------- Live Notes + Topics -> Commands ----------
-async function updateLiveNotes(session, provider, modelName) {
+// ---------- Live Notes + Topics -> Commands (using cheapest model) ----------
+async function updateLiveNotes(session) {
   const lastTurns = buildBudgetedTurns(session.turns, 600);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
@@ -251,76 +256,24 @@ async function updateLiveNotes(session, provider, modelName) {
   ].join("\n");
 
   try {
-    if (provider === "openai") {
-      const key = process.env.OPENAI_API_KEY;
-      if (!key) return;
-      const client = new OpenAI({ apiKey: key });
-      const r = await client.chat.completions.create({
-        model: modelName,
-        max_tokens: 128,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: "Return only valid JSON. No explanations." },
-          { role: "user", content: prompt },
-        ],
-      });
-      const raw = r?.choices?.[0]?.message?.content?.toString?.() || "";
-      const obj = JSON.parse(extractJson(raw));
-      mergeLive(session, obj);
-
-    } else if (provider === "anthropic") {
-      const key = process.env.ANTHROPIC_API_KEY;
-      if (!key) return;
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: modelName,
-          max_tokens: 128,
-          temperature: 0.2,
-          messages: [{ role: "user", content: [{ type: "text", text: "Return only valid JSON. No explanations.\n\n" + prompt }] }],
-        }),
-      });
-      const txt = await r.text();
-      const data = safeParseJson(txt);
-      const onlyText = (data?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-      const obj = JSON.parse(extractJson(onlyText));
-      mergeLive(session, obj);
-
-    } else if (provider === "xai") {
-      const key = process.env.XAI_API_KEY;
-      if (!key) return;
-      const assistantText = await callOpenAIMessagesOnce({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        system: "Return only valid JSON. No explanations.",
-        user: prompt,
-        max_tokens: 128,
-        temperature: 0.2,
-      });
-      const obj = JSON.parse(extractJson(assistantText));
-      mergeLive(session, obj);
-
-    } else {
-      // gemini
-      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      if (!key) return;
-      const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
-      const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: "Return only valid JSON. No explanations.\n\n" + prompt }] }],
-        generationConfig: { maxOutputTokens: 128, temperature: 0.2 },
-      });
-      const raw = result?.response?.text?.() || "";
-      const obj = JSON.parse(extractJson(raw));
-      mergeLive(session, obj);
-    }
-  } catch {
+    // Always use cheapest OpenAI model for live notes
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) return;
+    const client = new OpenAI({ apiKey: key });
+    const r = await client.chat.completions.create({
+      model: CHEAP_MODELS.openai,
+      max_tokens: 128,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: "Return only valid JSON. No explanations." },
+        { role: "user", content: prompt },
+      ],
+    });
+    const raw = r?.choices?.[0]?.message?.content?.toString?.() || "";
+    const obj = JSON.parse(extractJson(raw));
+    mergeLive(session, obj);
+  } catch (e) {
+    console.warn("Live notes update failed:", e);
     // keep prior live notes on failure
   }
 }
@@ -341,8 +294,8 @@ function mergeLive(session, obj) {
   }
 }
 
-// Consolidate a compact snapshot for the last window (triggered every 5 user turns)
-async function consolidateSnapshot(session, provider, modelName) {
+// Consolidate a compact snapshot for the last window (triggered every 5 user turns, always using cheapest model)
+async function consolidateSnapshot(session) {
   const from_turn = (session.snapshots?.at(-1)?.to_turn ?? 0) + 1;
   const to_turn = session.turns.length;
   const windowTurns = session.turns.slice(Math.max(0, from_turn - 1), to_turn);
@@ -375,63 +328,22 @@ async function consolidateSnapshot(session, provider, modelName) {
 
   let jsonText = "{}";
   try {
-    if (provider === "openai") {
-      const key = process.env.OPENAI_API_KEY; if (!key) return;
-      const client = new OpenAI({ apiKey: key });
-      const r = await client.chat.completions.create({
-        model: modelName,
-        temperature: 0.1,
-        max_tokens: SNAPSHOT_OUTPUT_TOKENS,
-        messages: [
-          { role: "system", content: "Return ONLY valid JSON. No explanations." },
-          { role: "user", content: schemaPrompt },
-        ],
-      });
-      jsonText = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
-
-    } else if (provider === "anthropic") {
-      const key = process.env.ANTHROPIC_API_KEY; if (!key) return;
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: modelName,
-          temperature: 0.1,
-          max_tokens: SNAPSHOT_OUTPUT_TOKENS,
-          messages: [{ role: "user", content: [{ type: "text", text: "Return ONLY valid JSON. No explanations.\n\n" + schemaPrompt }] }],
-        }),
-      });
-      const txt = await r.text();
-      const data = safeParseJson(txt);
-      jsonText = (data?.content || []).filter((b) => b.type === "text").map((b) => b.text).join("") || "{}";
-
-    } else if (provider === "xai") {
-      const key = process.env.XAI_API_KEY; if (!key) return;
-      jsonText = await callOpenAIMessagesOnce({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        system: "Return ONLY valid JSON. No explanations.",
-        user: schemaPrompt,
-        temperature: 0.1,
-        max_tokens: SNAPSHOT_OUTPUT_TOKENS,
-      });
-
-    } else {
-      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY; if (!key) return;
-      const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
-      const result = await model.generateContent({
-        contents: [{ role: "user", parts: [{ text: "Return ONLY valid JSON. No explanations.\n\n" + schemaPrompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: SNAPSHOT_OUTPUT_TOKENS },
-      });
-      jsonText = result?.response?.text?.() || "{}";
-    }
-  } catch {
+    // Always use cheapest OpenAI model for snapshots
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) return;
+    const client = new OpenAI({ apiKey: key });
+    const r = await client.chat.completions.create({
+      model: CHEAP_MODELS.openai,
+      temperature: 0.1,
+      max_tokens: SNAPSHOT_OUTPUT_TOKENS,
+      messages: [
+        { role: "system", content: "Return ONLY valid JSON. No explanations." },
+        { role: "user", content: schemaPrompt },
+      ],
+    });
+    jsonText = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+  } catch (e) {
+    console.warn("Snapshot generation failed:", e);
     // swallow & keep minimal
   }
 
@@ -456,7 +368,7 @@ async function consolidateSnapshot(session, provider, modelName) {
 
   const snapshot = {
     created_at: new Date().toISOString(),
-    model: { provider, model: modelName },
+    model: { provider: "openai", model: CHEAP_MODELS.openai }, // Always cheapest model
     from_turn,
     to_turn,
     topics,
@@ -473,30 +385,6 @@ async function consolidateSnapshot(session, provider, modelName) {
 
   (session.snapshots ||= []).push(snapshot);
   for (const t of topics) markTopicMention(session, t.slug);
-}
-
-// small helper to call OAI-compatible with system+user in one go
-async function callOpenAIMessagesOnce({ baseURL, key, model, system, user, max_tokens, temperature }) {
-  const res = await fetch(`${baseURL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        ...(system ? [{ role: "system", content: system }] : []),
-        { role: "user", content: user },
-      ],
-      temperature,
-      max_tokens,
-    }),
-  });
-  const txt = await res.text();
-  if (!res.ok) throw new Error(`OpenAI-compatible ${res.status}: ${txt}`);
-  const data = safeParseJson(txt);
-  return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
 function extractJson(s) {
@@ -753,20 +641,19 @@ export async function POST(req) {
         generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
       });
       assistantText = result?.response?.text?.() || "Okay.";
-      // continuation skipped for Gemini
     }
 
     // 3) append assistant turn
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // 4) update live notes (cheap)
-    await updateLiveNotes(s, provider, modelName);
+    // 4) update live notes (always using cheapest model)
+    await updateLiveNotes(s);
 
-    // 5) periodic snapshot every 5 user turns
-    const users = userTurnCount(s.turns);
-    if (users > 0 && users % 5 === 0) {
-      await consolidateSnapshot(s, provider, modelName);
+    // 5) periodic snapshot every 5 user turns (always using cheapest model)
+    const userTurns = userTurnCount(s.turns);
+    if (userTurns > 0 && userTurns % 5 === 0) {
+      await consolidateSnapshot(s);
     }
 
     // 6) response
