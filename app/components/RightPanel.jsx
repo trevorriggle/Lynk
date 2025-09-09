@@ -236,6 +236,14 @@ export default function RightPanel() {
                   </button>
                 </div>
 
+                {/* Debug info for empty snapshots */}
+                {!shouldShowDummy && hasRealSnapshots && !c.topics?.length && !c.key_details?.length && !c.decisions?.length && (
+                  <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px]">
+                    <div className="font-medium text-yellow-800">Debug - Empty Snapshot:</div>
+                    <pre className="text-yellow-700 mt-1 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
+                  </div>
+                )}
+
                 {c.topics?.length > 0 && (
                   <div className="mt-1">
                     <div className="flex items-center justify-between">
