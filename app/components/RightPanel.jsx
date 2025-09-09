@@ -182,6 +182,9 @@ export default function RightPanel() {
   const hasRealSnapshots = snapshots.length > 0;
   const shouldHaveSnapshots = currentUserMessageCount >= 5 && currentUserMessageCount % 5 === 0;
   const shouldShowDummy = showDummy && !hasRealSnapshots && shouldHaveSnapshots && snapshots.length === 0;
+  const previewsToShow = hasRealSnapshots ? snapshots : (shouldShowDummy ? [dummyPreview] : []);ength > 0;
+  const shouldHaveSnapshots = currentUserMessageCount >= 5 && currentUserMessageCount % 5 === 0;
+  const shouldShowDummy = showDummy && !hasRealSnapshots && shouldHaveSnapshots && snapshots.length === 0;
   const previewsToShow = hasRealSnapshots ? snapshots : (shouldShowDummy ? [dummyPreview] : []);
 
   return (
