@@ -178,17 +178,34 @@ export default function RightPanel() {
     confidence: "high"
   };
 
-  // Determine what to show - dummy only at turn 5+ when real snapshots should exist but don't
+  // Determine what to show - dummy only at turn 5+ when NO real snapshots exist at all
   const hasRealSnapshots = snapshots.length > 0;
   const shouldHaveSnapshots = currentUserMessageCount >= 5 && currentUserMessageCount % 5 === 0;
-  const shouldShowDummy = showDummy && !hasRealSnapshots && shouldHaveSnapshots;
+  const shouldShowDummy = showDummy && !hasRealSnapshots && shouldHaveSnapshots && snapshots.length === 0;
   const previewsToShow = hasRealSnapshots ? snapshots : (shouldShowDummy ? [dummyPreview] : []);
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
+      {/* Command Notifications */}
+      {newCommands.length > 0 && (
+        <div className="fixed top-4 right-4 z-50 space-y-2">
+          {newCommands.map((cmd, index) => (
+            <div
+              key={cmd.command + cmd.created_at}
+              className="bg-purple-500 text-white px-4 py-2 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="text-sm font-semibold">Command Created!</div>
+              <div className="text-xs">
+                <code className="bg-purple-600 px-1 rounded">{cmd.command}</code> - {cmd.slug.replace(/-/g, ' ')} ({cmd.count} mentions)
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-[10px] text-slate-400">
-          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"} • snapshots: {snapshots.length}
+          session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth: {authState.authenticated ? "yes" : "no"} • snapshots: {snapshots.length} • commands: {inspector?.commands?.length || 0}
         </div>
 
         <div className="mb-1 flex items-center justify-between">

@@ -475,7 +475,7 @@ function normalizeSlug(v) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
-const COMMAND_THRESHOLD = 10;
+const COMMAND_THRESHOLD = 5;
 function maybeSuggestCommand(session, slug) {
   const n = session.topicCounts[slug] || 0;
   if (n < COMMAND_THRESHOLD) return;
