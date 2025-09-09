@@ -88,29 +88,6 @@ export default function RightPanel() {
     }
   }
 
-  async function sendToRegistry(commandsToSend) {
-    try {
-      // Get the store's addCommand function
-      const { addCommand } = useSessionStore.getState();
-      
-      // Convert commands to the format expected by the store and add them
-      commandsToSend.forEach(cmd => {
-        addCommand({
-          label: cmd.command || cmd.slug + "?", // Use command text or fallback to slug
-        });
-      });
-      
-      console.log("Commands sent to registry:", commandsToSend);
-      
-      // Show success feedback
-      setCopiedKey("registry-success");
-      setTimeout(() => setCopiedKey(null), 2000);
-      
-    } catch (e) {
-      console.warn("Failed to send to registry:", e);
-    }
-  }
-
   function toggleSnapshot(index) {
     const newCollapsed = new Set(collapsedSnapshots);
     if (newCollapsed.has(index)) {
@@ -169,17 +146,11 @@ export default function RightPanel() {
         </div>
 
         {/* Suggestions */}
-        {true && (
+        {commands.length > 0 && (
           <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2">
               <div className="text-xs font-semibold text-indigo-700">Suggestions</div>
-              <button
-                onClick={() => sendToRegistry(commands)}
-                className="text-[10px] rounded-md border border-indigo-400 bg-indigo-600 text-white px-2 py-1 hover:bg-indigo-700 active:scale-[0.99] font-medium"
-                title="Send all commands to registry"
-              >
-                {copiedKey === "registry-success" ? "Sent!" : "Send to Registry"}
-              </button>
+              <div className="text-[10px] text-indigo-600 mt-1">Click command to send to registry</div>
             </div>
             <div className="flex flex-wrap gap-1">
               {commands
@@ -189,11 +160,22 @@ export default function RightPanel() {
                 .map((c, i) => (
                   <button
                     key={(c.created_at || "") + i}
-                    onClick={() => copySection(c.command, `cmd-${i}`)}
+                    onClick={() => {
+                      // Send this individual command to registry
+                      const { addCommand } = useSessionStore.getState();
+                      addCommand({
+                        label: c.command || c.slug + "?",
+                      });
+                      console.log("Command sent to registry:", c);
+                      
+                      // Show success feedback
+                      setCopiedKey(`registry-${i}`);
+                      setTimeout(() => setCopiedKey(null), 1000);
+                    }}
                     className="text-[10px] rounded-md border border-indigo-300 bg-white px-2 py-1 hover:bg-indigo-100 active:scale-[0.99]"
-                    title={`Copy "${c.command}"`}
+                    title={`Send "${c.command || c.slug + "?"}" to registry`}
                   >
-                    {c.slug}? {copiedKey === `cmd-${i}` ? "✓" : ""}
+                    {c.slug}? {copiedKey === `registry-${i}` ? "✓" : ""}
                   </button>
                 ))}
             </div>
