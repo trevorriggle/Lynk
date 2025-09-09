@@ -8,6 +8,7 @@ export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
+  const [collapsedSnapshots, setCollapsedSnapshots] = useState(new Set());
 
   // Get active session and messages from store
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
@@ -87,6 +88,27 @@ export default function RightPanel() {
     }
   }
 
+  async function sendToRegistry(command) {
+    try {
+      // TODO: Implement actual registry API call
+      console.log("Sending to registry:", command);
+      // Placeholder for now - you can implement the actual API call
+      alert(`Command "${command}" sent to registry!`);
+    } catch (e) {
+      console.warn("Failed to send to registry:", e);
+    }
+  }
+
+  function toggleSnapshot(index) {
+    const newCollapsed = new Set(collapsedSnapshots);
+    if (newCollapsed.has(index)) {
+      newCollapsed.delete(index);
+    } else {
+      newCollapsed.add(index);
+    }
+    setCollapsedSnapshots(newCollapsed);
+  }
+
   function copyAllSections(c, index) {
     const sections = [];
     if (c.topics?.length > 0) {
@@ -128,7 +150,7 @@ export default function RightPanel() {
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 h-full max-h-screen overflow-y-auto">
         <div className="mb-2 text-[10px] text-slate-400">
           session: <code>{activeId || "—"}</code> • user messages: {currentUserMessageCount} • auth:{" "}
           {authState.authenticated ? "yes" : "no"} • snapshots: {snapshots.length} • commands: {commands.length}
@@ -137,7 +159,16 @@ export default function RightPanel() {
         {/* Suggestions */}
         {commands.length > 0 && (
           <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
-            <div className="mb-1 text-xs font-semibold text-indigo-700">Suggestions</div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold text-indigo-700">Suggestions</div>
+              <button
+                onClick={() => sendToRegistry(commands.map(c => c.command).join(', '))}
+                className="text-[10px] rounded-md border border-indigo-400 bg-indigo-600 text-white px-2 py-1 hover:bg-indigo-700 active:scale-[0.99] font-medium"
+                title="Send all commands to registry"
+              >
+                Send to Registry
+              </button>
+            </div>
             <div className="flex flex-wrap gap-1">
               {commands
                 .slice()
@@ -174,9 +205,16 @@ export default function RightPanel() {
                   className="rounded-md border border-green-200 bg-green-50 p-2 text-xs leading-5 text-slate-700"
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <div className="text-[11px] text-slate-500">
+                    <button
+                      onClick={() => toggleSnapshot(index)}
+                      className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-700"
+                      title="Toggle snapshot"
+                    >
+                      <span className="text-xs">
+                        {collapsedSnapshots.has(index) ? "▶" : "▼"}
+                      </span>
                       turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleString()}
-                    </div>
+                    </button>
                     <button
                       onClick={() => copyAllSections(c, index)}
                       className="text-[11px] rounded-md border px-2 py-0.5 hover:bg-slate-100 active:scale-[0.99] font-medium"
@@ -186,139 +224,143 @@ export default function RightPanel() {
                     </button>
                   </div>
 
-                  {/* Debug empty snapshots */}
-                  {!c.topics?.length && !c.key_details?.length && !c.decisions?.length && (
-                    <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px]">
-                      <div className="font-medium text-yellow-800">Debug - Empty Snapshot:</div>
-                      <pre className="text-yellow-700 mt-1 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
-                    </div>
-                  )}
+                  {!collapsedSnapshots.has(index) && (
+                    <>
+                      {/* Debug empty snapshots */}
+                      {!c.topics?.length && !c.key_details?.length && !c.decisions?.length && (
+                        <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px]">
+                          <div className="font-medium text-yellow-800">Debug - Empty Snapshot:</div>
+                          <pre className="text-yellow-700 mt-1 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
+                        </div>
+                      )}
 
-                  {c.topics?.length > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">Topics</div>
-                        <button
-                          onClick={() => {
-                            const topicsText = c.topics.map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`).join("\n");
-                            copySection(topicsText, `topics-${index}`);
-                          }}
-                          className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
-                          title="Copy topics"
-                        >
-                          {copiedKey === `topics-${index}` ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <ul className="list-disc pl-4">
-                        {c.topics.map((t, i) => (
-                          <li key={i}>
-                            <b>{t.slug}</b>
-                            {t.gloss ? ` — ${t.gloss}` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                      {c.topics?.length > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">Topics</div>
+                            <button
+                              onClick={() => {
+                                const topicsText = c.topics.map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`).join("\n");
+                                copySection(topicsText, `topics-${index}`);
+                              }}
+                              className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                              title="Copy topics"
+                            >
+                              {copiedKey === `topics-${index}` ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                          <ul className="list-disc pl-4">
+                            {c.topics.map((t, i) => (
+                              <li key={i}>
+                                <b>{t.slug}</b>
+                                {t.gloss ? ` — ${t.gloss}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                  {c.key_details?.length > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">Key details</div>
-                        <button
-                          onClick={() => {
-                            const detailsText = c.key_details.map((k) => `• ${k}`).join("\n");
-                            copySection(detailsText, `details-${index}`);
-                          }}
-                          className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
-                          title="Copy key details"
-                        >
-                          {copiedKey === `details-${index}` ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <ul className="list-disc pl-4">
-                        {c.key_details.map((k, i) => (
-                          <li key={i}>{k}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                      {c.key_details?.length > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">Key details</div>
+                            <button
+                              onClick={() => {
+                                const detailsText = c.key_details.map((k) => `• ${k}`).join("\n");
+                                copySection(detailsText, `details-${index}`);
+                              }}
+                              className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                              title="Copy key details"
+                            >
+                              {copiedKey === `details-${index}` ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                          <ul className="list-disc pl-4">
+                            {c.key_details.map((k, i) => (
+                              <li key={i}>{k}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                  {c.decisions?.length > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">Decisions</div>
-                        <button
-                          onClick={() => {
-                            const decisionsText = c.decisions.map((d) => `• ${d}`).join("\n");
-                            copySection(decisionsText, `decisions-${index}`);
-                          }}
-                          className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
-                          title="Copy decisions"
-                        >
-                          {copiedKey === `decisions-${index}` ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <ul className="list-disc pl-4">
-                        {c.decisions.map((d, i) => (
-                          <li key={i}>{d}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                      {c.decisions?.length > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">Decisions</div>
+                            <button
+                              onClick={() => {
+                                const decisionsText = c.decisions.map((d) => `• ${d}`).join("\n");
+                                copySection(decisionsText, `decisions-${index}`);
+                              }}
+                              className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                              title="Copy decisions"
+                            >
+                              {copiedKey === `decisions-${index}` ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                          <ul className="list-disc pl-4">
+                            {c.decisions.map((d, i) => (
+                              <li key={i}>{d}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                  {c.open_questions?.length > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">Open questions</div>
-                        <button
-                          onClick={() => {
-                            const questionsText = c.open_questions.map((q) => `• ${q}`).join("\n");
-                            copySection(questionsText, `questions-${index}`);
-                          }}
-                          className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
-                          title="Copy open questions"
-                        >
-                          {copiedKey === `questions-${index}` ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <ul className="list-disc pl-4">
-                        {c.open_questions.map((q, i) => (
-                          <li key={i}>{q}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                      {c.open_questions?.length > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">Open questions</div>
+                            <button
+                              onClick={() => {
+                                const questionsText = c.open_questions.map((q) => `• ${q}`).join("\n");
+                                copySection(questionsText, `questions-${index}`);
+                              }}
+                              className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                              title="Copy open questions"
+                            >
+                              {copiedKey === `questions-${index}` ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                          <ul className="list-disc pl-4">
+                            {c.open_questions.map((q, i) => (
+                              <li key={i}>{q}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                  {c.actions?.length > 0 && (
-                    <div className="mt-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">Actions</div>
-                        <button
-                          onClick={() => {
-                            const actionsText = c.actions
-                              .map((a) => {
-                                const actionText = typeof a === "string" ? a : a.text;
-                                const owner = a.owner ? ` (${a.owner})` : "";
-                                return `• ${actionText}${owner}`;
-                              })
-                              .join("\n");
-                            copySection(actionsText, `actions-${index}`);
-                          }}
-                          className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
-                          title="Copy actions"
-                        >
-                          {copiedKey === `actions-${index}` ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <ul className="list-disc pl-4">
-                        {c.actions.map((a, i) => (
-                          <li key={i}>
-                            {typeof a === "string" ? a : a.text}
-                            {a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                      {c.actions?.length > 0 && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">Actions</div>
+                            <button
+                              onClick={() => {
+                                const actionsText = c.actions
+                                  .map((a) => {
+                                    const actionText = typeof a === "string" ? a : a.text;
+                                    const owner = a.owner ? ` (${a.owner})` : "";
+                                    return `• ${actionText}${owner}`;
+                                  })
+                                  .join("\n");
+                                copySection(actionsText, `actions-${index}`);
+                              }}
+                              className="text-[10px] rounded border px-1.5 py-0.5 hover:bg-slate-100 active:scale-[0.99]"
+                              title="Copy actions"
+                            >
+                              {copiedKey === `actions-${index}` ? "Copied!" : "Copy"}
+                            </button>
+                          </div>
+                          <ul className="list-disc pl-4">
+                            {c.actions.map((a, i) => (
+                              <li key={i}>
+                                {typeof a === "string" ? a : a.text}
+                                {a.owner ? <span className="text-slate-500"> — {a.owner}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
