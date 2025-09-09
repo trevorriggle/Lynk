@@ -88,12 +88,24 @@ export default function RightPanel() {
     }
   }
 
-  async function sendToRegistry(command) {
+  async function sendToRegistry(commandsToSend) {
     try {
-      // TODO: Implement actual registry API call
-      console.log("Sending to registry:", command);
-      // Placeholder for now - you can implement the actual API call
-      alert(`Command "${command}" sent to registry!`);
+      // Get the store's addCommand function
+      const { addCommand } = useSessionStore.getState();
+      
+      // Convert commands to the format expected by the store and add them
+      commandsToSend.forEach(cmd => {
+        addCommand({
+          label: cmd.command || cmd.slug + "?", // Use command text or fallback to slug
+        });
+      });
+      
+      console.log("Commands sent to registry:", commandsToSend);
+      
+      // Show success feedback
+      setCopiedKey("registry-success");
+      setTimeout(() => setCopiedKey(null), 2000);
+      
     } catch (e) {
       console.warn("Failed to send to registry:", e);
     }
@@ -162,11 +174,11 @@ export default function RightPanel() {
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold text-indigo-700">Suggestions</div>
               <button
-                onClick={() => sendToRegistry(commands.map(c => c.command).join(', '))}
+                onClick={() => sendToRegistry(commands)}
                 className="text-[10px] rounded-md border border-indigo-400 bg-indigo-600 text-white px-2 py-1 hover:bg-indigo-700 active:scale-[0.99] font-medium"
                 title="Send all commands to registry"
               >
-                Send to Registry
+                {copiedKey === "registry-success" ? "Sent!" : "Send to Registry"}
               </button>
             </div>
             <div className="flex flex-wrap gap-1">
