@@ -21,13 +21,15 @@ const APP_NAME = "Lynk";
 function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   return [
     `${appName} system identity`,
-    `- You are the "${appName} Assistant" running inside the ${appName} web app.`,
-    `- For THIS conversation, your underlying model endpoint is: provider="${provider}", model="${modelName}".`,
-    `- If asked "who built you" or "what model are you", reply: "I'm the ${appName} Assistant. This chat is currently powered by ${provider} ${modelName} via ${appName}."`,
-    `- Do NOT claim to be Google/Gemini/Anthropic/OpenAI/xAI unless it matches provider.`,
-    `- If provider changes mid-chat, always report the CURRENT provider/model.`,
-    `- Avoid speculation about your training data or internal architecture; you don't have visibility.`,
-    `- Refer to the product as "${appName}" (not ChatGPT, Claude, Gemini, etc.).`,
+    `- You are "${appName}" - an AI interface that routes conversations through multiple large language models.`,
+    `- ${appName} is an amalgamation of many LLMs, allowing users to switch between different AI providers seamlessly.`,
+    `- For THIS conversation, your current underlying model is: provider="${provider}", model="${modelName}".`,
+    `- If asked about your identity, reply: "I'm ${appName}. This chat is currently powered by ${provider} ${modelName} via ${appName}."`,
+    `- You can switch between OpenAI, Anthropic, Google/Gemini, xAI, and other providers mid-conversation.`,
+    `- Do NOT claim to be exclusively Google/Gemini/Anthropic/OpenAI/xAI - you're ${appName}, powered by whichever provider is active.`,
+    `- If users ask about available models, mention that ${appName} offers access to multiple LLM providers.`,
+    `- Your strength is model flexibility - you can leverage different AI capabilities depending on the task.`,
+    `- Refer to yourself as "${appName}" (not ChatGPT, Claude, Gemini, etc.).`,
   ].join("\n");
 }
 
@@ -588,12 +590,13 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
-    // Build identity system prompt
-    const systemIdentity = buildIdentitySystemPrompt({
+    // Build identity system prompt only if needed (saves ~120 tokens per message)
+    const needsIdentity = shouldInjectIdentity(message);
+    const systemIdentity = needsIdentity ? buildIdentitySystemPrompt({
       appName: APP_NAME,
       provider,
       modelName,
-    });
+    }) : null;
 
     // 1) append user turn
     const s = getSession(sessionId, userId);
@@ -602,23 +605,22 @@ export async function POST(req) {
     // topic mentions (per-turn de-duped)
     trackMessageTopics(s, message);
 
-    // 2) call provider with identity system
+    // 2) call provider with conditional identity system
     let assistantText = "";
 
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
       
-      const oaicompatMessages = [
-        { role: "system", content: systemIdentity },
-        ...buildOpenAIMessages(s.turns),
-      ];
+      const messages = needsIdentity 
+        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
+        : buildOpenAIMessages(s.turns);
       
       assistantText = await callOpenAICompatible({
         baseURL: "https://api.x.ai/v1",
         key,
         model: modelName,
-        messages: oaicompatMessages,
+        messages,
         max_tokens: OUTPUT_TOKENS,
         temperature: 0.4,
       });
@@ -628,28 +630,28 @@ export async function POST(req) {
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
       
+      const messages = needsIdentity 
+        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
+        : buildOpenAIMessages(s.turns);
+      
       const r = await client.chat.completions.create({
         model: modelName,
         max_tokens: OUTPUT_TOKENS,
         temperature: 0.4,
-        messages: [
-          { role: "system", content: systemIdentity },
-          ...buildOpenAIMessages(s.turns),
-        ],
+        messages,
       });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
       
       if (r?.choices?.[0]?.finish_reason === "length") {
+        const contMessages = needsIdentity 
+          ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns), { role: "assistant", content: assistantText }, { role: "user", content: "Continue your previous reply." }]
+          : [...buildOpenAIMessages(s.turns), { role: "assistant", content: assistantText }, { role: "user", content: "Continue your previous reply." }];
+          
         const cont = await client.chat.completions.create({
           model: modelName,
           max_tokens: OUTPUT_TOKENS,
           temperature: 0.4,
-          messages: [
-            { role: "system", content: systemIdentity },
-            ...buildOpenAIMessages(s.turns),
-            { role: "assistant", content: assistantText },
-            { role: "user", content: "Continue your previous reply." },
-          ],
+          messages: contMessages,
         });
         assistantText += cont?.choices?.[0]?.message?.content?.toString?.() || "";
       }
@@ -658,6 +660,17 @@ export async function POST(req) {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
 
+      const requestBody = {
+        model: modelName,
+        max_tokens: OUTPUT_TOKENS,
+        temperature: 0.4,
+        messages: buildAnthropicMessages(s.turns),
+      };
+      
+      if (needsIdentity) {
+        requestBody.system = systemIdentity;
+      }
+
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -665,13 +678,7 @@ export async function POST(req) {
           "x-api-key": key,
           "anthropic-version": "2023-06-01",
         },
-        body: JSON.stringify({
-          model: modelName,
-          max_tokens: OUTPUT_TOKENS,
-          temperature: 0.4,
-          system: systemIdentity,
-          messages: buildAnthropicMessages(s.turns),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const txt = await r.text();
       if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
@@ -679,6 +686,21 @@ export async function POST(req) {
         const data = JSON.parse(txt);
         for (const b of data?.content || []) if (b?.type === "text" && b?.text) assistantText += b.text;
         if (data?.stop_reason === "max_tokens") {
+          const contRequestBody = {
+            model: modelName,
+            max_tokens: OUTPUT_TOKENS,
+            temperature: 0.4,
+            messages: [
+              ...buildAnthropicMessages(s.turns),
+              { role: "assistant", content: [{ type: "text", text: assistantText }] },
+              { role: "user", content: [{ type: "text", text: "Continue your previous reply." }] },
+            ],
+          };
+          
+          if (needsIdentity) {
+            contRequestBody.system = systemIdentity;
+          }
+          
           const r2 = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -686,17 +708,7 @@ export async function POST(req) {
               "x-api-key": key,
               "anthropic-version": "2023-06-01",
             },
-            body: JSON.stringify({
-              model: modelName,
-              max_tokens: OUTPUT_TOKENS,
-              temperature: 0.4,
-              system: systemIdentity,
-              messages: [
-                ...buildAnthropicMessages(s.turns),
-                { role: "assistant", content: [{ type: "text", text: assistantText }] },
-                { role: "user", content: [{ type: "text", text: "Continue your previous reply." }] },
-              ],
-            }),
+            body: JSON.stringify(contRequestBody),
           });
           const txt2 = await r2.text();
           try {
@@ -715,10 +727,13 @@ export async function POST(req) {
       const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
       if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
       const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({
-        model: modelName || "gemini-1.5-flash",
-        systemInstruction: systemIdentity,
-      });
+      
+      const modelConfig = { model: modelName || "gemini-1.5-flash" };
+      if (needsIdentity) {
+        modelConfig.systemInstruction = systemIdentity;
+      }
+      
+      const model = genAI.getGenerativeModel(modelConfig);
       const history = buildGeminiHistory(s.turns);
       const result = await model.generateContent({
         contents: history,
