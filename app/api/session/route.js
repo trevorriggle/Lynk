@@ -590,6 +590,9 @@ export async function POST(req) {
     // 1) append user turn - using user-aware session
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
+    
+    // Track topics from user message for command creation
+    trackMessageTopics(s, message);
 
     // 2) call chosen provider
     let assistantText = "";
