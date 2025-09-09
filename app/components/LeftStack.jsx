@@ -98,30 +98,17 @@ export default function LeftStack({ onActivate }) {
     selectSession,
     createSession,
     deleteSession,
+    contextFiles = [],
+    behaviors = [],
+    commands = [],
+    projects = [],
+    deleteContextFile,
+    deleteBehavior,
+    deleteCommand,
+    deleteProject,
   } = useSessionStore((s) => s);
 
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
-
-  // Placeholder delete handlers for demonstration
-  const handleDeleteFile = (key) => {
-    console.log("Delete file:", key);
-    // TODO: Implement actual file deletion
-  };
-
-  const handleDeleteBehavior = (key) => {
-    console.log("Delete behavior:", key);
-    // TODO: Implement actual behavior deletion
-  };
-
-  const handleDeleteCommand = (key) => {
-    console.log("Delete command:", key);
-    // TODO: Implement actual command deletion
-  };
-
-  const handleDeleteProject = (key) => {
-    console.log("Delete project:", key);
-    // TODO: Implement actual project deletion
-  };
 
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
@@ -198,8 +185,6 @@ export default function LeftStack({ onActivate }) {
                   aria-label="Delete chat"
                   onClick={(e) => {
                     e.stopPropagation();
-                    // optional confirm for non-empty chats:
-                    // if ((s.messages?.length ?? 0) > 0 && !confirm("Delete this chat?")) return;
                     deleteSession(s.id);
                   }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-2xl leading-none"
