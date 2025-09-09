@@ -15,6 +15,22 @@ const H = {
   "X-Lynk-Route": "session",
 };
 
+// --- Identity System ---
+const APP_NAME = "Lynk";
+
+function buildIdentitySystemPrompt({ appName, provider, modelName }) {
+  return [
+    `${appName} system identity`,
+    `- You are the "${appName} Assistant" running inside the ${appName} web app.`,
+    `- For THIS conversation, your underlying model endpoint is: provider="${provider}", model="${modelName}".`,
+    `- If asked "who built you" or "what model are you", reply: "I'm the ${appName} Assistant. This chat is currently powered by ${provider} ${modelName} via ${appName}."`,
+    `- Do NOT claim to be Google/Gemini/Anthropic/OpenAI/xAI unless it matches provider.`,
+    `- If provider changes mid-chat, always report the CURRENT provider/model.`,
+    `- Avoid speculation about your training data or internal architecture; you don't have visibility.`,
+    `- Refer to the product as "${appName}" (not ChatGPT, Claude, Gemini, etc.).`,
+  ].join("\n");
+}
+
 // --- cost guards ---
 const INPUT_TOKEN_BUDGET = 1500; // context budget for main chat
 const OUTPUT_TOKENS = 800;       // reply cap (prevents cutoffs)
@@ -51,7 +67,7 @@ async function getUserFromRequest(req) {
   try {
     const cookies = req.headers.get("cookie");
     if (!cookies) return null;
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || "http://localhost:3000";
     const meResponse = await fetch(`${baseUrl}/api/me`, {
       headers: { cookie: cookies },
       cache: "no-store",
@@ -321,22 +337,22 @@ async function consolidateSnapshot(session, provider, modelName) {
     .join("\n");
 
   const schemaPrompt = [
-    "You are a summarizer. Produce a COMPACT JSON snapshot of this chat window.",
-    "Return STRICT JSON. No prose. No explanations. No markdown.",
+    "You are a conversation summarizer. Create a JSON summary of this chat window.",
     "",
-    "Schema (keys & limits):",
+    "IMPORTANT: You must return valid JSON with these exact keys:",
     '{',
-    '  "topics": [ { "slug": "kebab-case", "gloss": "≤12 words" } ] (max 5),',
-    '  "key_details": [ "≤12 words each" ] (max 5),',
-    '  "decisions": [ "≤12 words each" ] (max 3),',
-    '  "open_questions": [ "≤12 words each" ] (max 3),',
-    '  "actions": [ { "text": "≤12 words", "owner": "optional short tag" } ] (max 5),',
-    '  "entities": [ "short labels" ] (max 8, dedupe),',
-    '  "links": [ "url-or-filename" ] (max 5),',
-    '  "confidence": "low|med|high"',
+    '  "topics": [{"slug": "topic-name", "gloss": "brief description"}],',
+    '  "key_details": ["important fact 1", "important fact 2"],',
+    '  "decisions": ["decision made"],',
+    '  "open_questions": ["question 1", "question 2"],',
+    '  "actions": [{"text": "action item", "owner": "who"}],',
+    '  "entities": ["name1", "name2"],',
+    '  "links": ["url1"],',
+    '  "confidence": "med"',
     '}',
     "",
-    "If the window is trivial/noisy, return minimal valid JSON with empty arrays.",
+    "Even if the conversation is simple, try to extract at least 1-2 items for topics and key_details.",
+    "If you can't find content for a section, use an empty array [].",
     "",
     "Chat window:",
     excerpt,
@@ -572,6 +588,13 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
+    // Build identity system prompt
+    const systemIdentity = buildIdentitySystemPrompt({
+      appName: APP_NAME,
+      provider,
+      modelName,
+    });
+
     // 1) append user turn
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
@@ -579,17 +602,23 @@ export async function POST(req) {
     // topic mentions (per-turn de-duped)
     trackMessageTopics(s, message);
 
-    // 2) call provider
+    // 2) call provider with identity system
     let assistantText = "";
 
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
+      
+      const oaicompatMessages = [
+        { role: "system", content: systemIdentity },
+        ...buildOpenAIMessages(s.turns),
+      ];
+      
       assistantText = await callOpenAICompatible({
         baseURL: "https://api.x.ai/v1",
         key,
         model: modelName,
-        messages: buildOpenAIMessages(s.turns),
+        messages: oaicompatMessages,
         max_tokens: OUTPUT_TOKENS,
         temperature: 0.4,
       });
@@ -598,19 +627,25 @@ export async function POST(req) {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
+      
       const r = await client.chat.completions.create({
         model: modelName,
         max_tokens: OUTPUT_TOKENS,
         temperature: 0.4,
-        messages: buildOpenAIMessages(s.turns),
+        messages: [
+          { role: "system", content: systemIdentity },
+          ...buildOpenAIMessages(s.turns),
+        ],
       });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
+      
       if (r?.choices?.[0]?.finish_reason === "length") {
         const cont = await client.chat.completions.create({
           model: modelName,
           max_tokens: OUTPUT_TOKENS,
           temperature: 0.4,
           messages: [
+            { role: "system", content: systemIdentity },
             ...buildOpenAIMessages(s.turns),
             { role: "assistant", content: assistantText },
             { role: "user", content: "Continue your previous reply." },
@@ -634,6 +669,7 @@ export async function POST(req) {
           model: modelName,
           max_tokens: OUTPUT_TOKENS,
           temperature: 0.4,
+          system: systemIdentity,
           messages: buildAnthropicMessages(s.turns),
         }),
       });
@@ -654,6 +690,7 @@ export async function POST(req) {
               model: modelName,
               max_tokens: OUTPUT_TOKENS,
               temperature: 0.4,
+              system: systemIdentity,
               messages: [
                 ...buildAnthropicMessages(s.turns),
                 { role: "assistant", content: [{ type: "text", text: assistantText }] },
@@ -678,7 +715,10 @@ export async function POST(req) {
       const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
       if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
       const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({
+        model: modelName || "gemini-1.5-flash",
+        systemInstruction: systemIdentity,
+      });
       const history = buildGeminiHistory(s.turns);
       const result = await model.generateContent({
         contents: history,
@@ -706,7 +746,12 @@ export async function POST(req) {
       JSON.stringify({
         text: assistantText,
         inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
-        sessionMeta: { isGuest: s.isGuest, userId: s.userId },
+        sessionMeta: { 
+          isGuest: s.isGuest, 
+          userId: s.userId,
+          provider,
+          model: modelName,
+        },
       }),
       { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );
