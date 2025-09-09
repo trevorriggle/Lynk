@@ -351,6 +351,10 @@ async function consolidateSnapshot(session, provider, modelName) {
   }
 
   const obj = safeParseJson(extractJson(jsonText)) || {};
+  
+  // Debug logging
+  console.log("Snapshot consolidation - parsed object:", obj);
+  
   // Normalize & cap
   const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
   const topics = cap(obj.topics, 5)
@@ -377,6 +381,9 @@ async function consolidateSnapshot(session, provider, modelName) {
     links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)),
     confidence: ["low", "med", "high"].includes(obj.confidence) ? obj.confidence : "med",
   };
+  
+  // Debug final snapshot
+  console.log("Snapshot consolidation - final snapshot:", snapshot);
 
   // 3) Save & sync topic counters for command suggestions
   (session.snapshots ||= []).push(snapshot);
