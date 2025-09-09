@@ -25,12 +25,12 @@ const SNAPSHOT_INPUT_BUDGET = 700;   // approx input window to summarize
 const SNAPSHOT_OUTPUT_TOKENS = 200;  // strict cap; JSON-only output
 
 // --- Session store with user isolation ---
-// Session: { turns, last, live, topicCounts, commands, snapshots?, userId? }
+// Session: { turns, last, live, topicCounts, commands, snapshots?, userId?, ... }
 const SESSIONS = new Map();
 const getSession = (id, userId = null) => {
   // Create session key that includes user context to prevent cross-contamination
   const sessionKey = userId ? `${userId}:${id}` : `guest:${id}`;
-  
+
   if (!SESSIONS.has(sessionKey)) {
     SESSIONS.set(sessionKey, {
       turns: [],
@@ -41,34 +41,30 @@ const getSession = (id, userId = null) => {
       snapshots: [],
       userId: userId, // Track which user owns this session
       isGuest: !userId,
+      // New: helpers for mention counting & progressive triggers
+      _topicSeenAt: {},   // slug -> last user turn index we counted
+      commandState: {},   // slug -> { nextAt: number }
     });
   }
   return SESSIONS.get(sessionKey);
 };
 
-// Helper to get user ID from request (you'll need to implement based on your auth system)
+// Helper to get user ID from request (auth integration)
 async function getUserFromRequest(req) {
   try {
-    // Try to get user from your auth system
-    // This might involve checking cookies, JWT tokens, etc.
-    // For now, I'll assume you have an /api/me endpoint that returns user info
-    const authHeader = req.headers.get('cookie');
+    const authHeader = req.headers.get("cookie");
     if (!authHeader) return null;
-    
-    // Make internal request to check auth (you might want to optimize this)
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
     const meResponse = await fetch(`${baseUrl}/api/me`, {
-      headers: {
-        cookie: authHeader,
-      },
-      cache: 'no-store',
+      headers: { cookie: authHeader },
+      cache: "no-store",
     });
-    
+
     if (meResponse.ok) {
       const userData = await meResponse.json();
       return userData.userId || null;
     }
-    
     return null;
   } catch (e) {
     console.warn("Failed to get user from request:", e);
@@ -93,6 +89,11 @@ const buildBudgetedTurns = (turns, maxTokens) => {
 };
 
 const userTurnCount = (turns) => turns.reduce((n, t) => n + (t.role === "user" ? 1 : 0), 0);
+
+// New: quick accessor for "current user turn index" (1-based)
+function userTurnIndex(session) {
+  return userTurnCount(session.turns);
+}
 
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
@@ -144,12 +145,85 @@ async function callOpenAICompatible({
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
+// ---------- Commands: threshold + progressive triggers ----------
+const COMMAND_THRESHOLD = 3; // was 5
+
+function normalizeSlug(v) {
+  if (!v) return "";
+  const s = String(v).trim().toLowerCase();
+  return s
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// Count one mention per slug per *user turn*, then evaluate triggers
+function markTopicMention(session, slug) {
+  if (!slug) return;
+  const turn = userTurnIndex(session);
+  const seenAt = (session._topicSeenAt ||= {});
+  if (seenAt[slug] === turn) return; // already counted for this user turn
+
+  seenAt[slug] = turn;
+  session.topicCounts[slug] = (session.topicCounts[slug] || 0) + 1;
+  maybeSuggestCommand(session, slug);
+}
+
+// Fire at 3, then again at 6, 9, 12, ...
+function maybeSuggestCommand(session, slug) {
+  const n = session.topicCounts[slug] || 0;
+  const st = (session.commandState ||= {});
+  const nextAt = st[slug]?.nextAt ?? COMMAND_THRESHOLD;
+
+  if (n >= nextAt) {
+    (session.commands ||= []).push({
+      slug,
+      command: `${slug}?`,
+      count: n,
+      created_at: new Date().toISOString(),
+    });
+    st[slug] = { nextAt: nextAt + COMMAND_THRESHOLD };
+  }
+}
+
+// Lightweight keyword/hashtag topic scraping directly from the user message
+function trackMessageTopics(session, message) {
+  const text = asText(message || "");
+  const slugs = new Set();
+
+  // 1) hashtags like #fort-rapids #pricing
+  for (const m of text.matchAll(/#([a-z0-9][\w-]{1,60})/gi)) {
+    slugs.add(normalizeSlug(m[1]));
+  }
+
+  // 2) quoted phrases => "fort rapids" → fort-rapids
+  for (const m of text.matchAll(/"([^"]{2,80})"/g)) {
+    slugs.add(normalizeSlug(m[1]));
+  }
+
+  // 3) simple keywords: pick top few > 3 chars (stopword-pruned)
+  const stop = new Set([
+    "the","and","for","that","with","this","from","your","you","are","was","have","has","will","into","onto","about",
+    "but","not","out","our","can","could","should","would","just","like","then","than","them","they","what","when",
+    "where","why","how","who","whom","which","also","into","over","under","after","before","again","more","most",
+  ]);
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !stop.has(w))
+    .slice(0, 6);
+  for (const w of words) slugs.add(normalizeSlug(w));
+
+  // apply mentions
+  for (const slug of slugs) if (slug) markTopicMention(session, slug);
+}
+
 // ---------- Live Notes + Topics -> Commands ----------
 async function updateLiveNotes(session, provider, modelName) {
   const lastTurns = buildBudgetedTurns(session.turns, 600);
-  const chatExcerpt = lastTurns
-    .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
-    .join("\n");
+  const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
   const prompt = [
     "You are the Inspector. Update live notes for this chat turn.",
@@ -246,6 +320,22 @@ async function updateLiveNotes(session, provider, modelName) {
     }
   } catch {
     // keep prior live notes on failure
+  }
+}
+
+function mergeLive(session, obj) {
+  const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
+  if (typeof obj?.gist === "string") live.gist = obj.gist;
+  if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 4);
+  if (Array.isArray(obj?.todos)) live.todos = obj.todos.slice(0, 8);
+  if (Array.isArray(obj?.entities)) live.entities = obj.entities.slice(0, 8);
+
+  if (Array.isArray(obj?.topics)) {
+    for (const raw of obj.topics) {
+      const slug = normalizeSlug(raw?.slug ?? raw);
+      if (!slug) continue;
+      markTopicMention(session, slug);
+    }
   }
 }
 
@@ -351,35 +441,29 @@ async function consolidateSnapshot(session, provider, modelName) {
   }
 
   const obj = safeParseJson(extractJson(jsonText)) || {};
-  
-  // Debug logging
-  console.log("Snapshot consolidation - parsed object:", obj);
-  
+
   // Normalize & cap
   const cap = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
-  
-  // Extract topics with fallback
+
   let topics = cap(obj.topics, 5)
     .map((x) => ({
       slug: normalizeSlug(x?.slug ?? x),
       gloss: String(x?.gloss || "").slice(0, 120),
     }))
     .filter((t) => t.slug);
-    
-  // Fallback: if no topics found, create some basic ones from the chat
+
   if (topics.length === 0 && excerpt.length > 50) {
     topics = [
       { slug: "conversation-topic", gloss: "General discussion" },
-      { slug: "user-interaction", gloss: "User questions and responses" }
+      { slug: "user-interaction", gloss: "User questions and responses" },
     ];
   }
-  
-  // Extract key details with fallback
-  let keyDetails = cap(obj.key_details, 5).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0);
+
+  let keyDetails = cap(obj.key_details, 5).map((s) => String(s).slice(0, 120)).filter((s) => s.length > 0);
   if (keyDetails.length === 0 && excerpt.length > 50) {
     keyDetails = [
       "Conversation between user and AI assistant",
-      "Multiple exchanges covering various topics"
+      "Multiple exchanges covering various topics",
     ];
   }
 
@@ -390,26 +474,22 @@ async function consolidateSnapshot(session, provider, modelName) {
     to_turn,
     topics,
     key_details: keyDetails,
-    decisions: cap(obj.decisions, 3).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0),
-    open_questions: cap(obj.open_questions, 3).map((s) => String(s).slice(0, 120)).filter(s => s.length > 0),
-    actions: cap(obj.actions, 5).map((a) => ({
-      text: String(a?.text ?? a).slice(0, 120),
-      owner: a?.owner ? String(a.owner).slice(0, 40) : undefined,
-    })).filter(a => a.text && a.text.length > 0),
-    entities: cap(obj.entities, 8).map((s) => String(s).slice(0, 60)).filter(s => s.length > 0),
-    links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)).filter(s => s.length > 0),
+    decisions: cap(obj.decisions, 3).map((s) => String(s).slice(0, 120)).filter((s) => s.length > 0),
+    open_questions: cap(obj.open_questions, 3).map((s) => String(s).slice(0, 120)).filter((s) => s.length > 0),
+    actions: cap(obj.actions, 5)
+      .map((a) => ({
+        text: String(a?.text ?? a).slice(0, 120),
+        owner: a?.owner ? String(a.owner).slice(0, 40) : undefined,
+      }))
+      .filter((a) => a.text && a.text.length > 0),
+    entities: cap(obj.entities, 8).map((s) => String(s).slice(0, 60)).filter((s) => s.length > 0),
+    links: cap(obj.links, 5).map((s) => String(s).slice(0, 200)).filter((s) => s.length > 0),
     confidence: ["low", "med", "high"].includes(obj.confidence) ? obj.confidence : "med",
   };
-  
-  // Debug final snapshot
-  console.log("Snapshot consolidation - final snapshot:", snapshot);
 
-  // 3) Save & sync topic counters for command suggestions
+  // Save & trigger mentions based on snapshot topics (de-duped per current user turn)
   (session.snapshots ||= []).push(snapshot);
-  for (const t of topics) {
-    session.topicCounts[t.slug] = (session.topicCounts[t.slug] || 0) + 1;
-    maybeSuggestCommand(session, t.slug);
-  }
+  for (const t of topics) markTopicMention(session, t.slug);
 }
 
 // small helper to call OAI-compatible with system+user in one go (for Inspector & snapshots)
@@ -450,43 +530,6 @@ function safeParseJson(s) {
     return {};
   }
 }
-function mergeLive(session, obj) {
-  const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
-  if (typeof obj?.gist === "string") live.gist = obj.gist;
-  if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 4);
-  if (Array.isArray(obj?.todos)) live.todos = obj.todos.slice(0, 8);
-  if (Array.isArray(obj?.entities)) live.entities = obj.entities.slice(0, 8);
-
-  if (Array.isArray(obj?.topics)) {
-    for (const raw of obj.topics) {
-      const slug = normalizeSlug(raw);
-      if (!slug) continue;
-      session.topicCounts[slug] = (session.topicCounts[slug] || 0) + 1;
-      maybeSuggestCommand(session, slug);
-    }
-  }
-}
-function normalizeSlug(v) {
-  if (!v) return "";
-  const s = String(v).trim().toLowerCase();
-  return s
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-const COMMAND_THRESHOLD = 5;
-function maybeSuggestCommand(session, slug) {
-  const n = session.topicCounts[slug] || 0;
-  if (n < COMMAND_THRESHOLD) return;
-  const cmd = `${slug}?`;
-  const exists = (session.commands || []).some((c) => c.slug === slug);
-  if (!exists) (session.commands ||= []).push({ slug, command: cmd, count: n, created_at: new Date().toISOString() });
-  else {
-    const item = session.commands.find((c) => c.slug === slug);
-    if (item) item.count = n;
-  }
-}
 
 // --- preflight ---
 export async function OPTIONS() {
@@ -498,24 +541,24 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
   const userId = await getUserFromRequest(req);
-  
+
   if (sessionId) {
     // Try both session key formats for debugging
     const authSessionKey = userId ? `${userId}:${sessionId}` : null;
     const guestSessionKey = `guest:${sessionId}`;
     const simpleKey = sessionId; // fallback to original format
-    
+
     const authSession = authSessionKey ? SESSIONS.get(authSessionKey) : null;
     const guestSession = SESSIONS.get(guestSessionKey);
     const simpleSession = SESSIONS.get(simpleKey);
-    
+
     const s = authSession || guestSession || simpleSession;
-    
+
     return Response.json(
       s
-        ? { 
-            ok: true, 
-            inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] }, 
+        ? {
+            ok: true,
+            inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
             turns: s.turns.length,
             isGuest: s.isGuest,
             userId: s.userId,
@@ -524,20 +567,20 @@ export async function GET(req) {
               triedKeys: {
                 auth: authSessionKey,
                 guest: guestSessionKey,
-                simple: simpleKey
+                simple: simpleKey,
               },
-              foundWith: authSession ? 'auth' : guestSession ? 'guest' : 'simple',
-              allSessionKeys: Array.from(SESSIONS.keys())
-            }
+              foundWith: authSession ? "auth" : guestSession ? "guest" : "simple",
+              allSessionKeys: Array.from(SESSIONS.keys()),
+            },
           }
-        : { 
-            ok: false, 
+        : {
+            ok: false,
             error: "session not found",
             debug: {
               requestUserId: userId,
               searchedFor: sessionId,
-              allSessionKeys: Array.from(SESSIONS.keys())
-            }
+              allSessionKeys: Array.from(SESSIONS.keys()),
+            },
           },
       { headers: H }
     );
@@ -549,7 +592,7 @@ export async function GET(req) {
       now: new Date().toISOString(),
       expects: "POST { sessionId, message, model: { label, provider, model } }",
       userId: userId || "guest",
-      allSessionKeys: Array.from(SESSIONS.keys())
+      allSessionKeys: Array.from(SESSIONS.keys()),
     },
     { headers: H }
   );
@@ -573,7 +616,7 @@ export async function POST(req) {
 
     // Get user ID from request to properly isolate sessions
     const userId = await getUserFromRequest(req);
-    
+
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic"); // "openai" | "anthropic" | "gemini" | "xai"
     const modelName = asText(
@@ -590,8 +633,8 @@ export async function POST(req) {
     // 1) append user turn - using user-aware session
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
-    
-    // Track topics from user message for command creation
+
+    // Track topics from user message for command creation (per-turn de-duped)
     trackMessageTopics(s, message);
 
     // 2) call chosen provider
@@ -611,8 +654,6 @@ export async function POST(req) {
         temperature: 0.4,
       });
 
-      // simple continuation pass optional (skipped)
-
     } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
@@ -626,7 +667,6 @@ export async function POST(req) {
       });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 
-      // continuation if truncated
       if (r?.choices?.[0]?.finish_reason === "length") {
         const cont = await client.chat.completions.create({
           model: modelName,
@@ -665,7 +705,6 @@ export async function POST(req) {
         const data = JSON.parse(txt);
         for (const b of data?.content || []) if (b?.type === "text" && b?.text) assistantText += b.text;
         if (data?.stop_reason === "max_tokens") {
-          // quick continuation
           const r2 = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -710,7 +749,6 @@ export async function POST(req) {
         generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
       });
       assistantText = result?.response?.text?.() || "Okay.";
-      // (Continuation skipped for Gemini)
     }
 
     // 3) append assistant turn
@@ -734,7 +772,7 @@ export async function POST(req) {
         sessionMeta: {
           isGuest: s.isGuest,
           userId: s.userId,
-        }
+        },
       }),
       { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );
