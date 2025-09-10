@@ -1,3 +1,4 @@
+"use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";

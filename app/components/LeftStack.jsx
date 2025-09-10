@@ -1,3 +1,4 @@
+"use client";
 import { useState, useMemo, useRef } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
