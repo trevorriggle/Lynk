@@ -118,7 +118,7 @@ export default function Chat({ selectedModel }) {
             userId: null,
             projectId: null,
             userEmail: null,
-            error: "guest",
+            error: null, // Changed from "guest" to null - this is expected for guest users
           });
           return;
         }
