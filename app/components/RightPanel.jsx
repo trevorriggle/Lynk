@@ -1,4 +1,4 @@
-// components/RightPanel.jsx - Redesigned to match Lynk's aesthetic
+// components/RightPanel.jsx - Fixed terminology and timing
 "use client";
 
 import { useEffect, useState } from "react";
@@ -145,7 +145,7 @@ export default function RightPanel() {
             <h2 className="text-sm font-semibold text-slate-800">Session Insights</h2>
             <div className="flex items-center gap-1">
               <div className={`w-2 h-2 rounded-full ${authState.authenticated ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
-              <span className="text-xs text-slate-500">{authState.authenticated ? 'Pro' : 'Guest'}</span>
+              <span className="text-xs text-slate-500">{authState.authenticated ? 'Verified' : 'Guest'}</span>
             </div>
           </div>
           <div className="text-xs text-slate-400 space-y-1">
@@ -226,9 +226,9 @@ export default function RightPanel() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v3m0-3h3m-3 0h-3m-3-11a3 3 0 013-3h6a3 3 0 013 3v4a3 3 0 01-3 3H9a3 3 0 01-3-3v-4z" />
                 </svg>
               </div>
-              <p className="text-xs text-amber-800 mb-2 font-medium">Snapshots for Pro Users</p>
+              <p className="text-xs text-amber-800 mb-2 font-medium">Snapshots for Verified Users</p>
               <p className="text-xs text-amber-700 leading-relaxed">
-                Get automatic conversation summaries every few messages with a Pro account.
+                Get automatic conversation summaries every 5 messages with a verified account.
               </p>
             </div>
           )}
@@ -242,7 +242,7 @@ export default function RightPanel() {
               </div>
               <p className="text-xs text-slate-600 mb-1 font-medium">Building your first snapshot...</p>
               <p className="text-xs text-slate-500">
-                Snapshots appear every 3 messages ({Math.ceil(currentUserMessageCount / 3) * 3 - currentUserMessageCount} more to go)
+                Snapshots appear every 5 messages ({Math.ceil(currentUserMessageCount / 5) * 5 - currentUserMessageCount} more to go)
               </p>
             </div>
           )}

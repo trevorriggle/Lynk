@@ -154,9 +154,8 @@ async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens 
 
 // --- Topic tracking function ---
 function trackMessageTopics(session, message) {
-  // Simple topic extraction for authenticated users
+  // Simple topic extraction for verified users
   const topics = [];
-  const words = message.toLowerCase().split(/\s+/);
   
   // Look for key topics
   const topicPatterns = {
@@ -174,7 +173,7 @@ function trackMessageTopics(session, message) {
     }
   }
   
-  // Store topics with simple counting
+  // Store topics and generate commands
   for (const topic of topics) {
     if (!session._topicSeenAt[topic]) {
       session._topicSeenAt[topic] = session.turns.length;
@@ -346,7 +345,7 @@ export async function POST(req) {
       "claude-3-haiku-20240307"
     ));
 
-    console.log(`Processing message for ${userId ? 'authenticated' : 'guest'} user with ${provider}/${modelName}`);
+    console.log(`Processing message for ${userId ? 'verified' : 'guest'} user with ${provider}/${modelName}`);
 
     // Build minimal identity system prompt only if needed
     const needsIdentity = shouldInjectIdentity(message);
@@ -452,17 +451,17 @@ export async function POST(req) {
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // 4) Background processing: Guests get NONE, Auth users get FULL functionality
+    // 4) Background processing: Guests get NONE, Verified users get FULL functionality
     if (!s.isGuest) {
-      console.log("Running background processing for authenticated user");
+      console.log("Running background processing for verified user");
       await updateLiveNotesUltraCheap(s);
       
-      // topic mentions (per-turn de-duped) - auth users only
+      // topic mentions - verified users only
       trackMessageTopics(s, message);
       
-      // Snapshot every 3 messages for auth users (faster for testing)
+      // Snapshot every 5 messages for verified users
       const userTurns = userTurnCount(s.turns);
-      if (userTurns > 0 && userTurns % 3 === 0) {
+      if (userTurns > 0 && userTurns % 5 === 0) {
         await consolidateSnapshotUltraCheap(s);
       }
       
