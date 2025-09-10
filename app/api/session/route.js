@@ -1,4 +1,4 @@
-// app/api/session/route.js - ULTRA COST OPTIMIZED - FIXED WITH DEBUG + MERGE + NON-BLOCKING BG
+// app/api/session/route.js - ultra cost optimized + debug + merge + non-blocking BG + numbers command
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,24 +29,24 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
-// --- ULTRA AGGRESSIVE cost guards ---
-const INPUT_TOKEN_BUDGET = 1000;     // inbound context cap
-const OUTPUT_TOKENS = 600;           // assistant output cap
+// --- Aggressive cost guards ---
+const INPUT_TOKEN_BUDGET = 1000;
+const OUTPUT_TOKENS = 600;
 const estTokens = (s) => Math.ceil((s || "").length / 4);
 
-// --- Background task caps (MINIMAL) ---
+// --- Background budgets ---
 const LIVE_NOTES_BUDGET = 400;
 const LIVE_NOTES_TOKENS = 64;
 const SNAPSHOT_INPUT_BUDGET = 500;
 const SNAPSHOT_OUTPUT_TOKENS = 128;
 
-// --- ALWAYS use cheapest model for background (gpt-4o-mini only) ---
+// --- Background model ---
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
-// --- Session store with user isolation ---
+// --- Session store ---
 const SESSIONS = new Map();
-const getSession = (id, userId = null) => {
+function getSession(id, userId = null) {
   const sessionKey = userId ? `${userId}:${id}` : `guest:${id}`;
   if (!SESSIONS.has(sessionKey)) {
     SESSIONS.set(sessionKey, {
@@ -63,7 +63,7 @@ const getSession = (id, userId = null) => {
     });
   }
   return SESSIONS.get(sessionKey);
-};
+}
 
 // --- auth helper ---
 async function getUserFromRequest(req) {
@@ -71,8 +71,7 @@ async function getUserFromRequest(req) {
     const cookies = req.headers.get("cookie");
     if (!cookies) return null;
 
-    // Prefer request origin to avoid protocol-less VERCEL_URL issues
-    const { origin } = new URL(req.url);
+    const { origin } = new URL(req.url); // robust origin
     const baseUrl = process.env.NEXTAUTH_URL || origin;
 
     const meResponse = await fetch(`${baseUrl}/api/me`, {
@@ -94,28 +93,24 @@ async function getUserFromRequest(req) {
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
 
 function shouldInjectIdentity(message) {
-  const identityTriggers = [
-    /who are you/i,
-    /what are you/i,
-    /what model/i,
-    /what ai/i,
-    /what is lynk/i,
+  const triggers = [
+    /(^|\b)(who are you|what are you|what model|what ai|what is lynk)\b/i,
   ];
-  return identityTriggers.some((trigger) => trigger.test(message));
+  return triggers.some((re) => re.test(message || ""));
 }
 
-const buildBudgetedTurns = (turns, maxTokens) => {
+function buildBudgetedTurns(turns, maxTokens) {
   const out = [];
   let used = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
     const cost = estTokens(t.content) + 4;
-    if (used + cost > maxTokens) break;
+    if (used + cost > Math.max(64, Math.floor(maxTokens * 0.95))) break;
     out.unshift(t);
     used += cost;
   }
   return out;
-};
+}
 
 const userTurnCount = (turns) =>
   turns.reduce((n, t) => n + (t.role === "user" ? 1 : 0), 0);
@@ -164,12 +159,12 @@ async function callOpenAICompatible({
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
-// --- Topic tracking function ---
+// --- Topic tracking with "numbers" detection ---
 function trackMessageTopics(session, message) {
-  // Simple topic extraction for verified users
-  const topics = [];
+  if (!message || typeof message !== "string") return;
 
-  // Look for key topics
+  const topics = new Set();
+
   const topicPatterns = {
     ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt)\b/i,
     programming: /\b(code|coding|programming|javascript|python|react|api|development|software)\b/i,
@@ -180,32 +175,53 @@ function trackMessageTopics(session, message) {
   };
 
   for (const [topic, pattern] of Object.entries(topicPatterns)) {
-    if (pattern.test(message)) {
-      topics.push(topic);
-    }
+    if (pattern.test(message)) topics.add(topic);
   }
 
-  // Store topics and generate commands
+  // Numbers / counting triggers
+  const msg = message.trim();
+  const digitsOnly = /^[\s\d]+$/.test(msg);
+  const hasCountingVerb =
+    /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg);
+  const looksLikeSimpleSequence = /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
+
+  if (digitsOnly || hasCountingVerb || looksLikeSimpleSequence) {
+    topics.add("numbers");
+  }
+
+  // push commands for new topics
   for (const topic of topics) {
     if (!session._topicSeenAt[topic]) {
       session._topicSeenAt[topic] = session.turns.length;
       session.topicCounts[topic] = (session.topicCounts[topic] || 0) + 1;
 
-      // Add to commands for suggestions
       if (!session.commands) session.commands = [];
-      session.commands.push({
-        slug: topic,
-        command: `Tell me more about ${topic}`,
-        created_at: new Date().toISOString(),
-        confidence: "med",
-      });
+
+      const pushOnce = (slug, label) => {
+        const exists = session.commands.some((c) => c.slug === slug && c.command === label);
+        if (!exists) {
+          session.commands.push({
+            slug,
+            command: label,
+            created_at: new Date().toISOString(),
+            confidence: "med",
+          });
+        }
+      };
+
+      if (topic === "numbers") {
+        pushOnce("numbers", "numbers?");
+        pushOnce("numbers", "continue counting");
+        pushOnce("numbers", "analyze the sequence");
+      } else {
+        pushOnce(topic, `tell me more about ${topic}`);
+      }
     }
   }
 }
 
-// --- SIMPLIFIED background processing - ONLY gpt-4o-mini ---
+// --- BG: live notes ---
 async function updateLiveNotesUltraCheap(session) {
-  // Skip for guests to save costs
   if (session.isGuest) return;
 
   const key = process.env.OPENAI_API_KEY;
@@ -215,11 +231,9 @@ async function updateLiveNotesUltraCheap(session) {
   }
 
   const lastTurns = buildBudgetedTurns(session.turns, LIVE_NOTES_BUDGET);
-  const chatExcerpt = lastTurns
-    .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
-    .join("\n");
-
-  const prompt = `Update live notes. Return JSON: {"gist":"","key_points":[],"todos":[],"entities":[]}\n\n${chatExcerpt}`;
+  const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
+  const prompt =
+    `Update live notes. Return JSON: {"gist":"","key_points":[],"todos":[],"entities":[]}\n\n${chatExcerpt}`;
 
   try {
     const client = new OpenAI({ apiKey: key });
@@ -238,8 +252,8 @@ async function updateLiveNotesUltraCheap(session) {
   }
 }
 
+// --- BG: snapshots ---
 async function consolidateSnapshotUltraCheap(session) {
-  // Skip for guests
   if (session.isGuest) return;
 
   const key = process.env.OPENAI_API_KEY;
@@ -256,7 +270,8 @@ async function consolidateSnapshotUltraCheap(session) {
     .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
     .join("\n");
 
-  const prompt = `Summarize chat. Return JSON: {"topics":[{"slug":"","gloss":""}],"key_details":[],"decisions":[],"open_questions":[],"actions":[],"confidence":"med"}\n\n${excerpt}`;
+  const prompt =
+    `Summarize chat. Return JSON: {"topics":[{"slug":"","gloss":""}],"key_details":[],"decisions":[],"open_questions":[],"actions":[],"confidence":"med"}\n\n${excerpt}`;
 
   try {
     const client = new OpenAI({ apiKey: key });
@@ -284,7 +299,7 @@ async function consolidateSnapshotUltraCheap(session) {
 
     (session.snapshots ||= []).push(snapshot);
     console.log(
-      `🎯 Snapshot created for session ${session.userId}: ${snapshot.topics?.length || 0} topics, ${snapshot.key_details?.length || 0} details`
+      `🎯 Snapshot created for session ${session.userId}: ${(snapshot.topics || []).length} topics`
     );
   } catch (e) {
     console.warn("❌ Snapshot failed:", e.message);
@@ -292,13 +307,11 @@ async function consolidateSnapshotUltraCheap(session) {
 }
 
 function mergeLive(session, obj) {
-  const live =
-    session.live ||
-    (session.live = { gist: "", key_points: [], todos: [], entities: [] });
+  const live = session.live || (session.live = { gist: "", key_points: [], todos: [], entities: [] });
   if (typeof obj?.gist === "string") live.gist = obj.gist;
   if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 3);
   if (Array.isArray(obj?.todos)) live.todos = obj.todos.slice(0, 3);
-  if (Array.isArray(obj?.entities)) live.entities = obj.entities.slice(0, 3);
+  if (Array.isArray(obj?.entities)) live.entities = obj?.entities.slice(0, 3);
 }
 
 function extractJson(s) {
@@ -309,23 +322,21 @@ function extractJson(s) {
   return "{}";
 }
 
-// --- tiny helper to bound background task time ---
+// --- timeout guard for BG tasks ---
 function runWithTimeout(promise, ms = 2000, label = "task") {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`Timeout: ${label} exceeded ${ms}ms`));
-    }, ms);
+    timeoutId = setTimeout(() => reject(new Error(`Timeout: ${label} exceeded ${ms}ms`)), ms);
   });
   return Promise.race([promise.finally(() => clearTimeout(timeoutId)), timeout]);
 }
 
-// --- preflight ---
+// --- OPTIONS ---
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: H });
 }
 
-// --- simple health/debug ---
+// --- GET (polling) ---
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
@@ -334,9 +345,7 @@ export async function GET(req) {
   if (sessionId) {
     const authSessionKey = userId ? `${userId}:${sessionId}` : null;
     const guestSessionKey = `guest:${sessionId}`;
-    const s =
-      (authSessionKey ? SESSIONS.get(authSessionKey) : null) ||
-      SESSIONS.get(guestSessionKey);
+    const s = (authSessionKey ? SESSIONS.get(authSessionKey) : null) || SESSIONS.get(guestSessionKey);
 
     return Response.json(
       s
@@ -347,25 +356,15 @@ export async function GET(req) {
             isGuest: s.isGuest,
             userId: s.userId,
           }
-        : {
-            ok: false,
-            error: "session not found",
-          },
+        : { ok: false, error: "session not found" },
       { headers: H }
     );
   }
 
-  return Response.json(
-    {
-      ok: true,
-      sessions: SESSIONS.size,
-      userId: userId || "guest",
-    },
-    { headers: H }
-  );
+  return Response.json({ ok: true, sessions: SESSIONS.size, userId: userId || "guest" }, { headers: H });
 }
 
-// --- main POST ---
+// --- POST (main) ---
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -376,14 +375,13 @@ export async function POST(req) {
 
     let sessionId = asText(body?.sessionId || "");
     if (!sessionId) {
-      sessionId =
-        crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
+      sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
     }
 
     const userId = await getUserFromRequest(req);
     console.log("🔐 User auth:", userId ? `verified (${userId})` : "guest");
 
-    // --- merge guest session into verified session if needed ---
+    // Merge guest → verified for same sessionId
     if (userId) {
       const guestKey = `guest:${sessionId}`;
       const verifiedKey = `${userId}:${sessionId}`;
@@ -410,26 +408,17 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
-    console.log(
-      `🤖 Processing message for ${userId ? "verified" : "guest"} user with ${provider}/${modelName}`
-    );
+    console.log(`🤖 Processing message for ${userId ? "verified" : "guest"} user with ${provider}/${modelName}`);
 
-    // Build minimal identity system prompt only if needed
     const needsIdentity = shouldInjectIdentity(message);
     const systemIdentity = needsIdentity
-      ? buildIdentitySystemPrompt({
-          appName: APP_NAME,
-          provider,
-          modelName,
-        })
+      ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName })
       : null;
 
     // 1) append user turn
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
-    console.log(
-      `📝 Session now has ${s.turns.length} turns (${userTurnCount(s.turns)} user messages)`
-    );
+    console.log(`📝 Session now has ${s.turns.length} turns (${userTurnCount(s.turns)} user messages)`);
 
     // 2) call provider
     let assistantText = "";
@@ -476,7 +465,6 @@ export async function POST(req) {
         temperature: 0.4,
         messages: buildAnthropicMessages(s.turns),
       };
-
       if (needsIdentity) requestBody.system = systemIdentity;
 
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -490,17 +478,14 @@ export async function POST(req) {
       });
 
       const txt = await r.text();
-      if (!r.ok)
-        return new Response(`Claude ${r.status}: ${txt}`, {
-          status: 502,
-          headers: H,
-        });
+      if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
 
       try {
         const data = JSON.parse(txt);
-        assistantText =
-          data?.content?.filter((b) => b?.type === "text")?.map((b) => b.text)?.join("") ||
-          "Okay.";
+        assistantText = (data?.content || [])
+          .filter((b) => b?.type === "text")
+          .map((b) => b.text)
+          .join("") || "Okay.";
       } catch {
         assistantText = txt || "Okay.";
       }
@@ -526,20 +511,17 @@ export async function POST(req) {
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // 4) Background processing (verified only) — non-blocking with short timeout
+    // 4) Background processing (verified only) — non-blocking with timeout
     if (!s.isGuest) {
-      console.log("🔥 VERIFIED USER DETECTED - starting background processing (non-blocking)");
+      console.log("🔥 VERIFIED USER DETECTED - background processing (non-blocking)");
       console.log("🔑 OpenAI key available:", !!process.env.OPENAI_API_KEY);
 
-      // Always update live notes, bounded by timeout; do not block response
       runWithTimeout(updateLiveNotesUltraCheap(s), 2000, "live-notes").catch((e) =>
         console.warn("BG live-notes:", e.message)
       );
 
-      // Cheap local topic tracking
       trackMessageTopics(s, message);
 
-      // Snapshots every 5 user messages, bounded by timeout; do not block response
       const uCount = userTurnCount(s.turns);
       console.log(`📊 User message count: ${uCount} (snapshot triggers at 5, 10, 15...)`);
       if (uCount > 0 && uCount % 5 === 0) {
@@ -560,12 +542,7 @@ export async function POST(req) {
     const responseData = {
       text: assistantText,
       inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
-      sessionMeta: {
-        isGuest: s.isGuest,
-        userId: s.userId,
-        provider,
-        model: modelName,
-      },
+      sessionMeta: { isGuest: s.isGuest, userId: s.userId, provider, model: modelName },
     };
 
     console.log("📤 Sending response with inspector data:", {
@@ -576,17 +553,10 @@ export async function POST(req) {
 
     return new Response(JSON.stringify(responseData), {
       status: 200,
-      headers: {
-        ...H,
-        "Content-Type": "application/json; charset=utf-8",
-        "X-Session-Id": sessionId,
-      },
+      headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId },
     });
   } catch (e) {
     console.error("💥 Session error:", e);
-    return new Response(`Session error: ${e?.message || String(e)}`, {
-      status: 500,
-      headers: H,
-    });
+    return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }

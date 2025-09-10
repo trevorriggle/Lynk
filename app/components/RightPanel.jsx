@@ -1,25 +1,25 @@
-// components/RightPanel.jsx - Fixed terminology and timing + minor UX polish
+// components/RightPanel.jsx - collapsed-by-default snapshot info + per-row Copy + commands show "numbers?"
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
-  const [collapsedSnapshots, setCollapsedSnapshots] = useState(new Set());
+  const [collapsed, setCollapsed] = useState(new Set()); // indices collapsed
 
-  // Get active session and messages from store
+  // store state
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
     sessions: s.sessions,
     guestMessageCount: s.guestMessageCount,
   }));
 
-  // Check auth status
+  // auth
   useEffect(() => {
-    const checkAuth = async () => {
+    (async () => {
       try {
         const r = await fetch("/api/me", { cache: "no-store" });
         if (r.ok) {
@@ -31,30 +31,28 @@ export default function RightPanel() {
       } catch {
         setAuthState({ loading: false, authenticated: false });
       }
-    };
-    checkAuth();
+    })();
   }, []);
 
-  // Get current thread and count user messages
+  // current message count
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserMessageCount = currentThread.filter((m) => m?.role === "user").length;
   const currentUserMessageCount = authState.authenticated ? threadUserMessageCount : guestMessageCount;
 
-  // Listen for inspector updates from backend
+  // inspector updates
   useEffect(() => {
     function onUpdate(e) {
-      if (e?.detail) {
-        setInspector(e.detail);
-      }
+      if (e?.detail) setInspector(e.detail);
     }
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // Poll backend for inspector data
+  // polling
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
+      setCollapsed(new Set());
       return;
     }
 
@@ -62,9 +60,7 @@ export default function RightPanel() {
       try {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
         const j = await r.json();
-        if (j?.inspector) {
-          setInspector(j.inspector);
-        }
+        if (j?.inspector) setInspector(j.inspector);
       } catch (e) {
         console.warn("RightPanel polling error:", e);
       }
@@ -75,79 +71,80 @@ export default function RightPanel() {
     return () => clearInterval(timer);
   }, [activeId]);
 
-  // Copy helpers
-  async function copySection(content, sectionKey) {
+  // collapse all snapshots by default when list changes
+  useEffect(() => {
+    const snaps = inspector?.snapshots || [];
+    const newSet = new Set();
+    for (let i = 0; i < snaps.length; i++) newSet.add(i); // collapsed
+    setCollapsed(newSet);
+  }, [inspector?.snapshots?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // copy helper
+  async function copy(text, key) {
     try {
-      await navigator.clipboard.writeText(content);
-      setCopiedKey(sectionKey);
+      await navigator.clipboard.writeText(text || "");
+      setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1200);
     } catch {
-      console.warn("Failed to copy section to clipboard");
+      console.warn("Clipboard copy failed");
     }
   }
 
-  function toggleSnapshot(index) {
-    const newCollapsed = new Set(collapsedSnapshots);
-    if (newCollapsed.has(index)) {
-      newCollapsed.delete(index);
-    } else {
-      newCollapsed.add(index);
-    }
-    setCollapsedSnapshots(newCollapsed);
-  }
-
-  function copyAllSections(c, index) {
-    const sections = [];
-    if (c.topics?.length > 0) {
-      sections.push("Topics:");
-      sections.push(...c.topics.map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`));
-      sections.push("");
-    }
-    if (c.key_details?.length > 0) {
-      sections.push("Key Details:");
-      sections.push(...c.key_details.map((k) => `• ${k}`));
-      sections.push("");
-    }
-    if (c.decisions?.length > 0) {
-      sections.push("Decisions:");
-      sections.push(...c.decisions.map((d) => `• ${d}`));
-      sections.push("");
-    }
-    if (c.open_questions?.length > 0) {
-      sections.push("Open Questions:");
-      sections.push(...c.open_questions.map((q) => `• ${q}`));
-      sections.push("");
-    }
-    if (c.actions?.length > 0) {
-      sections.push("Actions:");
-      sections.push(
-        ...c.actions.map((a) => {
-          const actionText = typeof a === "string" ? a : a.text;
-          const owner = a.owner ? ` (${a.owner})` : "";
-          return `• ${actionText}${owner}`;
-        })
-      );
-    }
-    copySection(sections.join("\n").trim(), `all-${index}`);
-  }
-
+  // utilities
   const snapshots = inspector?.snapshots || [];
   const commands = inspector?.commands || [];
   const live = inspector?.live || {};
-
-  // Remaining messages to next snapshot, robust mod math
   const remainder = currentUserMessageCount % 5;
   const toNextSnapshot = remainder === 0 ? 0 : 5 - remainder;
+
+  const buildSectionCopy = (s, key) => {
+    if (!s) return "";
+    switch (key) {
+      case "topics":
+        return (s.topics || [])
+          .map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
+          .join("\n");
+      case "key_details":
+        return (s.key_details || []).map((k) => `• ${k}`).join("\n");
+      case "decisions":
+        return (s.decisions || []).map((d) => `• ${d}`).join("\n");
+      case "open_questions":
+        return (s.open_questions || []).map((q) => `• ${q}`).join("\n");
+      case "actions":
+        return (s.actions || [])
+          .map((a) => {
+            const text = typeof a === "string" ? a : a?.text;
+            const owner = a && typeof a === "object" && a.owner ? ` (${a.owner})` : "";
+            return `• ${text}${owner}`;
+          })
+          .join("\n");
+      default:
+        return "";
+    }
+  };
+
+  const sectionMeta = (s) =>
+    s
+      ? [
+          { key: "topics", label: "Topics", count: s.topics?.length || 0 },
+          { key: "key_details", label: "Key Details", count: s.key_details?.length || 0 },
+          { key: "decisions", label: "Decisions", count: s.decisions?.length || 0 },
+          { key: "open_questions", label: "Open Questions", count: s.open_questions?.length || 0 },
+          { key: "actions", label: "Actions", count: s.actions?.length || 0 },
+        ]
+      : [];
+
+  const latest = useMemo(() => snapshots.at(-1) || null, [snapshots]);
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-200/60 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
-        {/* Header with session info */}
+        {/* Header */}
         <div className="mb-4 pb-3 border-b border-slate-100">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-800">Session Insights</h2>
             <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-400" : "bg-amber-400"}`}></div>
+              <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-400" : "bg-amber-400"}`} />
               <span className="text-xs text-slate-500">{authState.authenticated ? "Verified" : "Guest"}</span>
             </div>
           </div>
@@ -160,7 +157,7 @@ export default function RightPanel() {
         {authState.authenticated && live && Object.keys(live).length > 0 && (
           <div className="mb-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               <h3 className="text-sm font-semibold text-emerald-800">Live Notes</h3>
             </div>
             {live.gist && (
@@ -175,7 +172,7 @@ export default function RightPanel() {
                 <div className="space-y-1">
                   {live.key_points.map((point, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <div className="w-1 h-1 bg-emerald-500 rounded-full mt-2 flex-shrink-0"></div>
+                      <div className="w-1 h-1 bg-emerald-500 rounded-full mt-2 flex-shrink-0" />
                       <span className="text-xs text-emerald-800">{point}</span>
                     </div>
                   ))}
@@ -185,11 +182,11 @@ export default function RightPanel() {
           </div>
         )}
 
-        {/* Command suggestions */}
+        {/* Commands */}
         {commands.length > 0 && (
           <div className="mb-4 bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-200/60 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
+              <div className="w-2 h-2 bg-cyan-500 rounded-full" />
               <h3 className="text-sm font-semibold text-cyan-800">Suggestions</h3>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -202,23 +199,21 @@ export default function RightPanel() {
                     key={(c.created_at || "") + i}
                     onClick={() => {
                       const { addCommand } = useSessionStore.getState();
-                      addCommand({
-                        label: c.command || c.slug + "?",
-                      });
+                      addCommand({ label: c.command || c.slug });
                       setCopiedKey(`registry-${i}`);
                       setTimeout(() => setCopiedKey(null), 1000);
                     }}
                     className="text-xs px-3 py-1.5 bg-white/80 border border-cyan-200 rounded-full text-cyan-700 hover:bg-cyan-100 hover:border-cyan-300 transition-all duration-200 font-medium active:scale-95"
-                    title={`Send "${c.command || c.slug + "?"}" to registry`}
+                    title={`Send "${c.command || c.slug}" to registry`}
                   >
-                    {c.slug}? {copiedKey === `registry-${i}` ? "✓" : ""}
+                    {c.command || c.slug} {copiedKey === `registry-${i}` ? "✓" : ""}
                   </button>
                 ))}
             </div>
           </div>
         )}
 
-        {/* Snapshots section */}
+        {/* Snapshots */}
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-slate-800 mb-3">Conversation Snapshots</h3>
 
@@ -230,9 +225,7 @@ export default function RightPanel() {
                 </svg>
               </div>
               <p className="text-xs text-amber-800 mb-2 font-medium">Snapshots for Verified Users</p>
-              <p className="text-xs text-amber-700 leading-relaxed">
-                Get automatic conversation summaries every 5 messages with a verified account.
-              </p>
+              <p className="text-xs text-amber-700 leading-relaxed">Get automatic summaries every 5 messages.</p>
             </div>
           )}
 
@@ -243,10 +236,8 @@ export default function RightPanel() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-xs text-slate-600 mb-1 font-medium">Building your first snapshot...</p>
-              <p className="text-xs text-slate-500">
-                Snapshots appear every 5 messages ({toNextSnapshot} more to go)
-              </p>
+              <p className="text-xs text-slate-600 mb-1 font-medium">Building your first snapshot…</p>
+              <p className="text-xs text-slate-500">({toNextSnapshot} more message{toNextSnapshot === 1 ? "" : "s"} to go)</p>
             </div>
           )}
 
@@ -255,163 +246,115 @@ export default function RightPanel() {
               {snapshots
                 .slice()
                 .reverse()
-                .map((c, index) => (
-                  <div
-                    key={c.created_at + index}
-                    className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <button
-                        onClick={() => toggleSnapshot(index)}
-                        className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-800 font-medium"
-                      >
-                        <svg
-                          className={`w-3 h-3 transition-transform ${collapsedSnapshots.has(index) ? "" : "rotate-90"}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+                .map((snap, i) => {
+                  const displayIndex = i; // index in reversed view
+                  const collapsedIndex = displayIndex; // keep simple mapping
+                  const isCollapsed = collapsed.has(collapsedIndex);
+                  const fields = sectionMeta(snap);
+
+                  return (
+                    <div
+                      key={(snap.created_at || "") + i}
+                      className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          onClick={() => {
+                            const next = new Set(collapsed);
+                            if (next.has(collapsedIndex)) next.delete(collapsedIndex);
+                            else next.add(collapsedIndex);
+                            setCollapsed(next);
+                          }}
+                          className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-800 font-medium"
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        Turns {c.from_turn ?? "?"}—{c.to_turn ?? "?"} • {new Date(c.created_at).toLocaleDateString()}
-                      </button>
-                      <button
-                        onClick={() => copyAllSections(c, index)}
-                        className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium text-slate-600 transition-colors active:scale-95"
-                      >
-                        {copiedKey === `all-${index}` ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
+                          <svg
+                            className={`w-3 h-3 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          Turns {snap.from_turn ?? "?"}—{snap.to_turn ?? "?"} •{" "}
+                          {new Date(snap.created_at).toLocaleDateString()}
+                        </button>
 
-                    {!collapsedSnapshots.has(index) && (
-                      <div className="space-y-3">
-                        {c.topics?.length > 0 && (
-                          <SnapshotSection
-                            title="Topics"
-                            items={c.topics.map((t) => `${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)}
-                            onCopy={() => {
-                              const text = c.topics
-                                .map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
-                                .join("\n");
-                              copySection(text, `topics-${index}`);
-                            }}
-                            copied={copiedKey === `topics-${index}`}
-                            color="purple"
-                          />
-                        )}
-
-                        {c.key_details?.length > 0 && (
-                          <SnapshotSection
-                            title="Key Details"
-                            items={c.key_details}
-                            onCopy={() => {
-                              const text = c.key_details.map((k) => `• ${k}`).join("\n");
-                              copySection(text, `details-${index}`);
-                            }}
-                            copied={copiedKey === `details-${index}`}
-                            color="blue"
-                          />
-                        )}
-
-                        {c.decisions?.length > 0 && (
-                          <SnapshotSection
-                            title="Decisions"
-                            items={c.decisions}
-                            onCopy={() => {
-                              const text = c.decisions.map((d) => `• ${d}`).join("\n");
-                              copySection(text, `decisions-${index}`);
-                            }}
-                            copied={copiedKey === `decisions-${index}`}
-                            color="green"
-                          />
-                        )}
-
-                        {c.open_questions?.length > 0 && (
-                          <SnapshotSection
-                            title="Open Questions"
-                            items={c.open_questions}
-                            onCopy={() => {
-                              const text = c.open_questions.map((q) => `• ${q}`).join("\n");
-                              copySection(text, `questions-${index}`);
-                            }}
-                            copied={copiedKey === `questions-${index}`}
-                            color="amber"
-                          />
-                        )}
-
-                        {c.actions?.length > 0 && (
-                          <SnapshotSection
-                            title="Actions"
-                            items={c.actions.map((a) => {
-                              const text = typeof a === "string" ? a : a.text;
-                              const owner = a.owner ? ` (${a.owner})` : "";
-                              return `${text}${owner}`;
-                            })}
-                            onCopy={() => {
-                              const text = c.actions
-                                .map((a) => {
-                                  const actionText = typeof a === "string" ? a : a.text;
-                                  const owner = a.owner ? ` (${a.owner})` : "";
-                                  return `• ${actionText}${owner}`;
-                                })
-                                .join("\n");
-                              copySection(text, `actions-${index}`);
-                            }}
-                            copied={copiedKey === `actions-${index}`}
-                            color="red"
-                          />
-                        )}
+                        {/* Copy ALL */}
+                        <button
+                          onClick={() => {
+                            const all = ["topics", "key_details", "decisions", "open_questions", "actions"]
+                              .map((k) => buildSectionCopy(snap, k))
+                              .filter(Boolean)
+                              .join("\n\n");
+                            copy(all, `all-${i}`);
+                          }}
+                          className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium text-slate-600 transition-colors active:scale-95"
+                        >
+                          {copiedKey === `all-${i}` ? "Copied!" : "Copy All"}
+                        </button>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {/* COLLAPSED: show section rows (name + count) each copyable */}
+                      {isCollapsed && (
+                        <div className="space-y-2">
+                          {fields.map((f) => {
+                            const k = `${f.key}-${i}`;
+                            const text = buildSectionCopy(snap, f.key);
+                            return (
+                              <button
+                                key={k}
+                                onClick={() => copy(text, k)}
+                                className="w-full flex items-center justify-between text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 transition-colors"
+                                title="Click to copy this section"
+                              >
+                                <span className="font-medium text-slate-700">{f.label}</span>
+                                <span className="text-slate-500">
+                                  {copiedKey === k ? "✓ Copied" : f.count}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* EXPANDED: show detailed items with per-section Copy */}
+                      {!isCollapsed && (
+                        <div className="space-y-3 mt-2">
+                          {fields.map((f) => {
+                            const text = buildSectionCopy(snap, f.key);
+                            const k = `${f.key}-${i}`;
+                            return (
+                              <div key={k} className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="text-xs font-semibold text-slate-800">
+                                    {f.label} {f.count ? `(${f.count})` : ""}
+                                  </h4>
+                                  <button
+                                    onClick={() => copy(text, k)}
+                                    className="text-xs px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-md font-medium transition-colors active:scale-95"
+                                  >
+                                    {copiedKey === k ? "Copied!" : "Copy"}
+                                  </button>
+                                </div>
+                                {text ? (
+                                  <pre className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                    {text}
+                                  </pre>
+                                ) : (
+                                  <div className="text-[11px] text-slate-400">No items</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           )}
         </div>
       </div>
     </aside>
-  );
-}
-
-// Helper component for consistent snapshot section styling
-function SnapshotSection({ title, items, onCopy, copied, color = "slate" }) {
-  const colorClasses = {
-    purple: "bg-purple-50 border-purple-200 text-purple-800",
-    blue: "bg-blue-50 border-blue-200 text-blue-800",
-    green: "bg-emerald-50 border-emerald-200 text-emerald-800",
-    amber: "bg-amber-50 border-amber-200 text-amber-800",
-    red: "bg-rose-50 border-rose-200 text-rose-800",
-    slate: "bg-slate-50 border-slate-200 text-slate-800",
-  };
-
-  const dotColors = {
-    purple: "bg-purple-400",
-    blue: "bg-blue-400",
-    green: "bg-emerald-400",
-    amber: "bg-amber-400",
-    red: "bg-rose-400",
-    slate: "bg-slate-400",
-  };
-
-  return (
-    <div className={`${colorClasses[color]} border rounded-xl p-3`}>
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-xs font-semibold">{title}</h4>
-        <button
-          onClick={onCopy}
-          className="text-xs px-2 py-0.5 bg-white/60 hover:bg-white/80 rounded-md font-medium transition-colors active:scale-95"
-        >
-          {copied ? "Copied!" : "Copy"}
-        </button>
-      </div>
-      <div className="space-y-1.5">
-        {items.map((item, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <div className={`w-1 h-1 ${dotColors[color]} rounded-full mt-2 flex-shrink-0`}></div>
-            <span className="text-xs leading-relaxed">{item}</span>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
