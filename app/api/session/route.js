@@ -1,4 +1,4 @@
-// app/api/session/route.js - ULTRA COST OPTIMIZED - FIXED
+// app/api/session/route.js - ULTRA COST OPTIMIZED - FIXED WITH DEBUG
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -197,7 +197,10 @@ async function updateLiveNotesUltraCheap(session) {
   if (session.isGuest) return;
   
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return;
+  if (!key) {
+    console.warn("OpenAI API key missing - skipping live notes");
+    return;
+  }
 
   const lastTurns = buildBudgetedTurns(session.turns, LIVE_NOTES_BUDGET);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
@@ -215,9 +218,9 @@ async function updateLiveNotesUltraCheap(session) {
     const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
     const obj = JSON.parse(extractJson(raw));
     mergeLive(session, obj);
-    console.log("Live notes updated for session:", session.userId);
+    console.log("✅ Live notes updated for session:", session.userId);
   } catch (e) {
-    console.warn("Live notes failed:", e.message);
+    console.warn("❌ Live notes failed:", e.message);
   }
 }
 
@@ -226,7 +229,10 @@ async function consolidateSnapshotUltraCheap(session) {
   if (session.isGuest) return;
   
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return;
+  if (!key) {
+    console.warn("OpenAI API key missing - skipping snapshot");
+    return;
+  }
 
   const from_turn = (session.snapshots?.at(-1)?.to_turn ?? 0) + 1;
   const to_turn = session.turns.length;
@@ -263,9 +269,9 @@ async function consolidateSnapshotUltraCheap(session) {
     };
 
     (session.snapshots ||= []).push(snapshot);
-    console.log(`Snapshot created for session ${session.userId}: ${snapshot.topics?.length || 0} topics`);
+    console.log(`🎯 Snapshot created for session ${session.userId}: ${snapshot.topics?.length || 0} topics, ${snapshot.key_details?.length || 0} details`);
   } catch (e) {
-    console.warn("Snapshot failed:", e.message);
+    console.warn("❌ Snapshot failed:", e.message);
   }
 }
 
@@ -327,6 +333,8 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
+    console.log("🔍 REQUEST RECEIVED:", JSON.stringify(body, null, 2));
+    
     let message = asText(body?.message ?? "");
     if (!message) return new Response("Missing message", { status: 400, headers: H });
 
@@ -336,6 +344,8 @@ export async function POST(req) {
     }
 
     const userId = await getUserFromRequest(req);
+    console.log("🔐 User auth:", userId ? `verified (${userId})` : "guest");
+    
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic");
     const modelName = asText(modelMeta?.model || (
@@ -345,7 +355,7 @@ export async function POST(req) {
       "claude-3-haiku-20240307"
     ));
 
-    console.log(`Processing message for ${userId ? 'verified' : 'guest'} user with ${provider}/${modelName}`);
+    console.log(`🤖 Processing message for ${userId ? 'verified' : 'guest'} user with ${provider}/${modelName}`);
 
     // Build minimal identity system prompt only if needed
     const needsIdentity = shouldInjectIdentity(message);
@@ -358,6 +368,7 @@ export async function POST(req) {
     // 1) append user turn
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
+    console.log(`📝 Session now has ${s.turns.length} turns (${userTurnCount(s.turns)} user messages)`);
 
     // 2) call provider
     let assistantText = "";
@@ -453,7 +464,9 @@ export async function POST(req) {
 
     // 4) Background processing: Guests get NONE, Verified users get FULL functionality
     if (!s.isGuest) {
-      console.log("Running background processing for verified user");
+      console.log("🔥 VERIFIED USER DETECTED - Starting background processing");
+      console.log("🔑 OpenAI key available:", !!process.env.OPENAI_API_KEY);
+      
       await updateLiveNotesUltraCheap(s);
       
       // topic mentions - verified users only
@@ -461,29 +474,42 @@ export async function POST(req) {
       
       // Snapshot every 5 messages for verified users
       const userTurns = userTurnCount(s.turns);
+      console.log(`📊 User message count: ${userTurns} (snapshot triggers at 5, 10, 15...)`);
+      
       if (userTurns > 0 && userTurns % 5 === 0) {
+        console.log(`📸 SNAPSHOT TRIGGER! Creating snapshot for message ${userTurns}`);
         await consolidateSnapshotUltraCheap(s);
       }
       
-      console.log(`Session state: ${s.snapshots?.length || 0} snapshots, ${s.commands?.length || 0} commands`);
+      console.log(`📋 Session state: ${s.snapshots?.length || 0} snapshots, ${s.commands?.length || 0} commands`);
+    } else {
+      console.log("👤 Guest user - skipping background processing");
     }
 
     // 5) response
+    const responseData = {
+      text: assistantText,
+      inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
+      sessionMeta: { 
+        isGuest: s.isGuest, 
+        userId: s.userId,
+        provider,
+        model: modelName,
+      },
+    };
+    
+    console.log("📤 Sending response with inspector data:", {
+      snapshots: responseData.inspector.snapshots.length,
+      commands: responseData.inspector.commands.length,
+      live: Object.keys(responseData.inspector.live).length
+    });
+
     return new Response(
-      JSON.stringify({
-        text: assistantText,
-        inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
-        sessionMeta: { 
-          isGuest: s.isGuest, 
-          userId: s.userId,
-          provider,
-          model: modelName,
-        },
-      }),
+      JSON.stringify(responseData),
       { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );
   } catch (e) {
-    console.error("Session error:", e);
+    console.error("💥 Session error:", e);
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
