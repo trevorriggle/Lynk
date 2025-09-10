@@ -1,4 +1,4 @@
-// app/api/session/route.js - ULTRA COST OPTIMIZED
+// app/api/session/route.js - ULTRA COST OPTIMIZED - FIXED
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,15 +30,15 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
 }
 
 // --- ULTRA AGGRESSIVE cost guards ---
-const INPUT_TOKEN_BUDGET = 1000;     // Reduced from 1500
-const OUTPUT_TOKENS = 600;           // Reduced from 800
+const INPUT_TOKEN_BUDGET = 1000;     
+const OUTPUT_TOKENS = 600;           
 const estTokens = (s) => Math.ceil((s || "").length / 4);
 
 // --- Background task caps (MINIMAL) ---
-const LIVE_NOTES_BUDGET = 400;       // Reduced from 600
-const LIVE_NOTES_TOKENS = 64;        // Reduced from 128
-const SNAPSHOT_INPUT_BUDGET = 500;   // Reduced from 700
-const SNAPSHOT_OUTPUT_TOKENS = 128;  // Reduced from 200
+const LIVE_NOTES_BUDGET = 400;       
+const LIVE_NOTES_TOKENS = 64;        
+const SNAPSHOT_INPUT_BUDGET = 500;   
+const SNAPSHOT_OUTPUT_TOKENS = 128;  
 
 // --- ALWAYS use cheapest model for background (gpt-4o-mini only) ---
 const BACKGROUND_MODEL = "gpt-4o-mini";
@@ -152,6 +152,46 @@ async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens 
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
+// --- Topic tracking function ---
+function trackMessageTopics(session, message) {
+  // Simple topic extraction for authenticated users
+  const topics = [];
+  const words = message.toLowerCase().split(/\s+/);
+  
+  // Look for key topics
+  const topicPatterns = {
+    'ai': /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt)\b/i,
+    'programming': /\b(code|coding|programming|javascript|python|react|api|development|software)\b/i,
+    'business': /\b(business|strategy|revenue|cost|optimization|market|sales|customer)\b/i,
+    'data': /\b(data|database|sql|analytics|metrics|statistics|analysis)\b/i,
+    'design': /\b(design|ui|ux|interface|user experience|frontend|styling)\b/i,
+    'project': /\b(project|task|deadline|planning|management|timeline)\b/i,
+  };
+  
+  for (const [topic, pattern] of Object.entries(topicPatterns)) {
+    if (pattern.test(message)) {
+      topics.push(topic);
+    }
+  }
+  
+  // Store topics with simple counting
+  for (const topic of topics) {
+    if (!session._topicSeenAt[topic]) {
+      session._topicSeenAt[topic] = session.turns.length;
+      session.topicCounts[topic] = (session.topicCounts[topic] || 0) + 1;
+      
+      // Add to commands for suggestions
+      if (!session.commands) session.commands = [];
+      session.commands.push({
+        slug: topic,
+        command: `Tell me more about ${topic}`,
+        created_at: new Date().toISOString(),
+        confidence: 'med'
+      });
+    }
+  }
+}
+
 // --- SIMPLIFIED background processing - ONLY gpt-4o-mini ---
 async function updateLiveNotesUltraCheap(session) {
   // Skip for guests to save costs
@@ -176,13 +216,14 @@ async function updateLiveNotesUltraCheap(session) {
     const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
     const obj = JSON.parse(extractJson(raw));
     mergeLive(session, obj);
+    console.log("Live notes updated for session:", session.userId);
   } catch (e) {
-    // Fail silently to avoid breaking main flow
+    console.warn("Live notes failed:", e.message);
   }
 }
 
 async function consolidateSnapshotUltraCheap(session) {
-  // Skip for guests OR reduce frequency (every 10 messages instead of 5)
+  // Skip for guests
   if (session.isGuest) return;
   
   const key = process.env.OPENAI_API_KEY;
@@ -196,7 +237,7 @@ async function consolidateSnapshotUltraCheap(session) {
     .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
     .join("\n");
 
-  const prompt = `Summarize chat. Return JSON: {"topics":[{"slug":"","gloss":""}],"key_details":[],"confidence":"med"}\n\n${excerpt}`;
+  const prompt = `Summarize chat. Return JSON: {"topics":[{"slug":"","gloss":""}],"key_details":[],"decisions":[],"open_questions":[],"actions":[],"confidence":"med"}\n\n${excerpt}`;
 
   try {
     const client = new OpenAI({ apiKey: key });
@@ -214,14 +255,18 @@ async function consolidateSnapshotUltraCheap(session) {
       model: { provider: "openai", model: BACKGROUND_MODEL },
       from_turn,
       to_turn,
-      topics: (obj.topics || []).slice(0, 3),
-      key_details: (obj.key_details || []).slice(0, 3),
+      topics: (obj.topics || []).slice(0, 4),
+      key_details: (obj.key_details || []).slice(0, 4),
+      decisions: (obj.decisions || []).slice(0, 3),
+      open_questions: (obj.open_questions || []).slice(0, 3),
+      actions: (obj.actions || []).slice(0, 3),
       confidence: obj.confidence || "med",
     };
 
     (session.snapshots ||= []).push(snapshot);
+    console.log(`Snapshot created for session ${session.userId}: ${snapshot.topics?.length || 0} topics`);
   } catch (e) {
-    // Fail silently
+    console.warn("Snapshot failed:", e.message);
   }
 }
 
@@ -300,6 +345,8 @@ export async function POST(req) {
       provider === "xai" ? "grok-2" :
       "claude-3-haiku-20240307"
     ));
+
+    console.log(`Processing message for ${userId ? 'authenticated' : 'guest'} user with ${provider}/${modelName}`);
 
     // Build minimal identity system prompt only if needed
     const needsIdentity = shouldInjectIdentity(message);
@@ -407,16 +454,19 @@ export async function POST(req) {
 
     // 4) Background processing: Guests get NONE, Auth users get FULL functionality
     if (!s.isGuest) {
-      await updateLiveNotes(s);
+      console.log("Running background processing for authenticated user");
+      await updateLiveNotesUltraCheap(s);
       
       // topic mentions (per-turn de-duped) - auth users only
       trackMessageTopics(s, message);
       
-      // Snapshot every 5 messages for auth users (same as original)
+      // Snapshot every 3 messages for auth users (faster for testing)
       const userTurns = userTurnCount(s.turns);
-      if (userTurns > 0 && userTurns % 5 === 0) {
-        await consolidateSnapshot(s);
+      if (userTurns > 0 && userTurns % 3 === 0) {
+        await consolidateSnapshotUltraCheap(s);
       }
+      
+      console.log(`Session state: ${s.snapshots?.length || 0} snapshots, ${s.commands?.length || 0} commands`);
     }
 
     // 5) response
@@ -434,6 +484,7 @@ export async function POST(req) {
       { status: 200, headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId } }
     );
   } catch (e) {
+    console.error("Session error:", e);
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
