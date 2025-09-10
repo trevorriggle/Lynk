@@ -177,7 +177,7 @@ export default function Chat({ selectedModel }) {
     [activeId, sessions]
   );
 
-  const sessionModel = useMemo(
+  const sessionModel = selectedModel; // Always use the global selected model
     () => (activeId ? sessions[activeId]?.model : selectedModel),
     [activeId, sessions, selectedModel]
   );
