@@ -1,4 +1,4 @@
-// components/RightPanel.jsx - Fixed terminology and timing
+// components/RightPanel.jsx - Fixed terminology and timing + minor UX polish
 "use client";
 
 import { useEffect, useState } from "react";
@@ -60,7 +60,7 @@ export default function RightPanel() {
 
     const load = async () => {
       try {
-        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`);
+        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
         const j = await r.json();
         if (j?.inspector) {
           setInspector(j.inspector);
@@ -135,17 +135,20 @@ export default function RightPanel() {
   const commands = inspector?.commands || [];
   const live = inspector?.live || {};
 
+  // Remaining messages to next snapshot, robust mod math
+  const remainder = currentUserMessageCount % 5;
+  const toNextSnapshot = remainder === 0 ? 0 : 5 - remainder;
+
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-200/60 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
-        
         {/* Header with session info */}
         <div className="mb-4 pb-3 border-b border-slate-100">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-800">Session Insights</h2>
             <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full ${authState.authenticated ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
-              <span className="text-xs text-slate-500">{authState.authenticated ? 'Verified' : 'Guest'}</span>
+              <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-400" : "bg-amber-400"}`}></div>
+              <span className="text-xs text-slate-500">{authState.authenticated ? "Verified" : "Guest"}</span>
             </div>
           </div>
           <div className="text-xs text-slate-400 space-y-1">
@@ -153,7 +156,7 @@ export default function RightPanel() {
           </div>
         </div>
 
-        {/* Live notes - enhanced styling */}
+        {/* Live notes */}
         {authState.authenticated && live && Object.keys(live).length > 0 && (
           <div className="mb-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/60 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -182,7 +185,7 @@ export default function RightPanel() {
           </div>
         )}
 
-        {/* Command suggestions - enhanced styling */}
+        {/* Command suggestions */}
         {commands.length > 0 && (
           <div className="mb-4 bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-200/60 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -218,7 +221,7 @@ export default function RightPanel() {
         {/* Snapshots section */}
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-slate-800 mb-3">Conversation Snapshots</h3>
-          
+
           {!authState.authenticated && (
             <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 rounded-2xl p-4 text-center">
               <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-2">
@@ -242,7 +245,7 @@ export default function RightPanel() {
               </div>
               <p className="text-xs text-slate-600 mb-1 font-medium">Building your first snapshot...</p>
               <p className="text-xs text-slate-500">
-                Snapshots appear every 5 messages ({Math.ceil(currentUserMessageCount / 5) * 5 - currentUserMessageCount} more to go)
+                Snapshots appear every 5 messages ({toNextSnapshot} more to go)
               </p>
             </div>
           )}
@@ -262,10 +265,10 @@ export default function RightPanel() {
                         onClick={() => toggleSnapshot(index)}
                         className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-800 font-medium"
                       >
-                        <svg 
-                          className={`w-3 h-3 transition-transform ${collapsedSnapshots.has(index) ? '' : 'rotate-90'}`} 
-                          fill="none" 
-                          stroke="currentColor" 
+                        <svg
+                          className={`w-3 h-3 transition-transform ${collapsedSnapshots.has(index) ? "" : "rotate-90"}`}
+                          fill="none"
+                          stroke="currentColor"
                           viewBox="0 0 24 24"
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -285,9 +288,11 @@ export default function RightPanel() {
                         {c.topics?.length > 0 && (
                           <SnapshotSection
                             title="Topics"
-                            items={c.topics.map(t => `${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)}
+                            items={c.topics.map((t) => `${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)}
                             onCopy={() => {
-                              const text = c.topics.map(t => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`).join("\n");
+                              const text = c.topics
+                                .map((t) => `• ${t.slug}${t.gloss ? ` — ${t.gloss}` : ""}`)
+                                .join("\n");
                               copySection(text, `topics-${index}`);
                             }}
                             copied={copiedKey === `topics-${index}`}
@@ -300,7 +305,7 @@ export default function RightPanel() {
                             title="Key Details"
                             items={c.key_details}
                             onCopy={() => {
-                              const text = c.key_details.map(k => `• ${k}`).join("\n");
+                              const text = c.key_details.map((k) => `• ${k}`).join("\n");
                               copySection(text, `details-${index}`);
                             }}
                             copied={copiedKey === `details-${index}`}
@@ -313,7 +318,7 @@ export default function RightPanel() {
                             title="Decisions"
                             items={c.decisions}
                             onCopy={() => {
-                              const text = c.decisions.map(d => `• ${d}`).join("\n");
+                              const text = c.decisions.map((d) => `• ${d}`).join("\n");
                               copySection(text, `decisions-${index}`);
                             }}
                             copied={copiedKey === `decisions-${index}`}
@@ -326,7 +331,7 @@ export default function RightPanel() {
                             title="Open Questions"
                             items={c.open_questions}
                             onCopy={() => {
-                              const text = c.open_questions.map(q => `• ${q}`).join("\n");
+                              const text = c.open_questions.map((q) => `• ${q}`).join("\n");
                               copySection(text, `questions-${index}`);
                             }}
                             copied={copiedKey === `questions-${index}`}
@@ -337,17 +342,19 @@ export default function RightPanel() {
                         {c.actions?.length > 0 && (
                           <SnapshotSection
                             title="Actions"
-                            items={c.actions.map(a => {
+                            items={c.actions.map((a) => {
                               const text = typeof a === "string" ? a : a.text;
                               const owner = a.owner ? ` (${a.owner})` : "";
                               return `${text}${owner}`;
                             })}
                             onCopy={() => {
-                              const text = c.actions.map(a => {
-                                const actionText = typeof a === "string" ? a : a.text;
-                                const owner = a.owner ? ` (${a.owner})` : "";
-                                return `• ${actionText}${owner}`;
-                              }).join("\n");
+                              const text = c.actions
+                                .map((a) => {
+                                  const actionText = typeof a === "string" ? a : a.text;
+                                  const owner = a.owner ? ` (${a.owner})` : "";
+                                  return `• ${actionText}${owner}`;
+                                })
+                                .join("\n");
                               copySection(text, `actions-${index}`);
                             }}
                             copied={copiedKey === `actions-${index}`}
@@ -370,20 +377,20 @@ export default function RightPanel() {
 function SnapshotSection({ title, items, onCopy, copied, color = "slate" }) {
   const colorClasses = {
     purple: "bg-purple-50 border-purple-200 text-purple-800",
-    blue: "bg-blue-50 border-blue-200 text-blue-800", 
+    blue: "bg-blue-50 border-blue-200 text-blue-800",
     green: "bg-emerald-50 border-emerald-200 text-emerald-800",
     amber: "bg-amber-50 border-amber-200 text-amber-800",
     red: "bg-rose-50 border-rose-200 text-rose-800",
-    slate: "bg-slate-50 border-slate-200 text-slate-800"
+    slate: "bg-slate-50 border-slate-200 text-slate-800",
   };
 
   const dotColors = {
     purple: "bg-purple-400",
     blue: "bg-blue-400",
-    green: "bg-emerald-400", 
+    green: "bg-emerald-400",
     amber: "bg-amber-400",
     red: "bg-rose-400",
-    slate: "bg-slate-400"
+    slate: "bg-slate-400",
   };
 
   return (
