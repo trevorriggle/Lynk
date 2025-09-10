@@ -21,7 +21,7 @@ const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
   const initial = useMemo(
-    () => (typeof model === "string" ? model : model?.label) || "OpenAI",
+    () => (typeof model === "string" ? model : model?.label) || "Claude",
     [model]
   );
 
@@ -37,7 +37,7 @@ export default function DraggableModelButton({ model, setModel }) {
 
   // Lift selection to parent AND store
   useEffect(() => {
-    const selected = MODELS.find((m) => m.label === current) || MODELS[1];
+    const selected = MODELS.find((m) => m.label === current) || MODELS[0];
     setModel?.(selected);
     setSelectedModel(selected);
   }, [current, setModel, setSelectedModel]);
