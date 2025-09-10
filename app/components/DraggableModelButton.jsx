@@ -19,12 +19,11 @@ const PILL_H = 48;
 const EDGE = 8;
 
 export default function DraggableModelButton({ model, setModel }) {
-  // Initialize with OpenAI as default
+  // Force OpenAI as the actual default, regardless of what's passed in
   const initial = useMemo(() => {
-    if (typeof model === "string") return model;
-    if (model?.label) return model.label;
-    return "OpenAI"; // Changed from "Claude" to "OpenAI"
-  }, [model]);
+    // Always start with OpenAI unless explicitly overridden
+    return "OpenAI";
+  }, []); // Remove dependency on model prop
 
   const [current, setCurrent] = useState(initial);
   const [open, setOpen] = useState(false);
