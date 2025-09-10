@@ -87,12 +87,20 @@ function QuickActionsDropdown({ onAction, onClose }) {
   );
 }
 
-export default function Chat({ selectedModel }) {
+export default function Chat() {
   const endpoint = "/api/session";
   const meEndpoint = "/api/me";
+  
+  // Read selected model directly from store instead of props
+  const { selectedModel, activeId, sessions, appendToActive, guestMessageCount } = useSessionStore(s => ({
+    selectedModel: s.selectedModel,
+    activeId: s.activeId,
+    sessions: s.sessions,
+    appendToActive: s.appendToActive,
+    guestMessageCount: s.guestMessageCount,
+  }));
+  
   const fallbackLabel = selectedModel?.label || "OpenAI";
-
-  const { activeId, sessions, appendToActive, guestMessageCount } = useSessionStore((s) => s);
 
   // Auth state
   const [authState, setAuthState] = useState({
@@ -171,18 +179,16 @@ export default function Chat({ selectedModel }) {
     };
   }, []);
 
-  // Session + model
+  // Session and messages
   const thread = useMemo(
     () => (activeId ? sessions[activeId]?.messages || [] : []),
     [activeId, sessions]
   );
 
-  const sessionModel = selectedModel; // Always use the global selected model
-    () => (activeId ? sessions[activeId]?.model : selectedModel),
-    [activeId, sessions, selectedModel]
-  );
+  // Always use the global selected model for new messages
+  const sessionModel = selectedModel;
 
-  // Message limits - FIXED VERSION
+  // Message limits
   const getUserMessageCount = () => thread.filter((m) => m && m.role === "user").length;
   const getMessageLimit = () => (authState.authenticated ? 20 : 10);
   const getCurrentCount = () => (authState.authenticated ? getUserMessageCount() : guestMessageCount);
