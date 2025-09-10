@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — ONLY Green Live Notes + Commands. Live Notes update every 5 user turns. No snapshots at all.
+// components/RightPanel.jsx — Live Notes cards (history), collapsible with Copy, green counter, + Commands (4x rule). No snapshots.
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
+  const [collapsedIds, setCollapsedIds] = useState(new Set()); // snapshot-like per LiveNote card
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -27,23 +28,23 @@ export default function RightPanel() {
     })();
   }, []);
 
-  // message counts (for green badge)
+  // message counts (for badge)
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
-  const liveNoteCycles = Math.floor(currentUserMessageCount / 5); // green badge number
 
-  // receive push updates
+  // push updates
   useEffect(() => {
     const onUpdate = (e) => e?.detail && setInspector(e.detail);
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // poll backend
+  // polling
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
+      setCollapsedIds(new Set());
       return;
     }
     const load = async () => {
@@ -54,30 +55,45 @@ export default function RightPanel() {
       } catch {}
     };
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 4000);
     return () => clearInterval(t);
   }, [activeId]);
 
-  const live = inspector?.live || {};
+  const liveHistory = useMemo(() => (inspector?.live_history || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [inspector]);
+  const liveBadge = liveHistory.length;
   const commands = inspector?.commands || [];
 
-  async function copyToClipboard(text, key) {
+  // maintain collapsed state by id
+  const getId = (e) => `${e.created_at}|${e.from_turn}|${e.to_turn}`;
+  useEffect(() => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      for (const e of liveHistory) {
+        const id = getId(e);
+        if (!next.has(id)) next.add(id); // default collapsed when first seen (like “pop in”)
+      }
+      // prune stale
+      for (const id of Array.from(next)) {
+        if (!liveHistory.some((e) => getId(e) === id)) next.delete(id);
+      }
+      return next;
+    });
+  }, [liveHistory.map(getId).join("|")]);
+
+  // copy helper
+  async function copy(text, key) {
     try {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 1000);
+      setTimeout(() => setCopiedKey(null), 900);
     } catch {}
   }
 
-  // simple style tokens
-  const chip =
-    "text-xs px-3 py-1.5 rounded-full border bg-white/70 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
+  const chip = "text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
 
-  // Render
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
-
         {/* Header */}
         <div className="mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-1">
@@ -90,83 +106,133 @@ export default function RightPanel() {
           <div className="text-xs text-slate-600">Messages: {currentUserMessageCount}</div>
         </div>
 
-        {/* GREEN LIVE NOTES — the star of the show */}
+        {/* LIVE NOTES LIST */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-emerald-900">Live Notes</h3>
             <div
               className={`min-w-6 h-6 px-2 rounded-full flex items-center justify-center text-[11px] font-semibold ${
-                liveNoteCycles > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+                liveBadge > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
               }`}
-              title="Live Notes updates every 5 user turns"
+              title="Updates every 5 user turns"
             >
-              {liveNoteCycles}
+              {liveBadge}
             </div>
           </div>
 
-          {liveNoteCycles === 0 && (
+          {liveBadge === 0 && (
             <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-2xl p-4 text-xs text-emerald-900">
-              First Live Notes will appear at turn 5.
+              First Live Notes card appears at turn 5.
             </div>
           )}
 
-          {liveNoteCycles > 0 && (
-            <div className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4">
-              {/* Summary */}
-              {live.gist && (
-                <div className="mb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-semibold text-emerald-900 mb-1">Summary</div>
-                    <button
-                      onClick={() => copyToClipboard(live.gist, "live-gist")}
-                      className={chip}
-                    >
-                      {copiedKey === "live-gist" ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
-                  <div
-                    className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2"
-                    onClick={() => copyToClipboard(live.gist, "live-gist")}
-                    title="Click to copy"
-                  >
-                    {live.gist}
-                  </div>
-                </div>
-              )}
+          {liveBadge > 0 && (
+            <div className="space-y-3">
+              {liveHistory.map((ln) => {
+                const id = getId(ln);
+                const isCollapsed = collapsedIds.has(id);
+                const copyAll = [
+                  ln.gist ? `Summary:\n• ${ln.gist}` : "",
+                  ...(ln.key_points?.length ? ["\nKey Points:", ...ln.key_points.map((p) => `• ${p}`)] : []),
+                ]
+                  .filter(Boolean)
+                  .join("\n");
 
-              {/* Key Points */}
-              {Array.isArray(live.key_points) && live.key_points.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-semibold text-emerald-900 mb-1">Key Points</div>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(live.key_points.map((p) => `• ${p}`).join("\n"), "live-kp")
-                      }
-                      className={chip}
-                    >
-                      {copiedKey === "live-kp" ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {live.key_points.map((p, i) => (
-                      <div
-                        key={`kp-${i}`}
-                        className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2"
-                        onClick={() => copyToClipboard(p, `kp-${i}`)}
-                        title="Click to copy"
+                return (
+                  <div key={id} className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <button
+                        onClick={() =>
+                          setCollapsedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(id)) next.delete(id);
+                            else next.add(id);
+                            return next;
+                          })
+                        }
+                        className="flex items-center gap-2 text-xs text-emerald-900 hover:text-emerald-950 font-semibold"
                       >
-                        {p}
+                        <svg className={`w-3 h-3 transition-transform ${isCollapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        Turns {ln.from_turn}—{ln.to_turn} • {new Date(ln.created_at).toLocaleDateString()}
+                      </button>
+
+                      <button onClick={() => copy(copyAll, `ln-all-${id}`)} className={chip}>
+                        {copiedKey === `ln-all-${id}` ? "Copied!" : "Copy All"}
+                      </button>
+                    </div>
+
+                    {isCollapsed ? (
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => copy(ln.gist || "", `ln-gist-${id}`)}
+                          className="w-full flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          title="Copy Summary"
+                        >
+                          <span className="font-semibold text-emerald-950">Summary</span>
+                          <span className="text-emerald-950">{copiedKey === `ln-gist-${id}` ? "✓" : (ln.gist ? 1 : 0)}</span>
+                        </button>
+                        <button
+                          onClick={() => copy((ln.key_points || []).map((p) => `• ${p}`).join("\n"), `ln-kp-${id}`)}
+                          className="w-full flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          title="Copy Key Points"
+                        >
+                          <span className="font-semibold text-emerald-950">Key Points</span>
+                          <span className="text-emerald-950">{copiedKey === `ln-kp-${id}` ? "✓" : (ln.key_points?.length || 0)}</span>
+                        </button>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="space-y-3 mt-1">
+                        {/* Summary */}
+                        {ln.gist && (
+                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-semibold text-emerald-900">Summary</div>
+                              <button onClick={() => copy(ln.gist, `ln-gist-${id}`)} className={chip}>
+                                {copiedKey === `ln-gist-${id}` ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="text-xs text-emerald-900 whitespace-pre-wrap">{ln.gist}</div>
+                          </div>
+                        )}
+
+                        {/* Key Points */}
+                        {Array.isArray(ln.key_points) && ln.key_points.length > 0 && (
+                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-semibold text-emerald-900">Key Points</div>
+                              <button
+                                onClick={() => copy(ln.key_points.map((p) => `• ${p}`).join("\n"), `ln-kp-${id}`)}
+                                className={chip}
+                              >
+                                {copiedKey === `ln-kp-${id}` ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              {ln.key_points.map((p, i) => (
+                                <div
+                                  key={`kp-${i}`}
+                                  className="text-xs text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-2"
+                                  onClick={() => copy(p, `ln-kp-${id}-${i}`)}
+                                  title="Click to copy"
+                                >
+                                  {p}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* COMMANDS (suggestions) */}
+        {/* COMMANDS */}
         {commands.length > 0 && (
           <div className="mb-2 bg-gradient-to-r from-indigo-100 to-blue-100 border border-indigo-300 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -177,7 +243,7 @@ export default function RightPanel() {
               {commands
                 .slice()
                 .reverse()
-                .slice(0, 10)
+                .slice(0, 12)
                 .map((c, i) => (
                   <button
                     key={(c.created_at || "") + c.command + i}

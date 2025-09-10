@@ -1,12 +1,13 @@
-// app/api/session/route.js — ONLY Live Notes (every 5 turns) + Commands (every 4 mentions), no snapshots anywhere
+// app/api/session/route.js — Live Notes history (every 5 turns) + Commands (every 4 mentions). No snapshots.
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai"; // harmless if unused
 
-// --- CORS / headers ---
+// CORS
 const H = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -15,7 +16,7 @@ const H = {
   "X-Lynk-Route": "session",
 };
 
-// --- Identity ---
+// Identity
 const APP_NAME = "Lynk";
 function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   return [
@@ -28,10 +29,9 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
-// --- Budgets / models ---
+// Budgets / model
 const INPUT_TOKEN_BUDGET = 1000;
 const OUTPUT_TOKENS = 600;
-
 const LIVE_NOTES_BUDGET = 400;
 const LIVE_NOTES_TOKENS = 64;
 const BACKGROUND_MODEL = "gpt-4o-mini";
@@ -39,7 +39,7 @@ const BACKGROUND_TEMP = 0.1;
 
 const estTokens = (s) => Math.ceil((s || "").length / 4);
 
-// --- Session store ---
+// In-memory session
 const SESSIONS = new Map();
 function getSession(id, userId = null) {
   const key = userId ? `${userId}:${id}` : `guest:${id}`;
@@ -47,9 +47,11 @@ function getSession(id, userId = null) {
     SESSIONS.set(key, {
       turns: [],
       last: {},
-      live: { gist: "", key_points: [] }, // only thing we surface
-      topicCounts: {},                    // counts per topic
-      commands: [],                       // suggestions
+      // Latest live note (for convenience) + full history array
+      live: { gist: "", key_points: [] },
+      liveHistory: [], // [{created_at, from_turn, to_turn, gist, key_points}]
+      topicCounts: {}, // for command rule
+      commands: [],
       userId,
       isGuest: !userId,
     });
@@ -57,7 +59,7 @@ function getSession(id, userId = null) {
   return SESSIONS.get(key);
 }
 
-// --- auth ---
+// Auth
 async function getUserFromRequest(req) {
   try {
     const cookies = req.headers.get("cookie");
@@ -75,13 +77,12 @@ async function getUserFromRequest(req) {
   }
 }
 
-// --- helpers ---
+// Helpers
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
 function shouldInjectIdentity(message) {
   const triggers = [/(^|\b)(who are you|what are you|what model|what ai|what is lynk)(\b)/i];
   return triggers.some((re) => re.test(message || ""));
 }
-
 function buildBudgetedTurns(turns, maxTokens) {
   const out = [];
   let used = 0;
@@ -94,9 +95,7 @@ function buildBudgetedTurns(turns, maxTokens) {
   }
   return out;
 }
-
 const userTurnCount = (turns) => turns.reduce((n, t) => (t.role === "user" ? n + 1 : n), 0);
-
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
@@ -115,7 +114,6 @@ function buildGeminiHistory(turns) {
     parts: [{ text: t.content }],
   }));
 }
-
 async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens = OUTPUT_TOKENS, temperature = 0.4 }) {
   const res = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
@@ -127,8 +125,20 @@ async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens 
   const data = JSON.parse(txt);
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
+function extractJson(s) {
+  const str = (s || "").trim();
+  const start = str.indexOf("{");
+  const end = str.lastIndexOf("}");
+  if (start >= 0 && end > start) return str.slice(start, end + 1);
+  return "{}";
+}
+function runWithTimeout(promise, ms = 2000, label = "task") {
+  let id;
+  const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
+  return Promise.race([promise.finally(() => clearTimeout(id)), t]);
+}
 
-// --- Topic detection (commands at 4, 8, 12, … mentions) ---
+// Topic → Commands (every 4 mentions)
 function trackMessageTopics(session, message) {
   if (!message || typeof message !== "string") return;
 
@@ -141,7 +151,6 @@ function trackMessageTopics(session, message) {
     project: /\b(project|task|deadline|planning|management|timeline)\b/i,
   };
 
-  // Numbers trigger
   const msg = message.trim();
   const numbers =
     /^[\s\d]+$/.test(msg) ||
@@ -156,9 +165,8 @@ function trackMessageTopics(session, message) {
     const count = (session.topicCounts[topic] || 0) + 1;
     session.topicCounts[topic] = count;
 
-    // Add commands at 4x cadence
     if (count % 4 === 0) {
-      const push = (label) =>
+      const add = (label) =>
         (session.commands ||= []).push({
           slug: topic,
           command: label,
@@ -167,98 +175,79 @@ function trackMessageTopics(session, message) {
         });
 
       if (topic === "numbers") {
-        push("numbers?");
-        push("continue counting");
-        push("analyze the sequence");
+        add("numbers?");
+        add("continue counting");
+        add("analyze the sequence");
       } else {
-        push(`tell me more about ${topic}`);
+        add(`tell me more about ${topic}`);
       }
     }
   }
 }
 
-// --- Live Notes (only thing generated) ---
-async function updateLiveNotesUltraCheap(session) {
-  // Verified users only
-  if (session.isGuest) return;
+// Live Notes — build one entry (returns parsed object)
+async function buildLiveNotes(turns) {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return;
+  if (!key) return { gist: "", key_points: [] };
 
-  const lastTurns = buildBudgetedTurns(session.turns, LIVE_NOTES_BUDGET);
+  const lastTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
-  const prompt = `Update live notes for UI bubble. Return JSON: {"gist":"","key_points":[]}\n\n${chatExcerpt}`;
+  const prompt = `Update live notes. Return JSON: {"gist":"","key_points":[]}\n\n${chatExcerpt}`;
 
-  try {
-    const client = new OpenAI({ apiKey: key });
-    const r = await client.chat.completions.create({
-      model: BACKGROUND_MODEL,
-      max_tokens: LIVE_NOTES_TOKENS,
-      temperature: BACKGROUND_TEMP,
-      messages: [{ role: "user", content: prompt }],
-    });
-    const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
-    const obj = JSON.parse(extractJson(raw)) || {};
-    session.live = {
-      gist: typeof obj.gist === "string" ? obj.gist : session.live.gist || "",
-      key_points: Array.isArray(obj.key_points) ? obj.key_points.slice(0, 4) : session.live.key_points || [],
-    };
-  } catch (e) {
-    console.warn("live notes failed:", e.message);
-  }
+  const client = new OpenAI({ apiKey: key });
+  const r = await client.chat.completions.create({
+    model: BACKGROUND_MODEL,
+    max_tokens: LIVE_NOTES_TOKENS,
+    temperature: BACKGROUND_TEMP,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+  const obj = JSON.parse(extractJson(raw));
+  return {
+    gist: typeof obj?.gist === "string" ? obj.gist : "",
+    key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
+  };
 }
 
-function extractJson(s) {
-  const str = (s || "").trim();
-  const start = str.indexOf("{");
-  const end = str.lastIndexOf("}");
-  if (start >= 0 && end > start) return str.slice(start, end + 1);
-  return "{}";
-}
-
-function runWithTimeout(promise, ms = 2000, label = "task") {
-  let id;
-  const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
-  return Promise.race([promise.finally(() => clearTimeout(id)), t]);
-}
-
-// --- OPTIONS ---
+// OPTIONS
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: H });
 }
 
-// --- GET (polling) ---
+// GET (poll)
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
   const userId = await getUserFromRequest(req);
 
-  if (sessionId) {
-    const vKey = userId ? `${userId}:${sessionId}` : null;
-    const gKey = `guest:${sessionId}`;
-    const s = (vKey ? SESSIONS.get(vKey) : null) || SESSIONS.get(gKey);
-
-    return Response.json(
-      s
-        ? {
-            ok: true,
-            inspector: {
-              live: s.live || {},
-              commands: s.commands || [],
-              topicCounts: s.topicCounts || {},
-            },
-            turns: s.turns.length,
-            isGuest: s.isGuest,
-            userId: s.userId,
-          }
-        : { ok: false, error: "session not found" },
-      { headers: H }
-    );
+  if (!sessionId) {
+    return Response.json({ ok: true, sessions: SESSIONS.size, userId: userId || "guest" }, { headers: H });
   }
 
-  return Response.json({ ok: true, sessions: SESSIONS.size, userId: userId || "guest" }, { headers: H });
+  const vKey = userId ? `${userId}:${sessionId}` : null;
+  const gKey = `guest:${sessionId}`;
+  const s = (vKey ? SESSIONS.get(vKey) : null) || SESSIONS.get(gKey);
+
+  if (!s) return Response.json({ ok: false, error: "session not found" }, { headers: H });
+
+  return Response.json(
+    {
+      ok: true,
+      inspector: {
+        live: s.live || {},
+        live_history: s.liveHistory || [],
+        commands: s.commands || [],
+        topicCounts: s.topicCounts || {},
+      },
+      turns: s.turns.length,
+      isGuest: s.isGuest,
+      userId: s.userId,
+    },
+    { headers: H },
+  );
 }
 
-// --- POST (main) ---
+// POST (chat turn)
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -270,7 +259,7 @@ export async function POST(req) {
 
     const userId = await getUserFromRequest(req);
 
-    // Merge guest→verified if needed
+    // merge guest→verified
     if (userId) {
       const gKey = `guest:${sessionId}`;
       const vKey = `${userId}:${sessionId}`;
@@ -293,7 +282,7 @@ export async function POST(req) {
           ? "gemini-1.5-flash"
           : provider === "xai"
           ? "grok-2"
-          : "claude-3-haiku-20240307")
+          : "claude-3-haiku-20240307"),
     );
 
     const needsIdentity = shouldInjectIdentity(message);
@@ -302,50 +291,28 @@ export async function POST(req) {
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
 
-    // Provider call
+    // provider call
     let assistantText = "";
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
       const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
-      assistantText = await callOpenAICompatible({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        messages,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-      });
+      assistantText = await callOpenAICompatible({ baseURL: "https://api.x.ai/v1", key, model: modelName, messages, max_tokens: OUTPUT_TOKENS, temperature: 0.4 });
     } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
       const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
-      const r = await client.chat.completions.create({
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages,
-      });
+      const r = await client.chat.completions.create({ model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
     } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
-      const reqBody = {
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages: buildAnthropicMessages(s.turns),
-        ...(needsIdentity ? { system: systemIdentity } : {}),
-      };
+      const bodyJson = { model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages: buildAnthropicMessages(s.turns), ...(needsIdentity ? { system: systemIdentity } : {}) };
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "x-api-key": key,
-        },
-        body: JSON.stringify(reqBody),
+        headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": key },
+        body: JSON.stringify(bodyJson),
       });
       const txt = await r.text();
       if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
@@ -363,25 +330,32 @@ export async function POST(req) {
       if (needsIdentity) cfg.systemInstruction = systemIdentity;
       const model = genAI.getGenerativeModel(cfg);
       const history = buildGeminiHistory(s.turns);
-      const result = await model.generateContent({
-        contents: history,
-        generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
-      });
+      const result = await model.generateContent({ contents: history, generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 } });
       assistantText = result?.response?.text?.() || "Okay.";
     }
 
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // --- Background: ONLY every 5 user turns (verified) ---
-    const uCount = userTurnCount(s.turns);
-    if (!s.isGuest) {
-      // commands are counted every turn (so 4x cadence can hit), regardless of 5-turn gate
-      trackMessageTopics(s, message);
+    // Commands counted every turn (so 4x cadence can hit)
+    trackMessageTopics(s, message);
 
-      // live notes are ONLY updated at 5/10/15…
-      if (uCount >= 5 && uCount % 5 === 0) {
-        await runWithTimeout(updateLiveNotesUltraCheap(s), 2000, "live-notes");
+    // Live Notes **only** at 5/10/15...
+    const uCount = userTurnCount(s.turns);
+    if (!s.isGuest && uCount >= 5 && uCount % 5 === 0) {
+      try {
+        const ln = await runWithTimeout(buildLiveNotes(s.turns), 2000, "live-notes");
+        const entry = {
+          created_at: new Date().toISOString(),
+          from_turn: uCount - 4,
+          to_turn: uCount,
+          gist: ln.gist || "",
+          key_points: ln.key_points || [],
+        };
+        s.live = { gist: entry.gist, key_points: entry.key_points };
+        (s.liveHistory ||= []).push(entry);
+      } catch (e) {
+        // ignore background failures
       }
     }
 
@@ -389,6 +363,7 @@ export async function POST(req) {
       text: assistantText,
       inspector: {
         live: s.live || {},
+        live_history: s.liveHistory || [],
         commands: s.commands || [],
         topicCounts: s.topicCounts || {},
       },
@@ -400,7 +375,6 @@ export async function POST(req) {
       headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId },
     });
   } catch (e) {
-    console.error("Session error:", e);
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
