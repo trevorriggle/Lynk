@@ -29,21 +29,29 @@ function DrawingCanvas({ isOpen, onClose, onSave }) {
     }
   }, [isOpen]);
 
+  const getCanvasCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  };
+
   const startDrawing = (e) => {
     if (!context) return;
     setIsDrawing(true);
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = getCanvasCoordinates(e);
     context.beginPath();
     context.moveTo(x, y);
   };
 
   const draw = (e) => {
     if (!isDrawing || !context) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = getCanvasCoordinates(e);
     context.lineTo(x, y);
     context.stroke();
   };
