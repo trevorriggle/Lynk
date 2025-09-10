@@ -1,5 +1,3 @@
-// app/components/TopBar.jsx
-"use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
@@ -21,7 +19,36 @@ function Magnifier({ className = "h-4 w-4" }) {
   );
 }
 
-export default function TopBar() {
+function PencilIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" strokeWidth="2"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function ShareIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" strokeWidth="2"/>
+      <polyline points="16,6 12,2 8,6" strokeWidth="2"/>
+      <line x1="12" y1="2" x2="12" y2="15" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function DownloadIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" strokeWidth="2"/>
+      <polyline points="7,10 12,15 17,10" strokeWidth="2"/>
+      <line x1="12" y1="15" x2="12" y2="3" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+export default function EnhancedTopBar() {
   const logoSizeClass = "h-12";
   const { createSession, selectedModel } = useSessionStore((s) => ({
     createSession: s.createSession,
@@ -64,26 +91,28 @@ export default function TopBar() {
     checkAuth();
   }, []);
 
-  // Upload dropdown state
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const uploadWrapRef = useRef(null);
+  // Interact dropdown state
+  const [interactOpen, setInteractOpen] = useState(false);
+  const interactWrapRef = useRef(null);
 
-  // Close upload menu on outside click
+  // Close interact menu on outside click
   useEffect(() => {
     const onDocDown = (e) => {
-      if (!uploadWrapRef.current) return;
-      if (!uploadWrapRef.current.contains(e.target)) setUploadOpen(false);
+      if (!interactWrapRef.current) return;
+      if (!interactWrapRef.current.contains(e.target)) setInteractOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  // Fire a simple window event for wiring elsewhere
-  function openUpload(kind) {
+  // Fire window events for different interaction types
+  function openInteraction(type) {
     try {
-      window.dispatchEvent(new CustomEvent("upload:open", { detail: { type: kind } }));
-    } catch {}
-    setUploadOpen(false);
+      window.dispatchEvent(new CustomEvent("interact:open", { detail: { type } }));
+    } catch (error) {
+      console.warn("Failed to dispatch interact event:", error);
+    }
+    setInteractOpen(false);
   }
 
   return (
@@ -141,43 +170,68 @@ export default function TopBar() {
               New Chat
             </button>
 
-            {/* Upload dropdown */}
-            <div ref={uploadWrapRef} className="relative">
+            {/* Interact/Collaborate dropdown */}
+            <div ref={interactWrapRef} className="relative">
               <button
                 type="button"
                 aria-haspopup="listbox"
-                aria-expanded={uploadOpen}
-                onClick={() => setUploadOpen((v) => !v)}
+                aria-expanded={interactOpen}
+                onClick={() => setInteractOpen((v) => !v)}
                 className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 inline-flex items-center gap-1"
-                title="Upload"
+                title="Interact & Collaborate"
               >
-                Upload
-                <span className={`transition-transform ${uploadOpen ? "rotate-90" : ""}`} aria-hidden>
+                Interact
+                <span className={`transition-transform ${interactOpen ? "rotate-90" : ""}`} aria-hidden>
                   ▸
                 </span>
               </button>
 
-              {uploadOpen && (
+              {interactOpen && (
                 <div
                   role="listbox"
-                  className="absolute right-0 mt-2 w-44 rounded-2xl overflow-hidden shadow-xl !bg-[#176A82] z-[101]"
+                  className="absolute right-0 mt-2 w-52 rounded-2xl overflow-hidden shadow-xl !bg-[#176A82] z-[101]"
                 >
                   <button
                     role="option"
                     type="button"
-                    onClick={() => openUpload("context")}
-                    className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10 font-semibold"
+                    onClick={() => openInteraction("draw")}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
                     style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
                   >
-                    Context File
+                    <PencilIcon className="h-4 w-4" />
+                    Draw & Sketch
                   </button>
+                  
                   <button
                     role="option"
                     type="button"
-                    onClick={() => openUpload("reference")}
-                    className="block w-full text-left px-4 py-2 text-white text-base hover:bg-white/10 font-semibold"
+                    onClick={() => openInteraction("share")}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
                   >
-                    Reference
+                    <ShareIcon className="h-4 w-4" />
+                    Share Chat
+                  </button>
+                  
+                  <button
+                    role="option"
+                    type="button"
+                    onClick={() => openInteraction("invite")}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
+                  >
+                    <ShareIcon className="h-4 w-4" />
+                    Invite to Chat
+                  </button>
+                  
+                  <button
+                    role="option"
+                    type="button"
+                    onClick={() => openInteraction("download")}
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                  >
+                    <DownloadIcon className="h-4 w-4" />
+                    Download Transcript
                   </button>
                 </div>
               )}

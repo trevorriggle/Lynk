@@ -1,8 +1,74 @@
-"use client";
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useSessionStore } from "../hooks/useSessionStore";
+
+// Quick Action Icons
+function PlusIcon({ className = "h-5 w-5" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+      <path d="M8 12h8" strokeWidth="2"/>
+      <path d="M12 8v8" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function PencilIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" strokeWidth="2"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function AttachIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.49" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+function CameraIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" strokeWidth="2"/>
+      <circle cx="12" cy="13" r="4" strokeWidth="2"/>
+    </svg>
+  );
+}
+
+// Quick Actions Dropdown
+function QuickActionsDropdown({ onAction, onClose }) {
+  return (
+    <div className="absolute bottom-12 left-0 w-48 rounded-2xl overflow-hidden shadow-xl bg-white border border-slate-200 z-50">
+      <button
+        onClick={() => onAction('draw')}
+        className="flex items-center gap-3 w-full text-left px-4 py-3 text-slate-700 hover:bg-slate-50 border-b border-slate-100"
+      >
+        <PencilIcon className="h-4 w-4" />
+        <span className="text-sm font-medium">Draw & Sketch</span>
+      </button>
+      
+      <button
+        onClick={() => onAction('attach')}
+        className="flex items-center gap-3 w-full text-left px-4 py-3 text-slate-700 hover:bg-slate-50 border-b border-slate-100"
+      >
+        <AttachIcon className="h-4 w-4" />
+        <span className="text-sm font-medium">Attach File</span>
+      </button>
+      
+      <button
+        onClick={() => onAction('camera')}
+        className="flex items-center gap-3 w-full text-left px-4 py-3 text-slate-700 hover:bg-slate-50"
+      >
+        <CameraIcon className="h-4 w-4" />
+        <span className="text-sm font-medium">Take Photo</span>
+      </button>
+    </div>
+  );
+}
 
 export default function Chat({ selectedModel }) {
   const endpoint = "/api/session";
@@ -111,17 +177,19 @@ export default function Chat({ selectedModel }) {
     const current = getCurrentCount();
     const limit = getMessageLimit();
     return authState.authenticated
-      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId || "—"}`
+      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId || "–"}`
       : `• guest mode (${current}/${limit} messages)`;
   };
 
   // ---------------------- UI state ----------------------
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const scrollRef = useRef(null);
 
   // Expanding textarea refs/state
   const taRef = useRef(null);
+  const quickActionsRef = useRef(null);
   const [isComposing, setIsComposing] = useState(false);
   const MAX_ROWS = 5;
 
@@ -140,6 +208,42 @@ export default function Chat({ selectedModel }) {
     const max = line * MAX_ROWS;
     el.style.height = Math.min(el.scrollHeight, max) + "px";
   }, [input]);
+
+  // Close quick actions on outside click
+  useEffect(() => {
+    const onDocDown = (e) => {
+      if (!quickActionsRef.current) return;
+      if (!quickActionsRef.current.contains(e.target)) {
+        setShowQuickActions(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, []);
+
+  // ---------------------- Quick Actions Handler ----------------------
+  const handleQuickAction = (action) => {
+    setShowQuickActions(false);
+    
+    // Dispatch events for different actions
+    try {
+      switch (action) {
+        case 'draw':
+          window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "draw" } }));
+          break;
+        case 'attach':
+          window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "attach" } }));
+          break;
+        case 'camera':
+          window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "camera" } }));
+          break;
+        default:
+          console.log(`Quick action: ${action}`);
+      }
+    } catch (error) {
+      console.warn("Failed to dispatch quick action event:", error);
+    }
+  };
 
   // ---------------------- Submit ----------------------
   async function handleSubmit(e) {
@@ -311,9 +415,30 @@ export default function Chat({ selectedModel }) {
         {sending && <div className="inline-block brand-agent font-light">Thinking…</div>}
       </div>
 
-      {/* Composer — clean expanding textarea */}
+      {/* Enhanced Composer with Quick Actions */}
       <form onSubmit={handleSubmit} className="border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+          {/* Quick Actions Button */}
+          <div ref={quickActionsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowQuickActions(!showQuickActions)}
+              className="flex items-center justify-center w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 hover:border-[#176A82] transition-colors"
+              title="Quick actions"
+              disabled={hasHitLimit || authState.loading}
+            >
+              <PlusIcon className="h-5 w-5 text-slate-600" />
+            </button>
+            
+            {showQuickActions && (
+              <QuickActionsDropdown 
+                onAction={handleQuickAction}
+                onClose={() => setShowQuickActions(false)}
+              />
+            )}
+          </div>
+
+          {/* Text Input */}
           <div className="flex-1 rounded-2xl border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-[#176A82] focus-within:border-[#176A82] transition-all">
             <textarea
               ref={taRef}
@@ -330,23 +455,24 @@ export default function Chat({ selectedModel }) {
                 }
               }}
               placeholder={
-                hasHitLimit()
+                hasHitLimit
                   ? "Message limit reached - create account to continue"
                   : `Ask anything… (${sessionModel?.label || fallbackLabel})`
               }
               className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-0 border-0 leading-6 max-h-32 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent focus:outline-0 font-normal"
-              disabled={hasHitLimit() || authState.loading}
+              disabled={hasHitLimit || authState.loading}
               aria-label="Message"
             />
           </div>
 
+          {/* Send Button */}
           <button
             type="submit"
-            disabled={sending || !input.trim() || hasHitLimit() || authState.loading}
+            disabled={sending || !input.trim() || hasHitLimit || authState.loading}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#176A82" }}
           >
-            {hasHitLimit() ? "Account Required" : "Send"}
+            {hasHitLimit ? "Account Required" : "Send"}
           </button>
         </div>
       </form>

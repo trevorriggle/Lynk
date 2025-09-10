@@ -1,215 +1,617 @@
+// hooks/useSessionStore.js
 "use client";
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const uid = () =>
-  (typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+// Generate unique IDs
+const genId = () => {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return "id_" + Math.random().toString(36).slice(2, 11);
+  }
+};
+
+// Default models configuration
+const DEFAULT_MODELS = [
+  { label: "Claude Sonnet", provider: "anthropic", model: "claude-3-sonnet-20240229" },
+  { label: "Claude Haiku", provider: "anthropic", model: "claude-3-haiku-20240307" },
+  { label: "GPT-4o", provider: "openai", model: "gpt-4o" },
+  { label: "GPT-4o Mini", provider: "openai", model: "gpt-4o-mini" },
+  { label: "Gemini Flash", provider: "gemini", model: "gemini-1.5-flash" },
+  { label: "Gemini Pro", provider: "gemini", model: "gemini-1.5-pro" },
+  { label: "Grok", provider: "xai", model: "grok-2" },
+];
+
+// Initial state
+const initialState = {
+  // Session management
+  sessions: {},
+  order: [],
+  activeId: null,
+  selectedModel: DEFAULT_MODELS[0],
+  availableModels: DEFAULT_MODELS,
+  
+  // Usage tracking
+  guestMessageCount: 0,
+  
+  // Left panel items - now with full CRUD operations
+  contextFiles: [
+    {
+      key: "sys-prompt",
+      label: "sys-prompt.txt",
+      content: "You are a helpful AI assistant. Be concise and accurate.",
+      type: "text/plain",
+      size: 64,
+      createdAt: new Date().toISOString(),
+    }
+  ],
+  
+  behaviors: [
+    {
+      key: "cordial",
+      label: "Respond cordially and friendly.",
+      content: "Always maintain a warm, professional, and helpful tone in all interactions.",
+      createdAt: new Date().toISOString(),
+    }
+  ],
+  
+  commands: [
+    {
+      key: "research",
+      label: "Research?",
+      content: "Conduct thorough research on the given topic and provide comprehensive insights.",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      key: "analyze",
+      label: "Analyze?",
+      content: "Perform detailed analysis of the provided information or data.",
+      createdAt: new Date().toISOString(),
+    }
+  ],
+  
+  projects: [
+    {
+      key: "carolina-research",
+      label: "Carolina Research",
+      description: "Academic research project for University of North Carolina",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      key: "graphic-design",
+      label: "Graphic Design",
+      description: "Creative design projects and visual content creation",
+      createdAt: new Date().toISOString(),
+    }
+  ],
+  
+  // Collaboration features
+  sharedChats: {},
+  collaborators: {},
+  
+  // Drawing/sketching data
+  sketches: {},
+  
+  // Settings
+  settings: {
+    autoSave: true,
+    darkMode: false,
+    notificationsEnabled: true,
+    defaultModel: DEFAULT_MODELS[0],
+  }
+};
 
 export const useSessionStore = create(
   persist(
     (set, get) => ({
-      // sessions keyed by id
-      sessions: /** @type {Record<string, {
-        id: string,
-        title: string,
-        createdAt: number,
-        updatedAt: number,
-        model: { label: string, provider: string, model: string },
-        messages: Array<{ id: string, role: "user"|"assistant", content: string, ts: number }>
-      }>} */ ({}),
+      ...initialState,
 
-      // most-recent-first ordering
-      order: /** @type {string[]} */ ([]),
-
-      // currently selected session id (or null if none)
-      activeId: /** @type {string|null} */ (null),
-
-      // the model chosen in the floating pill (also used as default for new chats)
-      selectedModel: { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" },
-
-      // NEW: Track guest message count
-      guestMessageCount: 0,
-
-      // NEW: Left panel lists
-      contextFiles: [
-        { key: "sys-prompt.txt", label: "sys-prompt.txt" }
-      ],
+      // ==================== SESSION MANAGEMENT ====================
       
-      behaviors: [
-        { key: "cordial", label: "Respond cordially and friendly." }
-      ],
-      
-      commands: [
-        { key: "research", label: "Research?" },
-        { key: "fort-rapids", label: "Fort-rapids?" },
-        { key: "analyze", label: "Analyze?" },
-        { key: "brainstorm", label: "Brainstorm?" }
-      ],
-      
-      projects: [
-        { key: "carolina", label: "Carolina Research" },
-        { key: "graphic-design", label: "Graphic Design" },
-        { key: "coding-support", label: "Coding Support" }
-      ],
-
-      /** Update the UI-selected model AND immediately apply it to the active session (if any). */
-      setSelectedModel(model) {
-        set((s) => {
-          if (s.activeId && s.sessions[s.activeId]) {
-            s.sessions[s.activeId] = { ...s.sessions[s.activeId], model };
-          }
-          return { selectedModel: model, sessions: { ...s.sessions } };
-        });
-      },
-
-      /** Create a new chat session; keep current one active (new bubble appears but is NOT auto-selected). */
-      createSession(model) {
-        const useModel =
-          model ||
-          get().selectedModel || { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" };
-
-        const id = `sess_${uid()}`;
-        const now = Date.now();
-        const session = {
+      createSession: (model = null) => {
+        const id = genId();
+        const newSession = {
           id,
           title: "New chat",
-          createdAt: now,
-          updatedAt: now,
-          model: useModel,
           messages: [],
+          model: model || get().selectedModel,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
-
-        // 🔥 CRITICAL FIX: Sync session ID to localStorage when creating/activating
-        if (typeof window !== "undefined") {
-          localStorage.setItem("lynk_session_id", id);
-        }
-
-        set((s) => ({
-          sessions: { ...s.sessions, [id]: session },
-          order: [id, ...s.order.filter((x) => x !== id)],
-          activeId: id, // 🔥 AUTO-ACTIVATE new sessions for better UX
+        
+        set((state) => ({
+          sessions: { ...state.sessions, [id]: newSession },
+          order: [id, ...state.order],
+          activeId: id,
         }));
-
+        
         return id;
       },
 
-      /** Activate an existing session AND align it to the current pill selection (pill is source of truth). */
-      selectSession(id) {
-        const s = get();
-        if (!s.sessions[id]) return;
+      selectSession: (id) => {
+        set({ activeId: id });
+      },
 
-        const chosen = s.selectedModel; // whatever the pill currently shows
+      deleteSession: (id) => {
+        set((state) => {
+          const newSessions = { ...state.sessions };
+          delete newSessions[id];
+          
+          const newOrder = state.order.filter((sessionId) => sessionId !== id);
+          const newActiveId = state.activeId === id 
+            ? (newOrder.length > 0 ? newOrder[0] : null)
+            : state.activeId;
+
+          return {
+            sessions: newSessions,
+            order: newOrder,
+            activeId: newActiveId,
+          };
+        });
+      },
+
+      updateSessionTitle: (id, title) => {
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [id]: {
+              ...state.sessions[id],
+              title,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }));
+      },
+
+      // ==================== MESSAGE MANAGEMENT ====================
+      
+      appendToActive: (message) => {
+        const { activeId } = get();
+        if (!activeId) return;
+
+        const messageWithId = {
+          id: genId(),
+          timestamp: new Date().toISOString(),
+          ...message,
+        };
 
         set((state) => {
-          const cur = state.sessions[id];
-          const patched = chosen ? { ...cur, model: chosen } : cur;
+          const session = state.sessions[activeId];
+          if (!session) return state;
+
+          // Update guest message count for user messages
+          let newGuestMessageCount = state.guestMessageCount;
+          if (message.role === "user" && !session.userId) {
+            newGuestMessageCount += 1;
+          }
+
+          // Auto-generate title from first user message
+          let newTitle = session.title;
+          if (message.role === "user" && session.messages.length === 0) {
+            newTitle = message.content.slice(0, 50) + (message.content.length > 50 ? "..." : "");
+          }
+
           return {
-            activeId: id,
-            sessions: { ...state.sessions, [id]: patched },
-            // no MRU reordering on select (keeps your current behavior)
+            sessions: {
+              ...state.sessions,
+              [activeId]: {
+                ...session,
+                title: newTitle,
+                messages: [...session.messages, messageWithId],
+                updatedAt: new Date().toISOString(),
+              },
+            },
+            order: [activeId, ...state.order.filter(id => id !== activeId)],
+            guestMessageCount: newGuestMessageCount,
           };
         });
       },
 
-      /** Delete a chat. If it's active, fall back to the next most-recent (or none). */
-      deleteSession(id) {
-        const s = get();
-        if (!s.sessions[id]) return;
+      clearActiveMessages: () => {
+        const { activeId } = get();
+        if (!activeId) return;
 
-        const { [id]: _removed, ...rest } = s.sessions;
-        const newOrder = s.order.filter((x) => x !== id);
-        const nextActive = s.activeId === id ? (newOrder[0] || null) : s.activeId;
-
-        set({ sessions: rest, order: newOrder, activeId: nextActive });
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [activeId]: {
+              ...state.sessions[activeId],
+              messages: [],
+              title: "New chat",
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }));
       },
 
-      /** Append a message to the active session and MRU it. */
-      appendToActive(msg /* { role, content } */) {
-        const id = get().activeId;
-        if (!id) return;
-        const now = Date.now();
+      // ==================== MODEL MANAGEMENT ====================
+      
+      setSelectedModel: (model) => {
+        set({ selectedModel: model });
+      },
 
-        set((s) => {
-          const cur = s.sessions[id];
-          const firstUserTitle =
-            cur.messages.length === 0 && msg.role === "user"
-              ? (msg.content || "New chat").slice(0, 60)
-              : cur.title;
+      updateSessionModel: (sessionId, model) => {
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [sessionId]: {
+              ...state.sessions[sessionId],
+              model,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }));
+      },
 
-          const updated = {
-            ...cur,
-            title: firstUserTitle,
-            updatedAt: now,
-            messages: [...cur.messages, { id: `m_${uid()}`, ts: now, ...msg }],
-          };
+      // ==================== CONTEXT FILES MANAGEMENT ====================
+      
+      addContextFile: (file) => {
+        const fileWithMetadata = {
+          key: file.key || genId(),
+          label: file.label || file.name || "Untitled File",
+          content: file.content || "",
+          type: file.type || "text/plain",
+          size: file.size || 0,
+          createdAt: new Date().toISOString(),
+          ...file,
+        };
 
-          // NEW: Increment guest counter for user messages when not authenticated
-          const newGuestCount = msg.role === "user" ? s.guestMessageCount + 1 : s.guestMessageCount;
+        set((state) => ({
+          contextFiles: [...state.contextFiles, fileWithMetadata],
+        }));
+      },
 
-          return {
-            sessions: { ...s.sessions, [id]: updated },
-            order: [id, ...s.order.filter((x) => x !== id)],
-            guestMessageCount: newGuestCount,
-          };
+      updateContextFile: (key, updates) => {
+        set((state) => ({
+          contextFiles: state.contextFiles.map(file =>
+            file.key === key 
+              ? { ...file, ...updates, updatedAt: new Date().toISOString() }
+              : file
+          ),
+        }));
+      },
+
+      deleteContextFile: (key) => {
+        set((state) => ({
+          contextFiles: state.contextFiles.filter(file => file.key !== key),
+        }));
+      },
+
+      // ==================== BEHAVIORS MANAGEMENT ====================
+      
+      addBehavior: (behavior) => {
+        const behaviorWithMetadata = {
+          key: behavior.key || genId(),
+          label: behavior.label || "Untitled Behavior",
+          content: behavior.content || "",
+          createdAt: new Date().toISOString(),
+          ...behavior,
+        };
+
+        set((state) => ({
+          behaviors: [...state.behaviors, behaviorWithMetadata],
+        }));
+      },
+
+      updateBehavior: (key, updates) => {
+        set((state) => ({
+          behaviors: state.behaviors.map(behavior =>
+            behavior.key === key 
+              ? { ...behavior, ...updates, updatedAt: new Date().toISOString() }
+              : behavior
+          ),
+        }));
+      },
+
+      deleteBehavior: (key) => {
+        set((state) => ({
+          behaviors: state.behaviors.filter(behavior => behavior.key !== key),
+        }));
+      },
+
+      // ==================== COMMANDS MANAGEMENT ====================
+      
+      addCommand: (command) => {
+        const commandWithMetadata = {
+          key: command.key || genId(),
+          label: command.label || "Untitled Command",
+          content: command.content || "",
+          createdAt: new Date().toISOString(),
+          ...command,
+        };
+
+        set((state) => ({
+          commands: [...state.commands, commandWithMetadata],
+        }));
+      },
+
+      updateCommand: (key, updates) => {
+        set((state) => ({
+          commands: state.commands.map(command =>
+            command.key === key 
+              ? { ...command, ...updates, updatedAt: new Date().toISOString() }
+              : command
+          ),
+        }));
+      },
+
+      deleteCommand: (key) => {
+        set((state) => ({
+          commands: state.commands.filter(command => command.key !== key),
+        }));
+      },
+
+      // ==================== PROJECTS MANAGEMENT ====================
+      
+      addProject: (project) => {
+        const projectWithMetadata = {
+          key: project.key || genId(),
+          label: project.label || "Untitled Project",
+          description: project.description || "",
+          createdAt: new Date().toISOString(),
+          ...project,
+        };
+
+        set((state) => ({
+          projects: [...state.projects, projectWithMetadata],
+        }));
+      },
+
+      updateProject: (key, updates) => {
+        set((state) => ({
+          projects: state.projects.map(project =>
+            project.key === key 
+              ? { ...project, ...updates, updatedAt: new Date().toISOString() }
+              : project
+          ),
+        }));
+      },
+
+      deleteProject: (key) => {
+        set((state) => ({
+          projects: state.projects.filter(project => project.key !== key),
+        }));
+      },
+
+      // ==================== COLLABORATION FEATURES ====================
+      
+      shareChat: (sessionId, options = {}) => {
+        const shareId = genId();
+        const session = get().sessions[sessionId];
+        if (!session) return null;
+
+        const sharedChat = {
+          id: shareId,
+          sessionId,
+          title: session.title,
+          messages: session.messages,
+          sharedAt: new Date().toISOString(),
+          expiresAt: options.expiresAt,
+          allowComments: options.allowComments || false,
+          isPublic: options.isPublic || false,
+          password: options.password,
+        };
+
+        set((state) => ({
+          sharedChats: {
+            ...state.sharedChats,
+            [shareId]: sharedChat,
+          },
+        }));
+
+        return shareId;
+      },
+
+      unshareChat: (shareId) => {
+        set((state) => {
+          const newSharedChats = { ...state.sharedChats };
+          delete newSharedChats[shareId];
+          return { sharedChats: newSharedChats };
         });
       },
 
-      // NEW: Delete functions for left panel items
-      deleteContextFile: (key) => set((state) => ({
-        contextFiles: state.contextFiles.filter(f => f.key !== key)
-      })),
-
-      deleteBehavior: (key) => set((state) => ({
-        behaviors: state.behaviors.filter(b => b.key !== key)
-      })),
-
-      deleteCommand: (key) => set((state) => ({
-        commands: state.commands.filter(c => c.key !== key)
-      })),
-
-      deleteProject: (key) => set((state) => ({
-        projects: state.projects.filter(p => p.key !== key)
-      })),
-
-      // NEW: Add functions for left panel items
-      addContextFile: (file) => set((state) => ({
-        contextFiles: [...state.contextFiles, { key: uid(), ...file }]
-      })),
-
-      addBehavior: (behavior) => set((state) => ({
-        behaviors: [...state.behaviors, { key: uid(), ...behavior }]
-      })),
-
-      addCommand: (command) => set((state) => ({
-        commands: [...state.commands, { key: uid(), ...command }]
-      })),
-
-      addProject: (project) => set((state) => ({
-        projects: [...state.projects, { key: uid(), ...project }]
-      })),
-
-      // NEW: Helper functions for message management
-      getGuestMessageCount() {
-        return get().guestMessageCount;
+      addCollaborator: (sessionId, collaborator) => {
+        set((state) => ({
+          collaborators: {
+            ...state.collaborators,
+            [sessionId]: [
+              ...(state.collaborators[sessionId] || []),
+              {
+                id: genId(),
+                ...collaborator,
+                addedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        }));
       },
 
-      getAuthMessageCount() {
-        return get().authMessageCount;
+      removeCollaborator: (sessionId, collaboratorId) => {
+        set((state) => ({
+          collaborators: {
+            ...state.collaborators,
+            [sessionId]: (state.collaborators[sessionId] || []).filter(
+              collab => collab.id !== collaboratorId
+            ),
+          },
+        }));
       },
 
-      resetGuestMessageCount() {
-        set({ guestMessageCount: 0 });
+      // ==================== SKETCHING/DRAWING FEATURES ====================
+      
+      addSketch: (sessionId, sketchData) => {
+        const sketchId = genId();
+        const sketch = {
+          id: sketchId,
+          sessionId,
+          createdAt: new Date().toISOString(),
+          ...sketchData,
+        };
+
+        set((state) => ({
+          sketches: {
+            ...state.sketches,
+            [sketchId]: sketch,
+          },
+        }));
+
+        return sketchId;
       },
 
-      resetAuthMessageCount() {
-        set({ authMessageCount: 0 });
+      updateSketch: (sketchId, updates) => {
+        set((state) => ({
+          sketches: {
+            ...state.sketches,
+            [sketchId]: {
+              ...state.sketches[sketchId],
+              ...updates,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        }));
       },
 
-      resetAllMessageCounts() {
-        set({ guestMessageCount: 0, authMessageCount: 0 });
+      deleteSketch: (sketchId) => {
+        set((state) => {
+          const newSketches = { ...state.sketches };
+          delete newSketches[sketchId];
+          return { sketches: newSketches };
+        });
+      },
+
+      // ==================== DATA EXPORT/IMPORT ====================
+      
+      exportSession: (sessionId, format = 'json') => {
+        const session = get().sessions[sessionId];
+        if (!session) return null;
+
+        if (format === 'json') {
+          return JSON.stringify(session, null, 2);
+        } else if (format === 'markdown') {
+          const content = session.messages.map(msg => {
+            const role = msg.role === 'user' ? 'You' : 'Assistant';
+            return `## ${role}\n\n${msg.content}\n`;
+          }).join('\n');
+          
+          return `# ${session.title}\n\nCreated: ${session.createdAt}\n\n${content}`;
+        } else if (format === 'txt') {
+          return session.messages.map(msg => {
+            const role = msg.role === 'user' ? 'You' : 'Assistant';
+            return `${role}: ${msg.content}`;
+          }).join('\n\n');
+        }
+        
+        return null;
+      },
+
+      exportAllData: () => {
+        const state = get();
+        return {
+          sessions: state.sessions,
+          contextFiles: state.contextFiles,
+          behaviors: state.behaviors,
+          commands: state.commands,
+          projects: state.projects,
+          settings: state.settings,
+          exportedAt: new Date().toISOString(),
+        };
+      },
+
+      importData: (data) => {
+        try {
+          set((state) => ({
+            ...state,
+            ...data,
+            // Preserve certain client-side state
+            activeId: state.activeId,
+            guestMessageCount: state.guestMessageCount,
+          }));
+          return true;
+        } catch (error) {
+          console.error('Import failed:', error);
+          return false;
+        }
+      },
+
+      // ==================== SETTINGS ====================
+      
+      updateSettings: (updates) => {
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            ...updates,
+          },
+        }));
+      },
+
+      // ==================== UTILITY METHODS ====================
+      
+      resetStore: () => {
+        set(initialState);
+      },
+
+      getSessionStats: () => {
+        const { sessions, guestMessageCount } = get();
+        const sessionCount = Object.keys(sessions).length;
+        const totalMessages = Object.values(sessions).reduce(
+          (total, session) => total + session.messages.length, 
+          0
+        );
+        const userMessages = Object.values(sessions).reduce(
+          (total, session) => total + session.messages.filter(m => m.role === 'user').length,
+          0
+        );
+
+        return {
+          sessionCount,
+          totalMessages,
+          userMessages,
+          guestMessageCount,
+        };
+      },
+
+      // Search functionality
+      searchSessions: (query) => {
+        const { sessions } = get();
+        const lowercaseQuery = query.toLowerCase();
+        
+        return Object.values(sessions).filter(session => {
+          return session.title.toLowerCase().includes(lowercaseQuery) ||
+                 session.messages.some(msg => 
+                   msg.content.toLowerCase().includes(lowercaseQuery)
+                 );
+        });
+      },
+
+      searchContextFiles: (query) => {
+        const { contextFiles } = get();
+        const lowercaseQuery = query.toLowerCase();
+        
+        return contextFiles.filter(file => 
+          file.label.toLowerCase().includes(lowercaseQuery) ||
+          file.content.toLowerCase().includes(lowercaseQuery)
+        );
       },
     }),
-    { name: "lynk-sessions-v2" }
+    {
+      name: "lynk-sessions-v3", // Updated version
+      version: 3,
+      migrate: (persistedState, version) => {
+        // Handle migration from older versions
+        if (version < 3) {
+          return {
+            ...initialState,
+            sessions: persistedState.sessions || {},
+            order: persistedState.order || [],
+            activeId: persistedState.activeId || null,
+            selectedModel: persistedState.selectedModel || DEFAULT_MODELS[0],
+            guestMessageCount: persistedState.guestMessageCount || 0,
+          };
+        }
+        return persistedState;
+      },
+    }
   )
 );

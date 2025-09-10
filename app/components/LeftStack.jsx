@@ -1,6 +1,98 @@
-"use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
+
+// File upload component for Context Files section
+function FileUpload({ onFileUpload, onClose }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFiles(files);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      handleFiles(files);
+    }
+  };
+
+  const handleFiles = (files) => {
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        onFileUpload({
+          key: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          label: file.name,
+          content: e.target.result,
+          type: file.type,
+          size: file.size
+        });
+      };
+      reader.readAsText(file);
+    });
+    onClose();
+  };
+
+  return (
+    <div className="mb-2 p-3 border-2 border-dashed border-[#176A82] rounded-xl bg-white/50">
+      <div 
+        className={`p-4 rounded-lg transition-colors ${
+          isDragging ? 'bg-[#176A82]/10' : 'bg-gray-50'
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <div className="text-center">
+          <div className="text-sm text-gray-600 mb-2">
+            Drag files here or click to browse
+          </div>
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-1 bg-[#176A82] text-white rounded-lg text-sm hover:opacity-90"
+            >
+              Browse Files
+            </button>
+            <button
+              onClick={onClose}
+              className="px-3 py-1 bg-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            Supports: .txt, .md, .json, .csv, .js, .py
+          </div>
+        </div>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".txt,.md,.json,.csv,.js,.py,.jsx,.tsx,.ts"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+    </div>
+  );
+}
 
 // Collapsible section with spec teal bar
 function Section({ title, defaultOpen = false, children }) {
@@ -31,7 +123,6 @@ function Section({ title, defaultOpen = false, children }) {
 
 /** Row that can render as an input-like pill when `pill` is true */
 function Row({ label, onClick, onDelete, muted = false, active = false, pill = false, deletable = false }) {
-  // EXACT match to your chat input pill styles
   const pillBase =
     "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none truncate";
   const pillInactive =
@@ -90,7 +181,9 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
   );
 }
 
-export default function LeftStack({ onActivate }) {
+export default function EnhancedLeftStack({ onActivate }) {
+  const [showFileUpload, setShowFileUpload] = useState(false);
+  
   const {
     order,
     sessions,
@@ -106,23 +199,41 @@ export default function LeftStack({ onActivate }) {
     deleteBehavior,
     deleteCommand,
     deleteProject,
+    addContextFile,
   } = useSessionStore((s) => s);
 
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
 
+  const handleFileUpload = (fileData) => {
+    addContextFile(fileData);
+    setShowFileUpload(false);
+  };
+
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
-      <Section title="Context Files">
+      <Section title="Context Files" defaultOpen={true}>
+        {showFileUpload && (
+          <FileUpload 
+            onFileUpload={handleFileUpload}
+            onClose={() => setShowFileUpload(false)}
+          />
+        )}
+        
         {contextFiles.map(file => (
           <Row 
             key={file.key}
             label={file.label} 
-            onClick={() => onActivate?.({ type: "file", key: file.key })}
+            onClick={() => onActivate?.({ type: "file", key: file.key, data: file })}
             onDelete={() => deleteContextFile(file.key)}
             deletable
           />
         ))}
-        <Row label="Add More" onClick={() => onActivate?.({ type: "file", key: "upload" })} muted />
+        
+        <Row 
+          label="+ Upload Files" 
+          onClick={() => setShowFileUpload(true)} 
+          muted 
+        />
       </Section>
 
       <Section title="Behaviors">
@@ -135,6 +246,11 @@ export default function LeftStack({ onActivate }) {
             deletable
           />
         ))}
+        <Row 
+          label="+ Add Behavior" 
+          onClick={() => onActivate?.({ type: "behavior", key: "add-new" })} 
+          muted 
+        />
       </Section>
 
       <Section title="Commands">
@@ -162,9 +278,13 @@ export default function LeftStack({ onActivate }) {
             deletable
           />
         ))}
+        <Row 
+          label="+ New Project" 
+          onClick={() => onActivate?.({ type: "project", key: "add-new" })} 
+          muted 
+        />
       </Section>
 
-      {/* Recent Chats - now defaultOpen=false (collapsed by default) */}
       <Section title="Recent Chats" defaultOpen={false}>
         {recent.length === 0 ? (
           <Row label="(no chats yet)" muted pill />
