@@ -88,7 +88,7 @@ export default function RightPanel() {
 
   function toggleSnapshot(index) {
     const newCollapsed = new Set(collapsedSnapshots);
-    if (newCollapsed.has(index) {
+    if (newCollapsed.has(index)) {
       newCollapsed.delete(index);
     } else {
       newCollapsed.add(index);
