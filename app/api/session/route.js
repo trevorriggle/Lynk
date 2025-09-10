@@ -1,4 +1,4 @@
-// app/api/session/route.js - ultra cost optimized + debug + merge + non-blocking BG + numbers command
+// app/api/session/route.js - cost-optimized, gated BG at turn >=5, numbers command, robust origin, merge guest→verified
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,27 +29,24 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
-// --- Aggressive cost guards ---
+// --- Budgets ---
 const INPUT_TOKEN_BUDGET = 1000;
 const OUTPUT_TOKENS = 600;
-const estTokens = (s) => Math.ceil((s || "").length / 4);
-
-// --- Background budgets ---
 const LIVE_NOTES_BUDGET = 400;
 const LIVE_NOTES_TOKENS = 64;
 const SNAPSHOT_INPUT_BUDGET = 500;
 const SNAPSHOT_OUTPUT_TOKENS = 128;
-
-// --- Background model ---
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
-// --- Session store ---
+const estTokens = (s) => Math.ceil((s || "").length / 4);
+
+// --- Sessions ---
 const SESSIONS = new Map();
 function getSession(id, userId = null) {
-  const sessionKey = userId ? `${userId}:${id}` : `guest:${id}`;
-  if (!SESSIONS.has(sessionKey)) {
-    SESSIONS.set(sessionKey, {
+  const key = userId ? `${userId}:${id}` : `guest:${id}`;
+  if (!SESSIONS.has(key)) {
+    SESSIONS.set(key, {
       turns: [],
       last: {},
       live: { gist: "", key_points: [], todos: [], entities: [] },
@@ -62,7 +59,7 @@ function getSession(id, userId = null) {
       commandState: {},
     });
   }
-  return SESSIONS.get(sessionKey);
+  return SESSIONS.get(key);
 }
 
 // --- auth helper ---
@@ -70,17 +67,12 @@ async function getUserFromRequest(req) {
   try {
     const cookies = req.headers.get("cookie");
     if (!cookies) return null;
-
-    const { origin } = new URL(req.url); // robust origin
+    const { origin } = new URL(req.url);
     const baseUrl = process.env.NEXTAUTH_URL || origin;
-
-    const meResponse = await fetch(`${baseUrl}/api/me`, {
-      headers: { cookie: cookies },
-      cache: "no-store",
-    });
-    if (meResponse.ok) {
-      const data = await meResponse.json();
-      return data.userId || null;
+    const r = await fetch(`${baseUrl}/api/me`, { headers: { cookie: cookies }, cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      return j.userId || null;
     }
     return null;
   } catch (e) {
@@ -93,9 +85,7 @@ async function getUserFromRequest(req) {
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
 
 function shouldInjectIdentity(message) {
-  const triggers = [
-    /(^|\b)(who are you|what are you|what model|what ai|what is lynk)\b/i,
-  ];
+  const triggers = [/(\b)(who are you|what are you|what model|what ai|what is lynk)(\b)/i];
   return triggers.some((re) => re.test(message || ""));
 }
 
@@ -113,7 +103,7 @@ function buildBudgetedTurns(turns, maxTokens) {
 }
 
 const userTurnCount = (turns) =>
-  turns.reduce((n, t) => n + (t.role === "user" ? 1 : 0), 0);
+  turns.reduce((n, t) => (t.role === "user" ? n + 1 : n), 0);
 
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
@@ -136,21 +126,10 @@ function buildGeminiHistory(turns) {
   }));
 }
 
-// ---------- OpenAI-compatible helper ----------
-async function callOpenAICompatible({
-  baseURL,
-  key,
-  model,
-  messages,
-  max_tokens = OUTPUT_TOKENS,
-  temperature = 0.4,
-}) {
+async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens = OUTPUT_TOKENS, temperature = 0.4 }) {
   const res = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
+    headers: { "content-type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages, temperature, max_tokens }),
   });
   const txt = await res.text();
@@ -159,12 +138,11 @@ async function callOpenAICompatible({
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
-// --- Topic tracking with "numbers" detection ---
+// --- Topic tracking (adds commands) ---
 function trackMessageTopics(session, message) {
   if (!message || typeof message !== "string") return;
 
   const topics = new Set();
-
   const topicPatterns = {
     ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt)\b/i,
     programming: /\b(code|coding|programming|javascript|python|react|api|development|software)\b/i,
@@ -174,29 +152,23 @@ function trackMessageTopics(session, message) {
     project: /\b(project|task|deadline|planning|management|timeline)\b/i,
   };
 
-  for (const [topic, pattern] of Object.entries(topicPatterns)) {
-    if (pattern.test(message)) topics.add(topic);
+  for (const [topic, re] of Object.entries(topicPatterns)) {
+    if (re.test(message)) topics.add(topic);
   }
 
-  // Numbers / counting triggers
+  // Numbers triggers
   const msg = message.trim();
   const digitsOnly = /^[\s\d]+$/.test(msg);
-  const hasCountingVerb =
-    /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg);
-  const looksLikeSimpleSequence = /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
+  const countingWords = /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg);
+  const looksSequence = /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
+  if (digitsOnly || countingWords || looksSequence) topics.add("numbers");
 
-  if (digitsOnly || hasCountingVerb || looksLikeSimpleSequence) {
-    topics.add("numbers");
-  }
-
-  // push commands for new topics
   for (const topic of topics) {
     if (!session._topicSeenAt[topic]) {
       session._topicSeenAt[topic] = session.turns.length;
       session.topicCounts[topic] = (session.topicCounts[topic] || 0) + 1;
 
       if (!session.commands) session.commands = [];
-
       const pushOnce = (slug, label) => {
         const exists = session.commands.some((c) => c.slug === slug && c.command === label);
         if (!exists) {
@@ -220,20 +192,17 @@ function trackMessageTopics(session, message) {
   }
 }
 
-// --- BG: live notes ---
+// --- Background: live notes ---
 async function updateLiveNotesUltraCheap(session) {
   if (session.isGuest) return;
-
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     console.warn("OpenAI API key missing - skipping live notes");
     return;
   }
-
   const lastTurns = buildBudgetedTurns(session.turns, LIVE_NOTES_BUDGET);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
-  const prompt =
-    `Update live notes. Return JSON: {"gist":"","key_points":[],"todos":[],"entities":[]}\n\n${chatExcerpt}`;
+  const prompt = `Update live notes. Return JSON: {"gist":"","key_points":[],"todos":[],"entities":[]}\n\n${chatExcerpt}`;
 
   try {
     const client = new OpenAI({ apiKey: key });
@@ -246,16 +215,15 @@ async function updateLiveNotesUltraCheap(session) {
     const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
     const obj = JSON.parse(extractJson(raw));
     mergeLive(session, obj);
-    console.log("✅ Live notes updated for session:", session.userId);
+    console.log("✅ Live notes updated for", session.userId);
   } catch (e) {
     console.warn("❌ Live notes failed:", e.message);
   }
 }
 
-// --- BG: snapshots ---
+// --- Background: snapshot ---
 async function consolidateSnapshotUltraCheap(session) {
   if (session.isGuest) return;
-
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
     console.warn("OpenAI API key missing - skipping snapshot");
@@ -298,9 +266,7 @@ async function consolidateSnapshotUltraCheap(session) {
     };
 
     (session.snapshots ||= []).push(snapshot);
-    console.log(
-      `🎯 Snapshot created for session ${session.userId}: ${(snapshot.topics || []).length} topics`
-    );
+    console.log(`🎯 Snapshot created for ${session.userId} (turns ${from_turn}–${to_turn})`);
   } catch (e) {
     console.warn("❌ Snapshot failed:", e.message);
   }
@@ -311,7 +277,7 @@ function mergeLive(session, obj) {
   if (typeof obj?.gist === "string") live.gist = obj.gist;
   if (Array.isArray(obj?.key_points)) live.key_points = obj.key_points.slice(0, 3);
   if (Array.isArray(obj?.todos)) live.todos = obj.todos.slice(0, 3);
-  if (Array.isArray(obj?.entities)) live.entities = obj?.entities.slice(0, 3);
+  if (Array.isArray(obj?.entities)) live.entities = obj.entities.slice(0, 3);
 }
 
 function extractJson(s) {
@@ -322,13 +288,10 @@ function extractJson(s) {
   return "{}";
 }
 
-// --- timeout guard for BG tasks ---
 function runWithTimeout(promise, ms = 2000, label = "task") {
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`Timeout: ${label} exceeded ${ms}ms`)), ms);
-  });
-  return Promise.race([promise.finally(() => clearTimeout(timeoutId)), timeout]);
+  let id;
+  const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
+  return Promise.race([promise.finally(() => clearTimeout(id)), t]);
 }
 
 // --- OPTIONS ---
@@ -343,9 +306,9 @@ export async function GET(req) {
   const userId = await getUserFromRequest(req);
 
   if (sessionId) {
-    const authSessionKey = userId ? `${userId}:${sessionId}` : null;
-    const guestSessionKey = `guest:${sessionId}`;
-    const s = (authSessionKey ? SESSIONS.get(authSessionKey) : null) || SESSIONS.get(guestSessionKey);
+    const authKey = userId ? `${userId}:${sessionId}` : null;
+    const guestKey = `guest:${sessionId}`;
+    const s = (authKey ? SESSIONS.get(authKey) : null) || SESSIONS.get(guestKey);
 
     return Response.json(
       s
@@ -364,7 +327,7 @@ export async function GET(req) {
   return Response.json({ ok: true, sessions: SESSIONS.size, userId: userId || "guest" }, { headers: H });
 }
 
-// --- POST (main) ---
+// --- POST ---
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -374,24 +337,22 @@ export async function POST(req) {
     if (!message) return new Response("Missing message", { status: 400, headers: H });
 
     let sessionId = asText(body?.sessionId || "");
-    if (!sessionId) {
-      sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
-    }
+    if (!sessionId) sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
 
     const userId = await getUserFromRequest(req);
     console.log("🔐 User auth:", userId ? `verified (${userId})` : "guest");
 
-    // Merge guest → verified for same sessionId
+    // Merge guest → verified for same session
     if (userId) {
-      const guestKey = `guest:${sessionId}`;
-      const verifiedKey = `${userId}:${sessionId}`;
-      if (SESSIONS.has(guestKey) && !SESSIONS.has(verifiedKey)) {
-        const guestSession = SESSIONS.get(guestKey);
-        guestSession.userId = userId;
-        guestSession.isGuest = false;
-        SESSIONS.set(verifiedKey, guestSession);
-        SESSIONS.delete(guestKey);
-        console.log(`🔄 Merged guest session into verified session for ${verifiedKey}`);
+      const gKey = `guest:${sessionId}`;
+      const vKey = `${userId}:${sessionId}`;
+      if (SESSIONS.has(gKey) && !SESSIONS.has(vKey)) {
+        const guest = SESSIONS.get(gKey);
+        guest.userId = userId;
+        guest.isGuest = false;
+        SESSIONS.set(vKey, guest);
+        SESSIONS.delete(gKey);
+        console.log(`🔄 merged guest into verified: ${vKey}`);
       }
     }
 
@@ -408,19 +369,14 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
-    console.log(`🤖 Processing message for ${userId ? "verified" : "guest"} user with ${provider}/${modelName}`);
-
     const needsIdentity = shouldInjectIdentity(message);
-    const systemIdentity = needsIdentity
-      ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName })
-      : null;
+    const systemIdentity = needsIdentity ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName }) : null;
 
     // 1) append user turn
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
-    console.log(`📝 Session now has ${s.turns.length} turns (${userTurnCount(s.turns)} user messages)`);
 
-    // 2) call provider
+    // 2) provider call
     let assistantText = "";
 
     if (provider === "xai") {
@@ -459,13 +415,13 @@ export async function POST(req) {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
 
-      const requestBody = {
+      const bodyJson = {
         model: modelName,
         max_tokens: OUTPUT_TOKENS,
         temperature: 0.4,
         messages: buildAnthropicMessages(s.turns),
+        ...(needsIdentity ? { system: systemIdentity } : {}),
       };
-      if (needsIdentity) requestBody.system = systemIdentity;
 
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -474,7 +430,7 @@ export async function POST(req) {
           "x-api-key": key,
           "anthropic-version": "2023-06-01",
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(bodyJson),
       });
 
       const txt = await r.text();
@@ -490,7 +446,6 @@ export async function POST(req) {
         assistantText = txt || "Okay.";
       }
     } else {
-      // gemini
       const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
       if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
 
@@ -511,31 +466,28 @@ export async function POST(req) {
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // 4) Background processing (verified only) — non-blocking with timeout
-    if (!s.isGuest) {
-      console.log("🔥 VERIFIED USER DETECTED - background processing (non-blocking)");
-      console.log("🔑 OpenAI key available:", !!process.env.OPENAI_API_KEY);
+    // 4) Background processing — ONLY after turn >= 5 and ONLY for verified users
+    const uCount = userTurnCount(s.turns);
+    if (!s.isGuest && uCount >= 5) {
+      console.log("🔥 BG enabled (turn >=5). User turns:", uCount);
 
+      // Live notes on every turn >=5 (bounded)
       runWithTimeout(updateLiveNotesUltraCheap(s), 2000, "live-notes").catch((e) =>
         console.warn("BG live-notes:", e.message)
       );
 
+      // Topic tracking / suggestions after turn >=5
       trackMessageTopics(s, message);
 
-      const uCount = userTurnCount(s.turns);
-      console.log(`📊 User message count: ${uCount} (snapshot triggers at 5, 10, 15...)`);
-      if (uCount > 0 && uCount % 5 === 0) {
-        console.log(`📸 SNAPSHOT TRIGGER for message ${uCount}`);
+      // Snapshot at 5, 10, 15...
+      if (uCount % 5 === 0) {
+        console.log(`📸 SNAPSHOT TRIGGER at ${uCount}`);
         runWithTimeout(consolidateSnapshotUltraCheap(s), 2000, "snapshot").catch((e) =>
           console.warn("BG snapshot:", e.message)
         );
       }
-
-      console.log(
-        `📋 Session state: ${(s.snapshots?.length || 0)} snapshots, ${(s.commands?.length || 0)} commands`
-      );
     } else {
-      console.log("👤 Guest user - skipping background processing");
+      console.log(`⏸️ BG skipped (guest or user turns <5). User turns: ${uCount}`);
     }
 
     // 5) response
@@ -544,12 +496,6 @@ export async function POST(req) {
       inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
       sessionMeta: { isGuest: s.isGuest, userId: s.userId, provider, model: modelName },
     };
-
-    console.log("📤 Sending response with inspector data:", {
-      snapshots: responseData.inspector.snapshots.length,
-      commands: responseData.inspector.commands.length,
-      live: Object.keys(responseData.inspector.live).length,
-    });
 
     return new Response(JSON.stringify(responseData), {
       status: 200,
