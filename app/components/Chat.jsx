@@ -94,7 +94,7 @@ export default function Chat({ selectedModel }) {
 
   const { activeId, sessions, appendToActive, guestMessageCount } = useSessionStore((s) => s);
 
-  // ---------------------- Auth state ----------------------
+  // Auth state
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
@@ -118,7 +118,7 @@ export default function Chat({ selectedModel }) {
             userId: null,
             projectId: null,
             userEmail: null,
-            error: null, // Changed from "guest" to null - this is expected for guest users
+            error: null,
           });
           return;
         }
@@ -171,7 +171,7 @@ export default function Chat({ selectedModel }) {
     };
   }, []);
 
-  // ---------------------- Session + model ----------------------
+  // Session + model
   const thread = useMemo(
     () => (activeId ? sessions[activeId]?.messages || [] : []),
     [activeId, sessions]
@@ -182,12 +182,18 @@ export default function Chat({ selectedModel }) {
     [activeId, sessions, selectedModel]
   );
 
-  // ---------------------- Message limits ----------------------
+  // Message limits - FIXED VERSION
   const getUserMessageCount = () => thread.filter((m) => m && m.role === "user").length;
   const getMessageLimit = () => (authState.authenticated ? 20 : 10);
   const getCurrentCount = () => (authState.authenticated ? getUserMessageCount() : guestMessageCount);
-  const hasHitLimit = () =>
-    authState.authenticated ? getUserMessageCount() >= 20 : guestMessageCount >= 10;
+  const hasHitLimit = () => {
+    if (authState.loading) return false;
+    if (authState.authenticated) {
+      return getUserMessageCount() >= 20;
+    } else {
+      return guestMessageCount >= 10;
+    }
+  };
 
   const getStatusText = () => {
     if (authState.loading) return "• loading identity…";
@@ -198,7 +204,7 @@ export default function Chat({ selectedModel }) {
       : `• guest mode (${current}/${limit} messages)`;
   };
 
-  // ---------------------- UI state ----------------------
+  // UI state
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
@@ -238,11 +244,10 @@ export default function Chat({ selectedModel }) {
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  // ---------------------- Quick Actions Handler ----------------------
+  // Quick Actions Handler
   const handleQuickAction = (action) => {
     setShowQuickActions(false);
     
-    // Dispatch events for different actions
     try {
       switch (action) {
         case 'draw':
@@ -262,7 +267,7 @@ export default function Chat({ selectedModel }) {
     }
   };
 
-  // ---------------------- Submit ----------------------
+  // Submit
   async function handleSubmit(e) {
     e.preventDefault();
     const text = input.trim();
@@ -344,7 +349,7 @@ export default function Chat({ selectedModel }) {
     }
   }
 
-  // ---------------------- Empty state ----------------------
+  // Empty state
   if (!activeId) {
     return (
       <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
@@ -382,7 +387,7 @@ export default function Chat({ selectedModel }) {
     );
   }
 
-  // ---------------------- Main chat ----------------------
+  // Main chat
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
       {/* Status line */}
@@ -394,36 +399,74 @@ export default function Chat({ selectedModel }) {
       <div ref={scrollRef} className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
         {thread.map((m) => {
           const isUser = m.role === "user";
+          const timestamp = new Date(m.timestamp || Date.now());
+          const timeAgo = formatTimeAgo(timestamp);
+          
+          // Handle different ways model info might be stored
+          let modelInfo = null;
+          if (m.model) {
+            if (typeof m.model === 'string') {
+              modelInfo = m.model;
+            } else if (m.model.label) {
+              modelInfo = m.model.label;
+            } else if (m.model.provider && m.model.model) {
+              modelInfo = `${m.model.provider} ${m.model.model}`;
+            }
+          } else if (m.provider) {
+            modelInfo = m.provider;
+          } else if (!isUser) {
+            // Fallback to session model for assistant messages
+            modelInfo = sessionModel?.label || 'AI';
+          }
+          
           return (
             <div key={m.id} className={`${isUser ? "ml-auto text-slate-800 max-w-[85%]" : ""}`}>
               {isUser ? (
-                <div className="text-right text-slate-800 font-normal break-words overflow-wrap-anywhere">
-                  {m.content}
+                <div className="text-right">
+                  <div className="text-slate-800 font-normal break-words overflow-wrap-anywhere">
+                    {m.content}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1 opacity-0 hover:opacity-100 transition-opacity">
+                    {timeAgo}
+                  </div>
                 </div>
               ) : (
-                <div className="bg-[#ededed] text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 inline-block max-w-[85%]">
-                  <ReactMarkdown
-                    components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0 font-normal text-slate-800">{children}</p>,
-                      h1: ({ children }) => <h1 className="text-lg font-medium mb-2 mt-3 first:mt-0 text-slate-800">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-base font-medium mb-2 mt-2 first:mt-0 text-slate-800">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0 text-slate-800">{children}</h3>,
-                      ul: ({ children }) => <ul className="mb-2 ml-4 list-disc text-slate-800">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal text-slate-800">{children}</ol>,
-                      li: ({ children }) => <li className="text-slate-800 font-normal">{children}</li>,
-                      code: ({ children }) => (
-                        <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono text-slate-800">{children}</code>
-                      ),
-                      pre: ({ children }) => (
-                        <pre className="bg-gray-200 p-3 rounded text-sm overflow-x-auto mb-2 text-slate-800 font-mono border">{children}</pre>
-                      ),
-                      strong: ({ children }) => <strong className="font-medium text-slate-800">{children}</strong>,
-                      em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
-                      a: ({ children, href }) => <a href={href} className="text-[#176A82] underline font-normal hover:text-[#0d4a5a] transition-colors">{children}</a>,
-                    }}
-                  >
-                    {m.content}
-                  </ReactMarkdown>
+                <div className="inline-block max-w-[85%]">
+                  <div className="bg-[#ededed] text-slate-800 rounded-xl p-3 shadow-sm border border-slate-200">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0 font-normal text-slate-800">{children}</p>,
+                        h1: ({ children }) => <h1 className="text-lg font-medium mb-2 mt-3 first:mt-0 text-slate-800">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-base font-medium mb-2 mt-2 first:mt-0 text-slate-800">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-medium mb-1 mt-2 first:mt-0 text-slate-800">{children}</h3>,
+                        ul: ({ children }) => <ul className="mb-2 ml-4 list-disc text-slate-800">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal text-slate-800">{children}</ol>,
+                        li: ({ children }) => <li className="text-slate-800 font-normal">{children}</li>,
+                        code: ({ children }) => (
+                          <code className="bg-gray-200 px-1 py-0.5 rounded text-xs font-mono text-slate-800">{children}</code>
+                        ),
+                        pre: ({ children }) => (
+                          <pre className="bg-gray-200 p-3 rounded text-sm overflow-x-auto mb-2 text-slate-800 font-mono border">{children}</pre>
+                        ),
+                        strong: ({ children }) => <strong className="font-medium text-slate-800">{children}</strong>,
+                        em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
+                        a: ({ children, href }) => <a href={href} className="text-[#176A82] underline font-normal hover:text-[#0d4a5a] transition-colors">{children}</a>,
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1 opacity-0 hover:opacity-100 transition-opacity flex items-center gap-2">
+                    <span>{timeAgo}</span>
+                    {modelInfo && (
+                      <>
+                        <span>•</span>
+                        <span className="px-1.5 py-0.5 bg-[#176A82] text-white rounded text-[10px] font-medium">
+                          {modelInfo}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -442,7 +485,7 @@ export default function Chat({ selectedModel }) {
               onClick={() => setShowQuickActions(!showQuickActions)}
               className="flex items-center justify-center w-10 h-10 rounded-full border border-slate-300 bg-white hover:bg-slate-50 hover:border-[#176A82] transition-colors"
               title="Quick actions"
-              disabled={hasHitLimit || authState.loading}
+              disabled={hasHitLimit() || authState.loading}
             >
               <PlusIcon className="h-5 w-5 text-slate-600" />
             </button>
@@ -465,19 +508,18 @@ export default function Chat({ selectedModel }) {
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={(e) => {
-                // Enter = send. Shift+Enter = newline. IME-safe.
                 if (e.key === "Enter" && !e.shiftKey && !isComposing) {
                   e.preventDefault();
                   handleSubmit(e);
                 }
               }}
               placeholder={
-                hasHitLimit
+                hasHitLimit()
                   ? "Message limit reached - create account to continue"
                   : `Ask anything… (${sessionModel?.label || fallbackLabel})`
               }
               className="block w-full resize-none bg-transparent px-4 py-3 text-slate-800 outline-0 border-0 leading-6 max-h-32 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent focus:outline-0 font-normal"
-              disabled={hasHitLimit || authState.loading}
+              disabled={hasHitLimit() || authState.loading}
               aria-label="Message"
             />
           </div>
@@ -485,11 +527,11 @@ export default function Chat({ selectedModel }) {
           {/* Send Button */}
           <button
             type="submit"
-            disabled={sending || !input.trim() || hasHitLimit || authState.loading}
+            disabled={sending || !input.trim() || hasHitLimit() || authState.loading}
             className="rounded-full px-5 py-3 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: "#176A82" }}
           >
-            {hasHitLimit ? "Account Required" : "Send"}
+            {hasHitLimit() ? "Account Required" : "Send"}
           </button>
         </div>
       </form>
