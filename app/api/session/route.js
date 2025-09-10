@@ -1,4 +1,4 @@
-// app/api/session/route.js — BG gated at ≥5 turns, stable snapshots, numbers commands
+// app/api/session/route.js — gated BG (>=5), stable snapshots, topic commands on every 3 mentions, smart counts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,7 +24,7 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
     `- For THIS conversation, your current underlying model is: provider="${provider}", model="${modelName}".`,
     `- If asked about your identity, reply: "I'm ${appName}. This chat is currently powered by ${provider} ${modelName} via ${appName}."`,
     `- You can switch between OpenAI, Anthropic, Google/Gemini, xAI, and other providers mid-conversation.`,
-    `- Refer to yourself as "${appName}" (not ChatGPT, Claude, Gemini, etc.).`,
+    `- Refer to yourself as "${appName}".`,
   ].join("\n");
 }
 
@@ -48,8 +48,8 @@ function getSession(id, userId = null) {
       turns: [],
       last: {},
       live: { gist: "", key_points: [], todos: [], entities: [] },
-      topicCounts: {},
-      commands: [],
+      topicCounts: {},         // total mentions per topic (used for 3x rule)
+      commands: [],            // suggestions list
       snapshots: [],
       userId,
       isGuest: !userId,
@@ -116,7 +116,7 @@ function buildGeminiHistory(turns) {
     parts: [{ text: t.content }],
   }));
 }
-async function callOpenAIMCompatible({ baseURL, key, model, messages, max_tokens = OUTPUT_TOKENS, temperature = 0.4 }) {
+async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens = OUTPUT_TOKENS, temperature = 0.4 }) {
   const res = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", Authorization: `Bearer ${key}` },
@@ -128,12 +128,11 @@ async function callOpenAIMCompatible({ baseURL, key, model, messages, max_tokens
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
 
-// Topic tracking (commands)
+// Topic detection + 3x rule for commands
 function trackMessageTopics(session, message) {
   if (!message || typeof message !== "string") return;
 
-  const topics = new Set();
-  const topicPatterns = {
+  const patterns = {
     ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt)\b/i,
     programming: /\b(code|coding|programming|javascript|python|react|api|development|software)\b/i,
     business: /\b(business|strategy|revenue|cost|optimization|market|sales|customer)\b/i,
@@ -141,47 +140,51 @@ function trackMessageTopics(session, message) {
     design: /\b(design|ui|ux|interface|user experience|frontend|styling)\b/i,
     project: /\b(project|task|deadline|planning|management|timeline)\b/i,
   };
-  for (const [topic, re] of Object.entries(topicPatterns)) if (re.test(message)) topics.add(topic);
 
-  // Numbers triggers
+  // numbers trigger
   const msg = message.trim();
-  const digitsOnly = /^[\s\d]+$/.test(msg);
-  const countingWords = /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg);
-  const looksSequence = /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
-  if (digitsOnly || countingWords || looksSequence) topics.add("numbers");
+  const numbers =
+    /^[\s\d]+$/.test(msg) ||
+    /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg) ||
+    /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
 
-  for (const topic of topics) {
-    if (!session._topicSeenAt[topic]) {
-      session._topicSeenAt[topic] = session.turns.length;
-      session.topicCounts[topic] = (session.topicCounts[topic] || 0) + 1;
+  const hits = new Set();
+  for (const [topic, re] of Object.entries(patterns)) {
+    if (re.test(message)) hits.add(topic);
+  }
+  if (numbers) hits.add("numbers");
 
+  // update mention counts and add commands at 3x, 6x, 9x...
+  for (const topic of hits) {
+    session.topicCounts[topic] = (session.topicCounts[topic] || 0) + 1;
+    const count = session.topicCounts[topic];
+
+    if (count % 3 === 0) {
       if (!session.commands) session.commands = [];
-      const pushOnce = (slug, label) => {
-        if (!session.commands.some((c) => c.slug === slug && c.command === label)) {
-          session.commands.push({
-            slug,
-            command: label,
-            created_at: new Date().toISOString(),
-            confidence: "med",
-          });
-        }
-      };
+      const add = (label) =>
+        session.commands.push({
+          slug: topic,
+          command: label,
+          created_at: new Date().toISOString(),
+          confidence: "med",
+        });
+
       if (topic === "numbers") {
-        pushOnce("numbers", "numbers?");
-        pushOnce("numbers", "continue counting");
-        pushOnce("numbers", "analyze the sequence");
+        add("numbers?");
+        add("continue counting");
+        add("analyze the sequence");
       } else {
-        pushOnce(topic, `tell me more about ${topic}`);
+        add(`tell me more about ${topic}`);
       }
     }
   }
 }
 
-// BG tasks
+// BG: live notes
 async function updateLiveNotesUltraCheap(session) {
   if (session.isGuest) return;
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return console.warn("OpenAI API key missing - skipping live notes");
+  if (!key) return;
 
   const lastTurns = buildBudgetedTurns(session.turns, LIVE_NOTES_BUDGET);
   const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
@@ -203,10 +206,11 @@ async function updateLiveNotesUltraCheap(session) {
   }
 }
 
+// BG: snapshot
 async function consolidateSnapshotUltraCheap(session) {
   if (session.isGuest) return;
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return console.warn("OpenAI API key missing - skipping snapshot");
+  if (!key) return;
 
   const from_turn = (session.snapshots?.at(-1)?.to_turn ?? 0) + 1;
   const to_turn = session.turns.length;
@@ -263,10 +267,10 @@ function extractJson(s) {
   if (start >= 0 && end > start) return str.slice(start, end + 1);
   return "{}";
 }
-function runWithTimeout(promise, ms = 2000, label = "task") {
+function runWithTimeout(p, ms = 2000, label = "task") {
   let id;
   const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
-  return Promise.race([promise.finally(() => clearTimeout(id)), t]);
+  return Promise.race([p.finally(() => clearTimeout(id)), t]);
 }
 
 // OPTIONS
@@ -289,7 +293,7 @@ export async function GET(req) {
       s
         ? {
             ok: true,
-            inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
+            inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [], topicCounts: s.topicCounts || {} },
             turns: s.turns.length,
             isGuest: s.isGuest,
             userId: s.userId,
@@ -306,7 +310,6 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
-
     let message = asText(body?.message ?? "");
     if (!message) return new Response("Missing message", { status: 400, headers: H });
 
@@ -315,7 +318,7 @@ export async function POST(req) {
 
     const userId = await getUserFromRequest(req);
 
-    // Merge guest → verified for the same session
+    // Merge guest → verified
     if (userId) {
       const gKey = `guest:${sessionId}`;
       const vKey = `${userId}:${sessionId}`;
@@ -352,58 +355,29 @@ export async function POST(req) {
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      assistantText = await callOpenAIMCompatible({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        messages,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-      });
+      const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
+      assistantText = await callOpenAICompatible({ baseURL: "https://api.x.ai/v1", key, model: modelName, messages, max_tokens: OUTPUT_TOKENS, temperature: 0.4 });
     } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      const r = await client.chat.completions.create({
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages,
-      });
+      const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
+      const r = await client.chat.completions.create({ model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
     } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
-      const reqBody = {
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages: buildAnthropicMessages(s.turns),
-        ...(needsIdentity ? { system: systemIdentity } : {}),
-      };
+      const reqBody = { model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages: buildAnthropicMessages(s.turns), ...(needsIdentity ? { system: systemIdentity } : {}) };
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "x-api-key": key,
-        },
+        headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": key },
         body: JSON.stringify(reqBody),
       });
       const txt = await r.text();
       if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
       try {
         const data = JSON.parse(txt);
-        assistantText = (data?.content || [])
-          .filter((b) => b?.type === "text")
-          .map((b) => b.text)
-          .join("") || "Okay.";
+        assistantText = (data?.content || []).filter((b) => b?.type === "text").map((b) => b.text).join("") || "Okay.";
       } catch {
         assistantText = txt || "Okay.";
       }
@@ -415,10 +389,7 @@ export async function POST(req) {
       if (needsIdentity) cfg.systemInstruction = systemIdentity;
       const model = genAI.getGenerativeModel(cfg);
       const history = buildGeminiHistory(s.turns);
-      const result = await model.generateContent({
-        contents: history,
-        generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
-      });
+      const result = await model.generateContent({ contents: history, generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 } });
       assistantText = result?.response?.text?.() || "Okay.";
     }
 
@@ -429,13 +400,18 @@ export async function POST(req) {
     const uCount = userTurnCount(s.turns);
     if (!s.isGuest && uCount >= 5) {
       runWithTimeout(updateLiveNotesUltraCheap(s), 2000, "live-notes").catch(() => {});
-      trackMessageTopics(s, message);
+      trackMessageTopics(s, message); // 3x rule
       if (uCount % 5 === 0) runWithTimeout(consolidateSnapshotUltraCheap(s), 2000, "snapshot").catch(() => {});
     }
 
     const responseData = {
       text: assistantText,
-      inspector: { live: s.live, snapshots: s.snapshots || [], commands: s.commands || [] },
+      inspector: {
+        live: s.live,
+        snapshots: s.snapshots || [],
+        commands: s.commands || [],
+        topicCounts: s.topicCounts || {},
+      },
       sessionMeta: { isGuest: s.isGuest, userId: s.userId, provider, model: modelName },
     };
 

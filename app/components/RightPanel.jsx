@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — stable, collapsible snapshots by ID, darker bubbles, copy everywhere, no duplicates
+// components/RightPanel.jsx — smart green bubble (every 5 turns), stable collapsible snapshots, darker bubbles, copy everywhere
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +8,7 @@ export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
-  const [collapsedIds, setCollapsedIds] = useState(new Set()); // snapshotId -> collapsed?
+  const [collapsedIds, setCollapsedIds] = useState(new Set()); // snapshotId -> collapsed
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -21,8 +21,7 @@ export default function RightPanel() {
     (async () => {
       try {
         const r = await fetch("/api/me", { cache: "no-store" });
-        const userId = r.ok ? (await r.json())?.userId : null;
-        setAuthState({ loading: false, authenticated: !!userId });
+        setAuthState({ loading: false, authenticated: !!(r.ok && (await r.json())?.userId) });
       } catch {
         setAuthState({ loading: false, authenticated: false });
       }
@@ -34,14 +33,13 @@ export default function RightPanel() {
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
 
-  // live inspector events
+  // inspector push + polling
   useEffect(() => {
     const onUpdate = (e) => e?.detail && setInspector(e.detail);
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // polling
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
@@ -53,26 +51,28 @@ export default function RightPanel() {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
         const j = await r.json();
         if (j?.inspector) setInspector(j.inspector);
-      } catch (e) {
-        console.warn("RightPanel polling error:", e);
-      }
+      } catch {}
     };
     load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, [activeId]);
 
-  // stable snapshot IDs + preserve collapse state across updates
+  // snapshots + stable IDs
   const snapshots = inspector?.snapshots || [];
   const createId = (s) => `${s.created_at}|${s.from_turn}|${s.to_turn}`;
+
+  // keep collapse state; new ones default collapsed
   useEffect(() => {
-    if (!snapshots.length) return;
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      // Any new snapshot gets collapsed by default; keep existing states for existing IDs
       for (const s of snapshots) {
         const id = createId(s);
-        if (!next.has(id)) next.add(id); // default collapsed
+        if (!next.has(id)) next.add(id);
+      }
+      // also prune IDs that no longer exist
+      for (const id of Array.from(next)) {
+        if (!snapshots.some((s) => createId(s) === id)) next.delete(id);
       }
       return next;
     });
@@ -80,6 +80,8 @@ export default function RightPanel() {
 
   const live = inspector?.live || {};
   const commands = inspector?.commands || [];
+  const remainder = currentUserMessageCount % 5;
+  const expectedSnapshotCount = Math.floor(currentUserMessageCount / 5); // smart green bubble value
 
   // copy helper
   async function copy(text, key) {
@@ -87,15 +89,10 @@ export default function RightPanel() {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1000);
-    } catch {
-      console.warn("Clipboard copy failed");
-    }
+    } catch {}
   }
 
-  // UI helpers
-  const remainder = currentUserMessageCount % 5;
-  const toNextSnapshot = remainder === 0 ? 0 : 5 - remainder;
-
+  // section helpers
   const buildSectionCopy = (s, key) => {
     if (!s) return "";
     switch (key) {
@@ -119,7 +116,6 @@ export default function RightPanel() {
         return "";
     }
   };
-
   const sectionMeta = (s) =>
     s
       ? [
@@ -131,7 +127,7 @@ export default function RightPanel() {
         ]
       : [];
 
-  // darker chips
+  // UI tokens
   const chip = "text-xs px-3 py-1.5 rounded-full border bg-slate-200 border-slate-300 text-slate-900 hover:bg-slate-300 active:scale-95 transition";
 
   return (
@@ -147,7 +143,7 @@ export default function RightPanel() {
             </div>
           </div>
           <div className="text-xs text-slate-600">
-            Messages: {currentUserMessageCount} • Snapshots: {snapshots.length}
+            Messages: {currentUserMessageCount} • Snapshots: {(snapshots || []).length}
           </div>
         </div>
 
@@ -183,11 +179,7 @@ export default function RightPanel() {
                     {copiedKey === "live-gist" ? "Copied!" : "Copy"}
                   </button>
                 </div>
-                <div
-                  className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2"
-                  onClick={() => copy(live.gist, "live-gist")}
-                  title="Click to copy"
-                >
+                <div className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2" onClick={() => copy(live.gist, "live-gist")} title="Click to copy">
                   {live.gist}
                 </div>
               </div>
@@ -197,27 +189,16 @@ export default function RightPanel() {
               <div>
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-semibold text-emerald-900 mb-1">Key Points</div>
-                  <button
-                    onClick={() => copy(live.key_points.map((p) => `• ${p}`).join("\n"), "live-kp")}
-                    className={chip}
-                  >
+                  <button onClick={() => copy(live.key_points.map((p) => `• ${p}`).join("\n"), "live-kp")} className={chip}>
                     {copiedKey === "live-kp" ? "Copied!" : "Copy"}
                   </button>
                 </div>
                 <div className="space-y-1">
-                  {live.key_points.map((p, i) => {
-                    const k = `kp-${i}`;
-                    return (
-                      <div
-                        key={k}
-                        className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2"
-                        onClick={() => copy(p, k)}
-                        title="Click to copy"
-                      >
-                        {p}
-                      </div>
-                    );
-                  })}
+                  {live.key_points.map((p, i) => (
+                    <div key={`kp-${i}`} className="text-xs text-emerald-900 bg-white/80 border border-emerald-300 rounded-lg p-2" onClick={() => copy(p, `kp-${i}`)} title="Click to copy">
+                      {p}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -257,7 +238,18 @@ export default function RightPanel() {
 
         {/* Snapshots */}
         <div className="mb-3">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">Conversation Snapshots</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-900">Conversation Snapshots</h3>
+            {/* Smart green bubble: increments every 5 turns (floor(userTurns/5)) */}
+            <div
+              className={`min-w-6 h-6 px-2 rounded-full flex items-center justify-center text-[11px] font-semibold ${
+                expectedSnapshotCount > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+              }`}
+              title="Snapshots expected based on message count"
+            >
+              {expectedSnapshotCount}
+            </div>
+          </div>
 
           {!authState.authenticated && (
             <div className="bg-gradient-to-r from-amber-100 to-orange-100 border border-amber-300 rounded-2xl p-4 text-center text-xs text-amber-900">
@@ -268,7 +260,9 @@ export default function RightPanel() {
           {authState.authenticated && snapshots.length === 0 && (
             <div className="bg-gradient-to-r from-slate-100 to-gray-100 border border-slate-300 rounded-2xl p-4 text-center">
               <p className="text-xs text-slate-800 font-medium">First snapshot arrives at turn 5.</p>
-              <p className="text-xs text-slate-700">({toNextSnapshot} more message{toNextSnapshot === 1 ? "" : "s"})</p>
+              <p className="text-xs text-slate-700">
+                ({5 - (currentUserMessageCount % 5 || 5)} more message{(currentUserMessageCount % 5 || 5) === 1 ? "" : "s"})
+              </p>
             </div>
           )}
 
@@ -276,7 +270,7 @@ export default function RightPanel() {
             <div className="space-y-3">
               {snapshots
                 .slice()
-                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) // newest first, stable
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) // newest first
                 .map((snap) => {
                   const id = createId(snap);
                   const isCollapsed = collapsedIds.has(id);
@@ -316,8 +310,7 @@ export default function RightPanel() {
                         </button>
                       </div>
 
-                      {/* Collapsed: darker bubbles with counts */}
-                      {isCollapsed && (
+                      {isCollapsed ? (
                         <div className="space-y-2">
                           {fields.map((f) => {
                             const k = `${id}-${f.key}`;
@@ -335,10 +328,7 @@ export default function RightPanel() {
                             );
                           })}
                         </div>
-                      )}
-
-                      {/* Expanded: full lists with per-section Copy */}
-                      {!isCollapsed && (
+                      ) : (
                         <div className="space-y-3 mt-2">
                           {fields.map((f) => {
                             const k = `${id}-${f.key}`;
