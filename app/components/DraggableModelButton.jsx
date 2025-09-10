@@ -7,8 +7,8 @@ import { useSessionStore } from "../hooks/useSessionStore";
 
 /** Model choices for the floating pill */
 const MODELS = [
-  { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307", endpoint: "/api/session", icon: "/anthropic-logo.png" },
   { label: "OpenAI", provider: "openai", model: "gpt-4o-mini", endpoint: "/api/session", icon: "/OpenAI-Logo.png" },
+  { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307", endpoint: "/api/session", icon: "/anthropic-logo.png" },
   { label: "Gemini", provider: "gemini", model: "gemini-1.5-flash", endpoint: "/api/session", icon: "/google-logo.png" },
   { label: "Grok",   provider: "xai",     model: "grok-2",               endpoint: "/api/session", icon: "/xai-logo.png" },
 ];
