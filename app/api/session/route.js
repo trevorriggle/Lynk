@@ -32,9 +32,8 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
 const INPUT_TOKEN_BUDGET = 1200;
 const OUTPUT_TOKENS = 600;
 
-// Optimized token budgets for snapshots
-const LIVE_NOTES_BUDGET = 600; // Reduced from 800
-const LIVE_NOTES_TOKENS = 100; // Reduced from 150
+const LIVE_NOTES_BUDGET = 800;
+const LIVE_NOTES_TOKENS = 150;
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
@@ -166,7 +165,7 @@ function extractJson(s) {
   return "{}";
 }
 
-function runWithTimeout(p, ms = 3000, label = "task") { // Reduced timeout
+function runWithTimeout(p, ms = 4500, label = "task") {
   let id;
   const guard = new Promise((_, rej) => {
     id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms);
@@ -206,81 +205,108 @@ function trackMessageTopics(session, message) {
   }
 }
 
-// ---------- Optimized Live Notes Generation ----------
+// ---------- Enhanced Live Notes Generation ----------
 async function generateLiveNotes(turns, fromTurn, toTurn) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) {
-    // Lightweight fallback without LLM
-    return createFallbackNotes(turns);
+    return createDetailedFallbackNotes(turns);
   }
 
   try {
-    // Only use last 5 turns for efficiency
-    const recentTurns = turns.slice(-10).filter(t => t.role === "user" || t.role === "assistant");
-    const chatText = recentTurns
-      .map(t => `${t.role === "user" ? "U" : "A"}: ${t.content}`)
-      .join("\n")
-      .slice(0, 1500); // Hard limit for tokens
+    const relevantTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
+    const chat = relevantTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
     const client = new OpenAI({ apiKey: key });
-    
-    // Minimal, efficient prompt
+    const system = "Return *only* strict JSON. Be concise and specific.";
+    const user = `Analyze user turns ${fromTurn}-${toTurn} and produce notes.
+
+SCHEMA:
+{
+  "key_topics": ["topic1", "topic2", "topic3"],
+  "discussion": "2-3 sentences summarizing the main discussion points and outcomes"
+}
+
+Extract the actual topics discussed (not generic categories). For discussion, focus on what was specifically covered, decided, or learned.
+
+Conversation:
+${chat}`;
+
     const response = await runWithTimeout(
       client.chat.completions.create({
         model: BACKGROUND_MODEL,
         max_tokens: LIVE_NOTES_TOKENS,
         temperature: BACKGROUND_TEMP,
         messages: [
-          {
-            role: "system",
-            content: "Return only JSON. Be concise."
-          },
-          {
-            role: "user",
-            content: `Summarize this chat in JSON format:
-{"key_topics":["topic1","topic2"],"discussion":"Brief summary"}
-
-Chat:
-${chatText}`
-          }
+          { role: "system", content: system },
+          { role: "user", content: user },
         ],
       }),
-      3000,
-      "notes"
+      6000,
+      "live-notes"
     );
 
-    const raw = response?.choices?.[0]?.message?.content || "{}";
-    const parsed = JSON.parse(extractJson(raw));
+    const raw = response?.choices?.[0]?.message?.content?.toString?.() || "{}";
+    const obj = JSON.parse(extractJson(raw));
     
     return {
-      key_topics: Array.isArray(parsed.key_topics) ? parsed.key_topics.slice(0, 3) : [],
-      discussion: typeof parsed.discussion === "string" ? parsed.discussion.slice(0, 200) : "",
+      key_topics: Array.isArray(obj?.key_topics) ? obj.key_topics.slice(0, 3) : [],
+      discussion: typeof obj?.discussion === "string" ? obj.discussion : "",
     };
   } catch (error) {
-    return createFallbackNotes(turns);
+    return createDetailedFallbackNotes(turns);
   }
 }
 
-function createFallbackNotes(turns) {
-  const recent = turns.slice(-10);
-  const userContent = recent
-    .filter(t => t.role === "user")
-    .map(t => t.content)
-    .join(" ")
-    .toLowerCase();
-  
+function createDetailedFallbackNotes(turns) {
+  const recent = turns.slice(-16);
+  const userMsgs = recent.filter((t) => t.role === "user").map((t) => t.content || "");
+  const asstMsgs = recent.filter((t) => t.role === "assistant").map((t) => t.content || "");
+  const allContent = [...userMsgs, ...asstMsgs].join(" ").replace(/\s+/g, " ").trim();
+
+  const lc = allContent.toLowerCase();
+
+  // Enhanced topic detection
   const topics = [];
-  if (/\b(design|ui|ux|visual)\b/.test(userContent)) topics.push("Design");
-  if (/\b(code|programming|development)\b/.test(userContent)) topics.push("Programming");
-  if (/\b(data|analytics|metrics)\b/.test(userContent)) topics.push("Data");
-  if (/\b(business|strategy|market)\b/.test(userContent)) topics.push("Business");
-  if (/\b(ai|model|gpt|claude)\b/.test(userContent)) topics.push("AI");
+  if (/\b(ui|ux|design|layout|typography|component|grid|style|visual|interface)\b/.test(lc)) topics.push("Design");
+  if (/\b(code|javascript|python|react|api|function|programming|development|software|debug)\b/.test(lc)) topics.push("Programming");
+  if (/\b(data|metric|chart|dashboard|analytics|sql|database|visualization)\b/.test(lc)) topics.push("Data");
+  if (/\b(market|pricing|sales|cost|roi|plan|timeline|business|strategy|revenue)\b/.test(lc)) topics.push("Business");
+  if (/\b(model|ai|gpt|claude|gemini|token|embedding|machine learning|neural)\b/.test(lc)) topics.push("AI");
+  if (/\b(user|customer|feedback|experience|testing|research|interview)\b/.test(lc)) topics.push("User Research");
+  if (/\b(project|management|agile|scrum|sprint|delivery|roadmap)\b/.test(lc)) topics.push("Project Management");
+  if (/\b(fruit|food|nutrition|health|vitamin|recipe|cooking|diet)\b/.test(lc)) topics.push("Food & Nutrition");
+  if (/\b(exercise|fitness|workout|training|health|wellness)\b/.test(lc)) topics.push("Health & Fitness");
+  if (/\b(education|learning|study|knowledge|teach|explain)\b/.test(lc)) topics.push("Education");
+
+  // Extract specific entities mentioned
+  const entities = [];
+  const words = allContent.match(/\b[A-Z][a-zA-Z0-9\-]*\b/g) || [];
+  const commonWords = new Set(['I', 'We', 'You', 'They', 'It', 'The', 'A', 'An', 'And', 'Or', 'Of', 'To', 'In', 'On', 'For', 'With', 'By', 'At', 'As', 'This', 'That', 'These', 'Those', 'My', 'Your', 'Our', 'Their', 'He', 'She', 'His', 'Her', 'Its', 'But', 'Not', 'Are', 'Is', 'Was', 'Were', 'Be', 'Been', 'Being', 'Have', 'Has', 'Had', 'Do', 'Does', 'Did', 'Will', 'Would', 'Could', 'Should', 'May', 'Might', 'Can', 'Must']);
   
-  if (topics.length === 0) topics.push("General");
+  for (const word of words) {
+    if (!commonWords.has(word) && word.length > 2) {
+      entities.push(word);
+    }
+  }
   
+  const uniqueEntities = Array.from(new Set(entities)).slice(0, 6);
+  
+  if (topics.length === 0 && uniqueEntities.length > 0) {
+    topics.push(...uniqueEntities.slice(0, 3));
+  }
+  if (topics.length === 0) topics.push("General Discussion");
+
+  // Create detailed discussion summary
+  const topicSummary = topics.length > 0 ? topics.slice(0, 2).join(" and ") : "general conversation";
+  const discussion = `Discussion covering ${topicSummary} with ${userMsgs.length} user interactions. ${
+    uniqueEntities.length > 0 
+      ? `Key topics included ${uniqueEntities.slice(0, 3).join(", ")}.` 
+      : "Interactive conversation with knowledge sharing and exploration."
+  }`;
+
   return {
     key_topics: topics.slice(0, 3),
-    discussion: `Discussion covering ${topics[0]} with interactive conversation.`,
+    discussion: discussion,
   };
 }
 
