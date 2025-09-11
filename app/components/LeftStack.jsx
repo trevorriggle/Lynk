@@ -419,4 +419,4 @@ export default function EnhancedLeftStack({ onActivate }) {
             key={project.key}
             label={project.label}
             onClick={() => onActivate?.({ type: "project", key: project.key })}
-            onDelete={() => deleteProject
+            onDelete={() => deleteProject(project.key)}
