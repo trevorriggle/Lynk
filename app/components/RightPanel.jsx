@@ -89,6 +89,7 @@ export default function RightPanel() {
         });
         if (!cancel && r.ok) {
           const j = await r.json();
+          console.log("🔍 Frontend: Full API response:", JSON.stringify(j, null, 2));
           if (j?.inspector) {
             setInspector(j.inspector);
             // Auto-open newest once
@@ -117,6 +118,22 @@ export default function RightPanel() {
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 12);
   }, [historyAll]);
+
+  // Debug live history data
+  useEffect(() => {
+    if (liveHistory.length > 0) {
+      console.log("🔍 Frontend: Live History Data:", liveHistory);
+      console.log("🔍 Frontend: First snapshot detailed:", JSON.stringify(liveHistory[0], null, 2));
+      
+      // Check each field specifically
+      const first = liveHistory[0];
+      console.log("🔍 Frontend: Gist:", first?.gist);
+      console.log("🔍 Frontend: Key Points:", first?.key_points);
+      console.log("🔍 Frontend: Entities:", first?.entities);
+      console.log("🔍 Frontend: Actions:", first?.actions);
+      console.log("🔍 Frontend: Insights:", first?.insights);
+    }
+  }, [liveHistory]);
 
   const suggestions = inspector?.commands || [];
   const badge = liveHistory.length;
@@ -218,6 +235,15 @@ export default function RightPanel() {
                 const header = `User turns ${s.from_turn}—${s.to_turn}`;
                 const preview = s.gist ? oneLine(s.gist) : "Snapshot";
                 const all = blockCopy(s);
+
+                // Debug individual snapshot
+                console.log(`🔍 Frontend: Rendering snapshot ${id}:`, {
+                  gist: s.gist,
+                  key_points: s.key_points,
+                  entities: s.entities,
+                  actions: s.actions,
+                  insights: s.insights
+                });
 
                 return (
                   <div key={id} className="border border-slate-200 rounded-xl">
@@ -338,6 +364,13 @@ export default function RightPanel() {
                             </ul>
                           </Section>
                         )}
+
+                        {/* Debug section - remove this once you identify the issue */}
+                        <Section title="DEBUG DATA" onCopy={() => copy(JSON.stringify(s, null, 2), `debug-${id}`)} copied={copied === `debug-${id}`}>
+                          <pre className="text-[9px] bg-gray-100 p-2 rounded overflow-auto max-h-32">
+                            {JSON.stringify(s, null, 2)}
+                          </pre>
+                        </Section>
                       </div>
                     )}
                   </div>

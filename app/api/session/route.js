@@ -203,10 +203,16 @@ function trackMessageTopics(session, message) {
 // ---------- Live Notes (LLM) ----------
 async function buildEnhancedLiveNotes(turns, fromTurn, toTurn) {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
+  if (!key) {
+    console.log("🔍 Backend: No OPENAI_API_KEY found, skipping enhanced notes");
+    return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
+  }
 
   const relevantTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
   const chat = relevantTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
+
+  console.log("🔍 Backend: Building enhanced notes for turns", fromTurn, "to", toTurn);
+  console.log("🔍 Backend: Chat context length:", chat.length);
 
   const system = "Return *only* strict JSON. Be concise and specific.";
   const user = `Analyze user turns ${fromTurn}-${toTurn} and produce notes.
@@ -223,35 +229,51 @@ SCHEMA:
 Conversation:
 ${chat}`;
 
-  const client = new OpenAI({ apiKey: key });
-  const r = await runWithTimeout(
-    client.chat.completions.create({
-      model: BACKGROUND_MODEL,
-      max_tokens: LIVE_NOTES_TOKENS,
-      temperature: BACKGROUND_TEMP,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-    6000,
-    "live-notes"
-  );
+  try {
+    const client = new OpenAI({ apiKey: key });
+    console.log("🔍 Backend: Calling OpenAI for live notes...");
+    
+    const r = await runWithTimeout(
+      client.chat.completions.create({
+        model: BACKGROUND_MODEL,
+        max_tokens: LIVE_NOTES_TOKENS,
+        temperature: BACKGROUND_TEMP,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+      6000,
+      "live-notes"
+    );
 
-  const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
-  const obj = JSON.parse(extractJson(raw));
+    const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+    console.log("🔍 Backend: Raw LLM response:", raw);
+    
+    const obj = JSON.parse(extractJson(raw));
+    console.log("🔍 Backend: Parsed LLM object:", JSON.stringify(obj, null, 2));
 
-  return {
-    gist: typeof obj?.gist === "string" ? obj.gist : "",
-    key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
-    entities: Array.isArray(obj?.entities) ? obj.entities.slice(0, 6) : [],
-    actions: Array.isArray(obj?.actions) ? obj.actions.slice(0, 4) : [],
-    insights: Array.isArray(obj?.insights) ? obj.insights.slice(0, 4) : [],
-  };
+    const result = {
+      gist: typeof obj?.gist === "string" ? obj.gist : "",
+      key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
+      entities: Array.isArray(obj?.entities) ? obj.entities.slice(0, 6) : [],
+      actions: Array.isArray(obj?.actions) ? obj.actions.slice(0, 4) : [],
+      insights: Array.isArray(obj?.insights) ? obj.insights.slice(0, 4) : [],
+    };
+
+    console.log("🔍 Backend: Final enhanced notes result:", JSON.stringify(result, null, 2));
+    return result;
+
+  } catch (error) {
+    console.log("🔍 Backend: Error in buildEnhancedLiveNotes:", error.message);
+    return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
+  }
 }
 
 // ---------- Token-free fallback (fixed entities) ----------
 function fallbackNotesFrom(turns, fromTurn, toTurn) {
+  console.log("🔍 Backend: Using fallback notes generator");
+  
   const recent = turns.slice(-16);
   const userMsgs = recent.filter((t) => t.role === "user").map((t) => t.content || "");
   const asstMsgs = recent.filter((t) => t.role === "assistant").map((t) => t.content || "");
@@ -301,7 +323,7 @@ function fallbackNotesFrom(turns, fromTurn, toTurn) {
 
   const topicLine = topics.length ? topics.join(", ") : "general discussion";
 
-  return {
+  const result = {
     gist: `Concise recap across ${topicLine}.`,
     key_points: topics.length
       ? topics.slice(0, 4).map((t) => `Discussion on ${t}`)
@@ -313,6 +335,9 @@ function fallbackNotesFrom(turns, fromTurn, toTurn) {
       "Periodic context snapshot",
     ].slice(0, 4),
   };
+
+  console.log("🔍 Backend: Fallback notes result:", JSON.stringify(result, null, 2));
+  return result;
 }
 
 // ---------- Routes ----------
@@ -336,6 +361,11 @@ export async function GET(req) {
   if (userId) cleanupGuestSession(sessionId);
 
   const s = getSession(sessionId, userId);
+
+  console.log("🔍 Backend: GET request for session", sessionId, "live_history length:", s.liveHistory?.length || 0);
+  if (s.liveHistory?.length > 0) {
+    console.log("🔍 Backend: First live history item:", JSON.stringify(s.liveHistory[0], null, 2));
+  }
 
   return Response.json(
     {
@@ -405,7 +435,7 @@ export async function POST(req) {
       const messages = needsIdentity
         ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
         : buildOpenAIMessages(s.turns);
-      assistantText = await callOpenAIMCompatible({
+      assistantText = await callOpenAICompatible({
         baseURL: "https://api.x.ai/v1",
         key,
         model: modelName,
@@ -492,16 +522,21 @@ export async function POST(req) {
       uCount >= 5 &&
       uCount - (s._lastSnapshotUserCount || 0) >= 5;
 
+    console.log("🔍 Backend: Snapshot check - isGuest:", s.isGuest, "uCount:", uCount, "lastSnapshot:", s._lastSnapshotUserCount, "ready:", ready);
+
     if (ready) {
       const fromTurn = (s._lastSnapshotUserCount || 0) + 1;
       const toTurn = uCount;
+
+      console.log("🔍 Backend: Creating snapshot for turns", fromTurn, "to", toTurn);
 
       let note = null;
       try {
         if (process.env.OPENAI_API_KEY) {
           note = await buildEnhancedLiveNotes(s.turns.slice(-24), fromTurn, toTurn);
         }
-      } catch {
+      } catch (error) {
+        console.log("🔍 Backend: Enhanced notes failed:", error.message);
         note = null;
       }
       if (!note) note = fallbackNotesFrom(s.turns, fromTurn, toTurn);
@@ -518,30 +553,38 @@ export async function POST(req) {
         insights: Array.isArray(note.insights) ? note.insights.slice(0, 4) : [],
       };
 
+      console.log("🔍 Backend: Final snapshot entry:", JSON.stringify(entry, null, 2));
+
       if (!s.liveHistory) s.liveHistory = [];
       s.liveHistory.push(entry);
       s._lastSnapshotUserCount = uCount;
+
+      console.log("🔍 Backend: Added snapshot, total live history items:", s.liveHistory.length);
     }
 
     // ---- Response ----
+    const responseData = {
+      text: assistantText,
+      inspector: {
+        live_history: s.liveHistory || [],
+        commands: s.commands || [],
+        topicCounts: s.topicCounts || {},
+      },
+      sessionMeta: {
+        isGuest: s.isGuest,
+        userId: s.userId,
+        provider,
+        model: modelName,
+        userTurns: uCount,
+        totalTurns: s.turns.length,
+        sessionId,
+      },
+    };
+
+    console.log("🔍 Backend: Response inspector data:", JSON.stringify(responseData.inspector, null, 2));
+
     return new Response(
-      JSON.stringify({
-        text: assistantText,
-        inspector: {
-          live_history: s.liveHistory || [],
-          commands: s.commands || [],
-          topicCounts: s.topicCounts || {},
-        },
-        sessionMeta: {
-          isGuest: s.isGuest,
-          userId: s.userId,
-          provider,
-          model: modelName,
-          userTurns: uCount,
-          totalTurns: s.turns.length,
-          sessionId,
-        },
-      }),
+      JSON.stringify(responseData),
       {
         status: 200,
         headers: {
@@ -552,6 +595,7 @@ export async function POST(req) {
       }
     );
   } catch (e) {
+    console.log("🔍 Backend: Session error:", e.message);
     return new Response(`Session error: ${e?.message || String(e)}`, {
       status: 500,
       headers: H,
