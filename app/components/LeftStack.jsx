@@ -2,7 +2,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-// File upload component for Context Files section
 function FileUpload({ onFileUpload, onClose }) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
@@ -95,7 +94,6 @@ function FileUpload({ onFileUpload, onClose }) {
   );
 }
 
-// Collapsible section with teal branding
 function Section({ title, defaultOpen = false, children, badge = null }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -129,7 +127,6 @@ function Section({ title, defaultOpen = false, children, badge = null }) {
   );
 }
 
-// Row component for interactive items
 function Row({ label, onClick, onDelete, muted = false, active = false, pill = false, deletable = false, icon = null }) {
   const pillBase =
     "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none truncate";
@@ -219,7 +216,6 @@ export default function EnhancedLeftStack({ onActivate }) {
     clearSessions,
   } = useSessionStore((s) => s);
 
-  // Monitor auth state changes to prevent session bleeding
   useEffect(() => {
     (async () => {
       try {
@@ -232,10 +228,8 @@ export default function EnhancedLeftStack({ onActivate }) {
             userId: userData?.userId || null
           };
           
-          // If auth state changed, clear sessions to prevent bleeding
           if (authState.authenticated !== newAuthState.authenticated || 
               authState.userId !== newAuthState.userId) {
-            console.log("Auth state changed, clearing sessions to prevent bleeding");
             clearSessions?.();
           }
           
@@ -244,7 +238,6 @@ export default function EnhancedLeftStack({ onActivate }) {
           const newAuthState = { loading: false, authenticated: false, userId: null };
           
           if (authState.authenticated !== newAuthState.authenticated) {
-            console.log("User signed out, clearing sessions");
             clearSessions?.();
           }
           
@@ -262,17 +255,14 @@ export default function EnhancedLeftStack({ onActivate }) {
     })();
   }, []);
 
-  // Filter sessions to only show those that belong to current auth state
   const recent = useMemo(() => {
     return order
       .map((id) => sessions[id])
       .filter(Boolean)
       .filter((session) => {
-        // For guest users, only show sessions without userId
         if (!authState.authenticated) {
           return !session.userId;
         }
-        // For authenticated users, only show sessions with matching userId
         return session.userId === authState.userId;
       });
   }, [order, sessions, authState.authenticated, authState.userId]);
@@ -282,7 +272,6 @@ export default function EnhancedLeftStack({ onActivate }) {
     setShowFileUpload(false);
   };
 
-  // Enhanced command execution
   const executeCommand = (command) => {
     if (sendMessage) {
       sendMessage(command.label || command.command);
@@ -292,22 +281,12 @@ export default function EnhancedLeftStack({ onActivate }) {
   const totalCommands = commands.length;
   const recentCommands = commands.slice(-6);
 
-  // Secure session creation that doesn't reset user message counts
   const handleNewChat = () => {
-    console.log("Creating new chat...");
     try {
-      // Use the session store's createSession method properly
       const newSessionId = createSession();
-      console.log("New session created:", newSessionId);
-      
-      // Select the new session
       selectSession(newSessionId);
-      console.log("New session selected:", newSessionId);
-      
-      // Force a re-render by clearing any cached data
-      setAuthState(prev => ({ ...prev }));
     } catch (error) {
-      console.error("Failed to create new chat:", error);
+      // Silent fail
     }
   };
 
@@ -324,7 +303,6 @@ export default function EnhancedLeftStack({ onActivate }) {
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
       
-      {/* Context Files Section */}
       <Section title="Context Files" badge={contextFiles.length || null} defaultOpen={true}>
         {showFileUpload && (
           <FileUpload 
@@ -350,7 +328,6 @@ export default function EnhancedLeftStack({ onActivate }) {
         />
       </Section>
 
-      {/* Behaviors Section */}
       <Section title="Behaviors" badge={behaviors.length || null}>
         {behaviors.map(behavior => (
           <Row 
@@ -368,7 +345,6 @@ export default function EnhancedLeftStack({ onActivate }) {
         />
       </Section>
 
-      {/* Enhanced Commands Section */}
       <Section title="Commands" badge={totalCommands || null}>
         {recentCommands.length > 0 ? (
           <>
@@ -397,7 +373,6 @@ export default function EnhancedLeftStack({ onActivate }) {
         )}
       </Section>
 
-      {/* Projects Section */}
       <Section title="Projects" badge={projects.length || null}>
         {projects.map(project => (
           <Row 
@@ -415,7 +390,6 @@ export default function EnhancedLeftStack({ onActivate }) {
         />
       </Section>
 
-      {/* Recent Chats Section - Fixed session isolation */}
       <Section title="Recent Chats" badge={recent.length || null} defaultOpen={false}>
         {!authState.authenticated && (
           <div className="text-xs text-gray-500 italic px-1 mb-2">
@@ -425,7 +399,7 @@ export default function EnhancedLeftStack({ onActivate }) {
         
         {authState.authenticated && (
           <div className="text-xs text-gray-600 px-1 mb-2">
-            Your conversations ({authState.userId?.slice(0, 8)}...)
+            Your conversations
           </div>
         )}
         
@@ -459,7 +433,6 @@ export default function EnhancedLeftStack({ onActivate }) {
           })
         )}
         
-        {/* Secure new chat creation */}
         <div className="pt-2 border-t border-gray-200">
           <Row
             label="+ New Chat"
@@ -469,7 +442,6 @@ export default function EnhancedLeftStack({ onActivate }) {
           />
         </div>
         
-        {/* Warning about session security */}
         {!authState.authenticated && recent.length > 0 && (
           <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2">
             Guest chats are not synced. Sign in to save your conversations.

@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — Fixed Live Notes display with proper data handling and session isolation
+// components/RightPanel.jsx — Fixed Live Notes display
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -9,7 +9,6 @@ export default function RightPanel() {
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false, userId: null });
   const [collapsedIds, setCollapsedIds] = useState(new Set());
-  const [debugInfo, setDebugInfo] = useState(null);
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -17,7 +16,6 @@ export default function RightPanel() {
     guestMessageCount: s.guestMessageCount,
   }));
 
-  // Authentication check with user ID tracking
   useEffect(() => {
     (async () => {
       try {
@@ -38,24 +36,18 @@ export default function RightPanel() {
     })();
   }, []);
 
-  // Clear inspector data when auth state changes to prevent session bleeding
   useEffect(() => {
     setInspector(null);
     setCollapsedIds(new Set());
   }, [authState.authenticated, authState.userId]);
 
-  // Message count calculation - should not reset when creating new chats
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
-  
-  // For authenticated users, count should be per-session, not global
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
 
-  // Live updates from inspector
   useEffect(() => {
     const onUpdate = (e) => {
       if (e?.detail) {
-        console.log("Inspector update received:", e.detail);
         setInspector(e.detail);
       }
     };
@@ -63,58 +55,53 @@ export default function RightPanel() {
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // Polling for session data with proper auth handling
+  useEffect(() => {
+    const onMessageResponse = (e) => {
+      if (e?.detail?.inspector) {
+        setInspector(e.detail.inspector);
+      }
+    };
+    window.addEventListener("message:response", onMessageResponse);
+    return () => window.removeEventListener("message:response", onMessageResponse);
+  }, []);
+
   useEffect(() => {
     if (!activeId || authState.loading) {
       setInspector(null);
       setCollapsedIds(new Set());
-      setDebugInfo(null);
       return;
     }
     
     const load = async () => {
       try {
-        console.log(`Fetching session data for: ${activeId}, auth: ${authState.authenticated}, userId: ${authState.userId}`);
-        
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { 
           cache: "no-store",
-          credentials: "include" // Include cookies for auth
+          credentials: "include"
         });
         
         const j = await r.json();
-        console.log("Session API response:", j);
-        
-        setDebugInfo(j.debug || null);
         
         if (j?.inspector) {
           setInspector(j.inspector);
-          console.log("Inspector data set:", j.inspector);
-        } else {
-          console.log("No inspector data in response");
         }
       } catch (e) {
-        console.error("Failed to fetch session data:", e);
+        // Silent fail
       }
     };
     
     load();
-    const t = setInterval(load, 5000); // Increased interval to 5 seconds
+    const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, [activeId, authState.authenticated, authState.userId]);
 
-  // Process live history data
   const liveHistory = useMemo(() => {
     const history = inspector?.live_history || [];
-    console.log("Processing live history:", history);
     return history.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [inspector]);
   
   const liveBadge = liveHistory.length;
   const commands = inspector?.commands || [];
 
-  console.log(`Live history count: ${liveBadge}, Commands: ${commands.length}`);
-
-  // Manage collapsed state by unique ID
   const getId = (e) => `${e.created_at}|${e.from_turn}|${e.to_turn}`;
   
   useEffect(() => {
@@ -122,9 +109,8 @@ export default function RightPanel() {
       const next = new Set(prev);
       for (const e of liveHistory) {
         const id = getId(e);
-        if (!next.has(id)) next.add(id); // Default collapsed for new entries
+        if (!next.has(id)) next.add(id);
       }
-      // Clean up stale IDs
       for (const id of Array.from(next)) {
         if (!liveHistory.some((e) => getId(e) === id)) next.delete(id);
       }
@@ -132,18 +118,16 @@ export default function RightPanel() {
     });
   }, [liveHistory.map(getId).join("|")]);
 
-  // Copy functionality
   async function copy(text, key) {
     try {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1200);
     } catch (e) {
-      console.error("Copy failed:", e);
+      // Silent fail
     }
   }
 
-  // Enhanced copy function for complete snapshot
   function buildSnapshotCopy(snapshot) {
     const sections = [];
     
@@ -188,39 +172,21 @@ export default function RightPanel() {
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
         
-        {/* Header Section */}
         <div className="mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
             <div className="flex items-center gap-1">
               <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-600" : "bg-amber-600"}`} />
               <span className="text-xs text-slate-700">
-                {authState.authenticated ? `Verified (${authState.userId?.slice(0, 8)}...)` : "Guest"}
+                {authState.authenticated ? "Verified" : "Guest"}
               </span>
             </div>
           </div>
           <div className="text-xs text-slate-600">
             Session Messages: {currentUserMessageCount}
-            {activeId && (
-              <div className="text-xs text-slate-400 mt-1">
-                Active Session: {activeId?.slice(0, 8)}...
-              </div>
-            )}
-            {debugInfo && (
-              <div className="text-xs text-slate-400 mt-1">
-                Debug: {debugInfo.liveHistoryCount} notes, {debugInfo.commandsCount} commands
-                <br />Last turn: {debugInfo.lastUserTurn}, Should gen: {debugInfo.shouldGenerateLiveNotes ? 'YES' : 'NO'}
-              </div>
-            )}
-            {inspector && (
-              <div className="text-xs text-emerald-600 mt-1">
-                Inspector: {(inspector.live_history || []).length} history, {(inspector.commands || []).length} commands
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Enhanced Live Notes Section */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-emerald-900">Live Notes</h3>
@@ -256,7 +222,6 @@ export default function RightPanel() {
                 return (
                   <div key={id} className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4 shadow-sm">
                     
-                    {/* Header with collapse toggle and copy all */}
                     <div className="flex items-center justify-between mb-2">
                       <button
                         onClick={() =>
@@ -280,7 +245,6 @@ export default function RightPanel() {
                       </button>
                     </div>
 
-                    {/* Collapsed view - section overview */}
                     {isCollapsed ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -329,10 +293,8 @@ export default function RightPanel() {
                         </button>
                       </div>
                     ) : (
-                      /* Expanded view - full content display */
                       <div className="space-y-3 mt-1">
                         
-                        {/* Summary Section */}
                         {snapshot.gist && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
@@ -347,7 +309,6 @@ export default function RightPanel() {
                           </div>
                         )}
 
-                        {/* Key Points Section */}
                         {Array.isArray(snapshot.key_points) && snapshot.key_points.length > 0 && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
@@ -376,7 +337,6 @@ export default function RightPanel() {
                           </div>
                         )}
 
-                        {/* Entities Section */}
                         {Array.isArray(snapshot.entities) && snapshot.entities.length > 0 && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
@@ -405,7 +365,6 @@ export default function RightPanel() {
                           </div>
                         )}
 
-                        {/* Actions Section */}
                         {Array.isArray(snapshot.actions) && snapshot.actions.length > 0 && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
@@ -434,7 +393,6 @@ export default function RightPanel() {
                           </div>
                         )}
 
-                        {/* Insights Section */}
                         {Array.isArray(snapshot.insights) && snapshot.insights.length > 0 && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
@@ -471,7 +429,6 @@ export default function RightPanel() {
           )}
         </div>
 
-        {/* Commands Section */}
         {commands.length > 0 && (
           <div className="mb-2 bg-gradient-to-r from-indigo-100 to-blue-100 border border-indigo-300 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
