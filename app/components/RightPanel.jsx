@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — compact, collapsible Live Notes that won't break layout
+// components/RightPanel.jsx — compact, collapsible, auto-open newest snapshot
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -27,165 +27,150 @@ function CopyIcon() {
 }
 
 export default function RightPanel() {
-  // ---- State ----
   const [auth, setAuth] = useState({ loading: true, authenticated: false, userId: null });
   const [inspector, setInspector] = useState(null);
-  const [copiedKey, setCopiedKey] = useState("");
-  const [openIds, setOpenIds] = useState(() => new Set()); // collapsed by default
+  const [copied, setCopied] = useState("");
+  const [openIds, setOpenIds] = useState(new Set()); // collapsed by default
 
-  // ---- External store ----
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
     sessions: s.sessions,
     guestMessageCount: s.guestMessageCount,
   }));
 
-  // ---- Auth bootstrap ----
+  // Auth bootstrap
   useEffect(() => {
-    let cancelled = false;
+    let cancel = false;
     (async () => {
       try {
         const r = await fetch("/api/me", { cache: "no-store", credentials: "include" });
-        if (cancelled) return;
+        if (cancel) return;
         if (r.ok) {
           const j = await r.json();
           setAuth({ loading: false, authenticated: !!j?.userId, userId: j?.userId || null });
-        } else {
-          setAuth({ loading: false, authenticated: false, userId: null });
-        }
+        } else setAuth({ loading: false, authenticated: false, userId: null });
       } catch {
-        if (!cancelled) setAuth({ loading: false, authenticated: false, userId: null });
+        if (!cancel) setAuth({ loading: false, authenticated: false, userId: null });
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancel = true; };
   }, []);
 
-  // reset panel when auth flips
+  // Reset when auth changes
   useEffect(() => {
     setInspector(null);
     setOpenIds(new Set());
   }, [auth.authenticated, auth.userId]);
 
-  // ---- Current thread counts (cosmetic only) ----
-  const currentThread = activeId ? (sessions[activeId]?.messages || []) : [];
-  const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
-  const currentUserMessageCount = auth.authenticated ? threadUserCount : guestMessageCount;
-
-  // ---- Event listeners to accept inspector payloads from app ----
+  // Accept app events
   useEffect(() => {
     const onUpdate = (e) => e?.detail && setInspector(e.detail);
-    const onMessageResponse = (e) => e?.detail?.inspector && setInspector(e.detail.inspector);
+    const onResp = (e) => e?.detail?.inspector && setInspector(e.detail.inspector);
     window.addEventListener("inspector:update", onUpdate);
-    window.addEventListener("message:response", onMessageResponse);
+    window.addEventListener("message:response", onResp);
     return () => {
       window.removeEventListener("inspector:update", onUpdate);
-      window.removeEventListener("message:response", onMessageResponse);
+      window.removeEventListener("message:response", onResp);
     };
   }, []);
 
-  // ---- Poll session ----
+  // Polling
   useEffect(() => {
     if (!activeId || auth.loading) {
       setInspector(null);
       return;
     }
-    let cancelled = false;
+    let cancel = false;
     const load = async () => {
       try {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, {
           cache: "no-store",
           credentials: "include",
         });
-        if (!cancelled && r.ok) {
+        if (!cancel && r.ok) {
           const j = await r.json();
-          if (j?.inspector) setInspector(j.inspector);
+          if (j?.inspector) {
+            setInspector(j.inspector);
+            // Auto-open newest once
+            const hx = (j.inspector.live_history || []).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+            if (hx.length) {
+              const newestId = `${hx[0].created_at}|${hx[0].from_turn}|${hx[0].to_turn}`;
+              setOpenIds((prev) => (prev.size ? prev : new Set([newestId])));
+            }
+          }
         }
-      } catch {
-        /* silent */
-      }
+      } catch {}
     };
     load();
     const t = setInterval(load, 3000);
     return () => {
-      cancelled = true;
+      cancel = true;
       clearInterval(t);
     };
   }, [activeId, auth.loading]);
 
-  // ---- Shape data ----
+  // Derived
   const historyAll = inspector?.live_history || [];
   const liveHistory = useMemo(() => {
-    // newest-first and keep last 12 to avoid bulky panel
     return historyAll
       .slice()
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 12);
   }, [historyAll]);
 
-  const badge = liveHistory.length;
   const suggestions = inspector?.commands || [];
+  const badge = liveHistory.length;
 
-  // ---- Helpers ----
+  const currentThread = activeId ? (sessions[activeId]?.messages || []) : [];
+  const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
+  const sessionMsgCount = auth.authenticated ? threadUserCount : guestMessageCount;
+
+  // Helpers
   const getId = (s) => `${s.created_at}|${s.from_turn}|${s.to_turn}`;
-
-  const toggleOpen = useCallback((id) => {
+  const toggle = (id) =>
     setOpenIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }, []);
 
-  const copy = useCallback(async (text, key) => {
+  const copy = async (text, key) => {
     try {
       await navigator.clipboard.writeText(text || "");
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(""), 1000);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const buildSnapshotCopy = useCallback((s) => {
-    const blocks = [];
-    if (s.gist) blocks.push(`SUMMARY\n${s.gist}`);
-    if (s.key_points?.length) blocks.push(`KEY POINTS\n${s.key_points.map((p) => `• ${p}`).join("\n")}`);
-    if (s.entities?.length) blocks.push(`ENTITIES\n${s.entities.map((e) => `• ${e}`).join("\n")}`);
-    if (s.actions?.length) blocks.push(`ACTIONS\n${s.actions.map((a) => `• ${a}`).join("\n")}`);
-    if (s.insights?.length) blocks.push(`INSIGHTS\n${s.insights.map((i) => `• ${i}`).join("\n")}`);
-    return blocks.join("\n\n");
-  }, []);
-
-  const summarizeOneLine = (text = "") => {
-    const t = text.replace(/\s+/g, " ").trim();
-    return t.length > 90 ? t.slice(0, 90) + "…" : t;
+      setCopied(key);
+      setTimeout(() => setCopied(""), 900);
+    } catch {}
   };
 
-  // ---- Render ----
+  const oneLine = (t = "") => {
+    const s = t.replace(/\s+/g, " ").trim();
+    return s.length > 88 ? s.slice(0, 88) + "…" : s;
+  };
+
+  const blockCopy = (s) => {
+    const chunks = [];
+    if (s.gist) chunks.push(`SUMMARY\n${s.gist}`);
+    if (s.key_points?.length) chunks.push(`KEY POINTS\n${s.key_points.map((p) => `• ${p}`).join("\n")}`);
+    if (s.entities?.length) chunks.push(`ENTITIES\n${s.entities.map((e) => `• ${e}`).join("\n")}`);
+    if (s.actions?.length) chunks.push(`ACTIONS\n${s.actions.map((a) => `• ${a}`).join("\n")}`);
+    if (s.insights?.length) chunks.push(`INSIGHTS\n${s.insights.map((i) => `• ${i}`).join("\n")}`);
+    return chunks.join("\n\n");
+  };
+
+  // Render
   if (auth.loading) {
     return (
       <aside className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0">
         <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white">
-          <div className="flex items-center justify-center h-24">
-            <div className="text-xs text-slate-600">Loading…</div>
-          </div>
+          <div className="h-24 flex items-center justify-center text-xs text-slate-600">Loading…</div>
         </div>
       </aside>
     );
   }
 
   return (
-    <aside
-      className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0"
-      aria-label="Right panel with session insights"
-    >
-      <div
-        className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white"
-        // keep the panel visually light and self-contained
-      >
+    <aside className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0" aria-label="Session Insights">
+      <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white">
         {/* Header */}
         <div className="mb-3 pb-2 border-b border-slate-200">
           <div className="flex items-center justify-between">
@@ -195,9 +180,7 @@ export default function RightPanel() {
               <span className="text-[11px] text-slate-700">{auth.authenticated ? "Verified" : "Guest"}</span>
             </div>
           </div>
-          <div className="text-[11px] text-slate-600 mt-1">
-            Session Messages: {currentUserMessageCount}
-          </div>
+          <div className="text-[11px] text-slate-600 mt-1">Session Messages: {sessionMsgCount}</div>
         </div>
 
         {/* Live Notes */}
@@ -206,9 +189,9 @@ export default function RightPanel() {
             <h3 className="text-xs font-semibold text-slate-900">Live Notes</h3>
             <span
               className={`px-1.5 min-w-5 h-5 inline-flex items-center justify-center rounded-full text-[10px] font-semibold ${
-                badge > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+                badge ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
               }`}
-              title="Snapshots available"
+              title="Snapshots"
             >
               {badge}
             </span>
@@ -216,11 +199,11 @@ export default function RightPanel() {
 
           {!auth.authenticated && (
             <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              Sign in to enable Live Notes with compact, collapsible snapshots.
+              Sign in to enable Live Notes.
             </div>
           )}
 
-          {auth.authenticated && badge === 0 && (
+          {auth.authenticated && !badge && (
             <div className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
               Snapshots appear automatically as you chat.
             </div>
@@ -233,77 +216,57 @@ export default function RightPanel() {
                 const open = openIds.has(id);
                 const when = new Date(s.created_at);
                 const header = `User turns ${s.from_turn}—${s.to_turn}`;
-                const preview = s.gist ? summarizeOneLine(s.gist) : "Snapshot";
-                const fullCopy = buildSnapshotCopy(s);
+                const preview = s.gist ? oneLine(s.gist) : "Snapshot";
+                const all = blockCopy(s);
 
                 return (
-                  <div
-                    key={id}
-                    className="border border-slate-200 rounded-xl"
-                  >
-                    {/* Row header */}
+                  <div key={id} className="border border-slate-200 rounded-xl">
                     <button
-                      onClick={() => toggleOpen(id)}
+                      onClick={() => toggle(id)}
                       className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-slate-50 rounded-t-xl"
                       title={open ? "Collapse" : "Expand"}
                     >
                       <Chevron open={open} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <div className="text-[12px] font-medium text-slate-900 truncate">
-                            {header}
-                          </div>
+                          <div className="text-[12px] font-medium text-slate-900 truncate">{header}</div>
                           <div className="text-[10px] text-slate-500 whitespace-nowrap">
                             {when.toLocaleDateString()} · {when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                           </div>
                         </div>
                         <div className="text-[11px] text-slate-700 truncate">{preview}</div>
                       </div>
-
-                      {/* small copy-all pill */}
                       <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copy(fullCopy, `all-${id}`);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); copy(all, `all-${id}`); }}
                         className="ml-1 inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 active:scale-95"
                         title="Copy all"
                         role="button"
                       >
                         <CopyIcon />
-                        {copiedKey === `all-${id}` ? "Copied" : "Copy"}
+                        {copied === `all-${id}` ? "Copied" : "Copy"}
                       </div>
                     </button>
 
-                    {/* Body (collapsible) */}
                     {open && (
                       <div className="px-2.5 pb-2.5 pt-0 space-y-1.5">
-                        {/* Summary */}
                         {s.gist && (
-                          <Section
-                            title="Summary"
-                            onCopy={() => copy(s.gist, `sum-${id}`)}
-                            copied={copiedKey === `sum-${id}`}
-                          >
-                            <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">
-                              {s.gist}
-                            </p>
+                          <Section title="Summary" onCopy={() => copy(s.gist, `sum-${id}`)} copied={copied === `sum-${id}`}>
+                            <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">{s.gist}</p>
                           </Section>
                         )}
 
-                        {/* Key Points */}
                         {Array.isArray(s.key_points) && s.key_points.length > 0 && (
                           <Section
                             title="Key Points"
                             onCopy={() => copy(s.key_points.map((p) => `• ${p}`).join("\n"), `kp-${id}`)}
-                            copied={copiedKey === `kp-${id}`}
+                            copied={copied === `kp-${id}`}
                           >
                             <ul className="space-y-1">
                               {s.key_points.map((p, i) => (
                                 <li
                                   key={`kp-${i}`}
                                   className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(p, `kp-${id}-${i}`)}
+                                  onClick={() => copy(p, `kpi-${id}-${i}`)}
                                   title="Click to copy"
                                 >
                                   • {p}
@@ -313,19 +276,18 @@ export default function RightPanel() {
                           </Section>
                         )}
 
-                        {/* Entities */}
                         {Array.isArray(s.entities) && s.entities.length > 0 && (
                           <Section
                             title="Entities"
                             onCopy={() => copy(s.entities.map((e) => `• ${e}`).join("\n"), `ent-${id}`)}
-                            copied={copiedKey === `ent-${id}`}
+                            copied={copied === `ent-${id}`}
                           >
                             <div className="flex flex-wrap gap-1">
                               {s.entities.map((e, i) => (
                                 <span
                                   key={`ent-${i}`}
                                   className="text-[10px] px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(e, `ent-${id}-${i}`)}
+                                  onClick={() => copy(e, `enti-${id}-${i}`)}
                                   title="Click to copy"
                                 >
                                   {e}
@@ -335,19 +297,18 @@ export default function RightPanel() {
                           </Section>
                         )}
 
-                        {/* Actions */}
                         {Array.isArray(s.actions) && s.actions.length > 0 && (
                           <Section
                             title="Actions"
                             onCopy={() => copy(s.actions.map((a) => `• ${a}`).join("\n"), `act-${id}`)}
-                            copied={copiedKey === `act-${id}`}
+                            copied={copied === `act-${id}`}
                           >
                             <ul className="space-y-1">
                               {s.actions.map((a, i) => (
                                 <li
                                   key={`act-${i}`}
                                   className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(a, `act-${id}-${i}`)}
+                                  onClick={() => copy(a, `acti-${id}-${i}`)}
                                   title="Click to copy"
                                 >
                                   {a}
@@ -357,19 +318,18 @@ export default function RightPanel() {
                           </Section>
                         )}
 
-                        {/* Insights */}
                         {Array.isArray(s.insights) && s.insights.length > 0 && (
                           <Section
                             title="Insights"
                             onCopy={() => copy(s.insights.map((i) => `• ${i}`).join("\n"), `ins-${id}`)}
-                            copied={copiedKey === `ins-${id}`}
+                            copied={copied === `ins-${id}`}
                           >
                             <ul className="space-y-1">
                               {s.insights.map((i, ix) => (
                                 <li
                                   key={`ins-${ix}`}
                                   className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(i, `ins-${id}-${ix}`)}
+                                  onClick={() => copy(i, `insi-${id}-${ix}`)}
                                   title="Click to copy"
                                 >
                                   {i}
@@ -422,7 +382,6 @@ export default function RightPanel() {
   );
 }
 
-/** Lightweight section wrapper with tiny copy button */
 function Section({ title, children, onCopy, copied }) {
   return (
     <section className="border border-slate-200 rounded-lg p-2 bg-slate-50/40">
