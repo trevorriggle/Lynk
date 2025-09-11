@@ -1,167 +1,150 @@
-// components/RightPanel.jsx — Fixed Live Notes display
+// components/RightPanel.jsx — Live Notes visible for logged-in users, full contents in-bubble
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 export default function RightPanel() {
+  // Auth + inspector state
+  const [authState, setAuthState] = useState({ loading: true, authenticated: false, userId: null });
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [authState, setAuthState] = useState({ loading: true, authenticated: false, userId: null });
-  const [collapsedIds, setCollapsedIds] = useState(new Set());
 
+  // App/session store
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
     sessions: s.sessions,
     guestMessageCount: s.guestMessageCount,
   }));
 
+  // ---- Auth bootstrap ----
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const r = await fetch("/api/me", { cache: "no-store" });
+        const r = await fetch("/api/me", { cache: "no-store", credentials: "include" });
+        if (cancelled) return;
         if (r.ok) {
-          const userData = await r.json();
-          setAuthState({ 
-            loading: false, 
-            authenticated: !!userData?.userId,
-            userId: userData?.userId || null
-          });
+          const j = await r.json();
+          setAuthState({ loading: false, authenticated: !!j?.userId, userId: j?.userId || null });
         } else {
           setAuthState({ loading: false, authenticated: false, userId: null });
         }
       } catch {
-        setAuthState({ loading: false, authenticated: false, userId: null });
+        if (!cancelled) setAuthState({ loading: false, authenticated: false, userId: null });
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
+  // Reset inspector when auth flips (avoid stale guest inspector)
   useEffect(() => {
     setInspector(null);
-    setCollapsedIds(new Set());
   }, [authState.authenticated, authState.userId]);
 
-  const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
+  // Current thread counts (cosmetic)
+  const currentThread = activeId ? (sessions[activeId]?.messages || []) : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
 
+  // ---- Listen for app events that carry inspector payloads ----
   useEffect(() => {
     const onUpdate = (e) => {
-      if (e?.detail) {
-        setInspector(e.detail);
-      }
+      if (e?.detail) setInspector(e.detail);
+    };
+    const onMessageResponse = (e) => {
+      if (e?.detail?.inspector) setInspector(e.detail.inspector);
     };
     window.addEventListener("inspector:update", onUpdate);
-    return () => window.removeEventListener("inspector:update", onUpdate);
-  }, []);
-
-  useEffect(() => {
-    const onMessageResponse = (e) => {
-      if (e?.detail?.inspector) {
-        setInspector(e.detail.inspector);
-      }
-    };
     window.addEventListener("message:response", onMessageResponse);
-    return () => window.removeEventListener("message:response", onMessageResponse);
+    return () => {
+      window.removeEventListener("inspector:update", onUpdate);
+      window.removeEventListener("message:response", onMessageResponse);
+    };
   }, []);
 
+  // ---- Poll /api/session for the active session ----
   useEffect(() => {
     if (!activeId || authState.loading) {
       setInspector(null);
-      setCollapsedIds(new Set());
       return;
     }
-    
+    let cancelled = false;
     const load = async () => {
       try {
-        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { 
+        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, {
           cache: "no-store",
-          credentials: "include"
+          credentials: "include",
         });
-        
-        const j = await r.json();
-        
-        if (j?.inspector) {
-          setInspector(j.inspector);
+        if (!cancelled && r.ok) {
+          const j = await r.json();
+          if (j?.inspector) setInspector(j.inspector);
         }
-      } catch (e) {
-        // Silent fail
+      } catch {
+        // silent fail
       }
     };
-    
     load();
     const t = setInterval(load, 3000);
-    return () => clearInterval(t);
-  }, [activeId, authState.authenticated, authState.userId]);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [activeId, authState.loading]);
 
+  // ---- Data shaping ----
   const liveHistory = useMemo(() => {
-    const history = inspector?.live_history || [];
-    return history.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const hx = inspector?.live_history || [];
+    // newest first
+    return hx.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [inspector]);
-  
+
+  const suggestions = inspector?.commands || [];
   const liveBadge = liveHistory.length;
-  const commands = inspector?.commands || [];
 
-  const getId = (e) => `${e.created_at}|${e.from_turn}|${e.to_turn}`;
-  
-  useEffect(() => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      for (const e of liveHistory) {
-        const id = getId(e);
-        if (!next.has(id)) next.add(id);
-      }
-      for (const id of Array.from(next)) {
-        if (!liveHistory.some((e) => getId(e) === id)) next.delete(id);
-      }
-      return next;
-    });
-  }, [liveHistory.map(getId).join("|")]);
-
-  async function copy(text, key) {
+  // ---- Clipboard helpers ----
+  const copy = useCallback(async (text, key) => {
     try {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1200);
-    } catch (e) {
-      // Silent fail
+    } catch {
+      // silent
     }
-  }
+  }, []);
 
-  function buildSnapshotCopy(snapshot) {
-    const sections = [];
-    
-    if (snapshot.gist) {
-      sections.push(`SUMMARY\n${snapshot.gist}`);
+  const buildSnapshotCopy = useCallback((s) => {
+    const blocks = [];
+    if (s.gist) blocks.push(`SUMMARY\n${s.gist}`);
+    if (Array.isArray(s.key_points) && s.key_points.length) {
+      blocks.push(`KEY POINTS\n${s.key_points.map((p) => `• ${p}`).join("\n")}`);
     }
-    
-    if (snapshot.key_points?.length) {
-      sections.push(`KEY POINTS\n${snapshot.key_points.map(p => `• ${p}`).join('\n')}`);
+    if (Array.isArray(s.entities) && s.entities.length) {
+      blocks.push(`ENTITIES\n${s.entities.map((e) => `• ${e}`).join("\n")}`);
     }
-    
-    if (snapshot.entities?.length) {
-      sections.push(`ENTITIES\n${snapshot.entities.map(e => `• ${e}`).join('\n')}`);
+    if (Array.isArray(s.actions) && s.actions.length) {
+      blocks.push(`ACTIONS\n${s.actions.map((a) => `• ${a}`).join("\n")}`);
     }
-    
-    if (snapshot.actions?.length) {
-      sections.push(`ACTIONS\n${snapshot.actions.map(a => `• ${a}`).join('\n')}`);
+    if (Array.isArray(s.insights) && s.insights.length) {
+      blocks.push(`INSIGHTS\n${s.insights.map((i) => `• ${i}`).join("\n")}`);
     }
-    
-    if (snapshot.insights?.length) {
-      sections.push(`INSIGHTS\n${snapshot.insights.map(i => `• ${i}`).join('\n')}`);
-    }
-    
-    return sections.join('\n\n');
-  }
+    return blocks.join("\n\n");
+  }, []);
 
-  const chipStyle = "text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
+  // ---- UI helpers ----
+  const Chip = ({ children }) => (
+    <span className="text-[11px] px-2 py-1 rounded-full border bg-white/80 border-emerald-300 text-emerald-900">
+      {children}
+    </span>
+  );
 
+  // ---- Render ----
   if (authState.loading) {
     return (
       <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
         <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
           <div className="flex items-center justify-center h-32">
-            <div className="text-sm text-slate-600">Loading...</div>
+            <div className="text-sm text-slate-600">Loading…</div>
           </div>
         </div>
       </aside>
@@ -171,22 +154,20 @@ export default function RightPanel() {
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
-        
+
+        {/* Header */}
         <div className="mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
             <div className="flex items-center gap-1">
               <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-600" : "bg-amber-600"}`} />
-              <span className="text-xs text-slate-700">
-                {authState.authenticated ? "Verified" : "Guest"}
-              </span>
+              <span className="text-xs text-slate-700">{authState.authenticated ? "Verified" : "Guest"}</span>
             </div>
           </div>
-          <div className="text-xs text-slate-600">
-            Session Messages: {currentUserMessageCount}
-          </div>
+          <div className="text-xs text-slate-600">Session Messages: {currentUserMessageCount}</div>
         </div>
 
+        {/* Live Notes */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-emerald-900">Live Notes</h3>
@@ -194,234 +175,184 @@ export default function RightPanel() {
               className={`min-w-6 h-6 px-2 rounded-full flex items-center justify-center text-[11px] font-semibold ${
                 liveBadge > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
               }`}
-              title="Snapshots every 5 user turns"
+              title="Snapshots appear for logged in users"
             >
               {liveBadge}
             </div>
           </div>
 
           {!authState.authenticated && (
-            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-900 mb-3">
-              Live Notes are only available for authenticated users. Sign in to see rich conversation insights.
+            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-900">
+              Sign in to enable Live Notes and see real-time summaries, points, entities, actions, and insights.
             </div>
           )}
 
           {authState.authenticated && liveBadge === 0 && (
             <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-2xl p-4 text-xs text-emerald-900">
-              First Live Notes snapshot appears at turn 5. Rich context including summaries, entities, actions, and insights.
+              Snapshots appear automatically for logged-in users as the conversation progresses.
             </div>
           )}
 
           {authState.authenticated && liveBadge > 0 && (
             <div className="space-y-3">
-              {liveHistory.map((snapshot) => {
-                const id = getId(snapshot);
-                const isCollapsed = collapsedIds.has(id);
-                const fullCopy = buildSnapshotCopy(snapshot);
+              {liveHistory.map((s) => {
+                const id = `${s.created_at}|${s.from_turn}|${s.to_turn}`;
+                const when = new Date(s.created_at);
+                const header = `User turns ${s.from_turn}—${s.to_turn}`;
+                const fullCopy = buildSnapshotCopy(s);
 
                 return (
-                  <div key={id} className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4 shadow-sm">
-                    
+                  <div
+                    key={id}
+                    className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4 shadow-sm"
+                  >
+                    {/* Bubble header */}
                     <div className="flex items-center justify-between mb-2">
-                      <button
-                        onClick={() =>
-                          setCollapsedIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(id)) next.delete(id);
-                            else next.add(id);
-                            return next;
-                          })
-                        }
-                        className="flex items-center gap-2 text-xs text-emerald-900 hover:text-emerald-950 font-semibold"
-                      >
-                        <svg className={`w-3 h-3 transition-transform ${isCollapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        Turns {snapshot.from_turn}—{snapshot.to_turn} • {new Date(snapshot.created_at).toLocaleDateString()}
-                      </button>
+                      <div className="flex flex-col">
+                        <div className="text-xs font-semibold text-emerald-950">{header}</div>
+                        <div className="text-[11px] text-emerald-900/80">
+                          {when.toLocaleDateString()} · {when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </div>
+                      </div>
 
-                      <button onClick={() => copy(fullCopy, `snapshot-all-${id}`)} className={chipStyle}>
-                        {copiedKey === `snapshot-all-${id}` ? "Copied!" : "Copy All"}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <Chip>Snapshot</Chip>
+                        <button
+                          onClick={() => copy(fullCopy, `all-${id}`)}
+                          className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition font-medium"
+                          title="Copy all contents"
+                        >
+                          {copiedKey === `all-${id}` ? "Copied!" : "Copy All"}
+                        </button>
+                      </div>
                     </div>
 
-                    {isCollapsed ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => copy(snapshot.gist || "", `summary-${id}`)}
-                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
-                          title="Copy Summary"
-                        >
-                          <span className="font-semibold text-emerald-950">Summary</span>
-                          <span className="text-emerald-950">{copiedKey === `summary-${id}` ? "✓" : (snapshot.gist ? "1" : "0")}</span>
-                        </button>
-                        
-                        <button
-                          onClick={() => copy((snapshot.key_points || []).map(p => `• ${p}`).join("\n"), `keypoints-${id}`)}
-                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
-                          title="Copy Key Points"
-                        >
-                          <span className="font-semibold text-emerald-950">Points</span>
-                          <span className="text-emerald-950">{copiedKey === `keypoints-${id}` ? "✓" : (snapshot.key_points?.length || 0)}</span>
-                        </button>
-                        
-                        <button
-                          onClick={() => copy((snapshot.entities || []).map(e => `• ${e}`).join("\n"), `entities-${id}`)}
-                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
-                          title="Copy Entities"
-                        >
-                          <span className="font-semibold text-emerald-950">Entities</span>
-                          <span className="text-emerald-950">{copiedKey === `entities-${id}` ? "✓" : (snapshot.entities?.length || 0)}</span>
-                        </button>
-                        
-                        <button
-                          onClick={() => copy((snapshot.actions || []).map(a => `• ${a}`).join("\n"), `actions-${id}`)}
-                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
-                          title="Copy Actions"
-                        >
-                          <span className="font-semibold text-emerald-950">Actions</span>
-                          <span className="text-emerald-950">{copiedKey === `actions-${id}` ? "✓" : (snapshot.actions?.length || 0)}</span>
-                        </button>
-                        
-                        <button
-                          onClick={() => copy((snapshot.insights || []).map(i => `• ${i}`).join("\n"), `insights-${id}`)}
-                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
-                          title="Copy Insights"
-                        >
-                          <span className="font-semibold text-emerald-950">Insights</span>
-                          <span className="text-emerald-950">{copiedKey === `insights-${id}` ? "✓" : (snapshot.insights?.length || 0)}</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 mt-1">
-                        
-                        {snapshot.gist && (
-                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
-                                <span>Summary</span>
-                              </div>
-                              <button onClick={() => copy(snapshot.gist, `summary-${id}`)} className={chipStyle}>
-                                {copiedKey === `summary-${id}` ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <div className="text-xs text-emerald-900 whitespace-pre-wrap leading-relaxed">{snapshot.gist}</div>
+                    {/* Bubble body — always expanded */}
+                    <div className="space-y-3">
+                      {/* Summary */}
+                      {s.gist ? (
+                        <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-semibold text-emerald-900">Summary</div>
+                            <button
+                              onClick={() => copy(s.gist, `summary-${id}`)}
+                              className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white transition"
+                            >
+                              {copiedKey === `summary-${id}` ? "Copied!" : "Copy"}
+                            </button>
                           </div>
-                        )}
+                          <div className="text-xs text-emerald-900 whitespace-pre-wrap leading-relaxed">{s.gist}</div>
+                        </div>
+                      ) : null}
 
-                        {Array.isArray(snapshot.key_points) && snapshot.key_points.length > 0 && (
-                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
-                                <span>Key Points</span>
-                              </div>
-                              <button
-                                onClick={() => copy(snapshot.key_points.map(p => `• ${p}`).join("\n"), `keypoints-${id}`)}
-                                className={chipStyle}
-                              >
-                                {copiedKey === `keypoints-${id}` ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <div className="space-y-1">
-                              {snapshot.key_points.map((point, i) => (
-                                <div
-                                  key={`kp-${i}`}
-                                  className="text-xs text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-2 cursor-pointer hover:bg-white/90 transition"
-                                  onClick={() => copy(point, `kp-${id}-${i}`)}
-                                  title="Click to copy this point"
-                                >
-                                  • {point}
-                                </div>
-                              ))}
-                            </div>
+                      {/* Key Points */}
+                      {Array.isArray(s.key_points) && s.key_points.length > 0 && (
+                        <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-semibold text-emerald-900">Key Points</div>
+                            <button
+                              onClick={() => copy(s.key_points.map((p) => `• ${p}`).join("\n"), `kps-${id}`)}
+                              className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white transition"
+                            >
+                              {copiedKey === `kps-${id}` ? "Copied!" : "Copy"}
+                            </button>
                           </div>
-                        )}
+                          <div className="space-y-1">
+                            {s.key_points.map((p, i) => (
+                              <div
+                                key={`kp-${i}`}
+                                className="text-xs text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-2 cursor-pointer hover:bg-white/90 transition"
+                                onClick={() => copy(p, `kp-${id}-${i}`)}
+                                title="Click to copy"
+                              >
+                                • {p}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                        {Array.isArray(snapshot.entities) && snapshot.entities.length > 0 && (
-                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
-                                <span>Entities</span>
-                              </div>
-                              <button
-                                onClick={() => copy(snapshot.entities.map(e => `• ${e}`).join("\n"), `entities-${id}`)}
-                                className={chipStyle}
-                              >
-                                {copiedKey === `entities-${id}` ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              {snapshot.entities.map((entity, i) => (
-                                <span
-                                  key={`entity-${i}`}
-                                  className="text-xs bg-teal-100 text-teal-800 px-2 py-1 rounded-full border border-teal-200 cursor-pointer hover:bg-teal-200 transition"
-                                  onClick={() => copy(entity, `entity-${id}-${i}`)}
-                                  title="Click to copy this entity"
-                                >
-                                  {entity}
-                                </span>
-                              ))}
-                            </div>
+                      {/* Entities */}
+                      {Array.isArray(s.entities) && s.entities.length > 0 && (
+                        <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-semibold text-emerald-900">Entities</div>
+                            <button
+                              onClick={() => copy(s.entities.map((e) => `• ${e}`).join("\n"), `ents-${id}`)}
+                              className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white transition"
+                            >
+                              {copiedKey === `ents-${id}` ? "Copied!" : "Copy"}
+                            </button>
                           </div>
-                        )}
+                          <div className="flex flex-wrap gap-1.5">
+                            {s.entities.map((e, i) => (
+                              <span
+                                key={`ent-${i}`}
+                                className="text-[11px] bg-teal-100 text-teal-800 px-2 py-1 rounded-full border border-teal-200 cursor-pointer hover:bg-teal-200 transition"
+                                onClick={() => copy(e, `ent-${id}-${i}`)}
+                                title="Click to copy"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                        {Array.isArray(snapshot.actions) && snapshot.actions.length > 0 && (
-                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
-                                <span>Actions</span>
-                              </div>
-                              <button
-                                onClick={() => copy(snapshot.actions.map(a => `• ${a}`).join("\n"), `actions-${id}`)}
-                                className={chipStyle}
-                              >
-                                {copiedKey === `actions-${id}` ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <div className="space-y-1">
-                              {snapshot.actions.map((action, i) => (
-                                <div
-                                  key={`action-${i}`}
-                                  className="text-xs text-emerald-900 bg-orange-50 border border-orange-200 rounded-lg p-2 cursor-pointer hover:bg-orange-100 transition"
-                                  onClick={() => copy(action, `action-${id}-${i}`)}
-                                  title="Click to copy this action"
-                                >
-                                  {action}
-                                </div>
-                              ))}
-                            </div>
+                      {/* Actions */}
+                      {Array.isArray(s.actions) && s.actions.length > 0 && (
+                        <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-semibold text-emerald-900">Actions</div>
+                            <button
+                              onClick={() => copy(s.actions.map((a) => `• ${a}`).join("\n"), `acts-${id}`)}
+                              className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white transition"
+                            >
+                              {copiedKey === `acts-${id}` ? "Copied!" : "Copy"}
+                            </button>
                           </div>
-                        )}
+                          <div className="space-y-1">
+                            {s.actions.map((a, i) => (
+                              <div
+                                key={`act-${i}`}
+                                className="text-xs text-emerald-900 bg-orange-50 border border-orange-200 rounded-lg p-2 cursor-pointer hover:bg-orange-100 transition"
+                                onClick={() => copy(a, `act-${id}-${i}`)}
+                                title="Click to copy"
+                              >
+                                {a}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                        {Array.isArray(snapshot.insights) && snapshot.insights.length > 0 && (
-                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
-                                <span>Insights</span>
-                              </div>
-                              <button
-                                onClick={() => copy(snapshot.insights.map(i => `• ${i}`).join("\n"), `insights-${id}`)}
-                                className={chipStyle}
-                              >
-                                {copiedKey === `insights-${id}` ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <div className="space-y-1">
-                              {snapshot.insights.map((insight, i) => (
-                                <div
-                                  key={`insight-${i}`}
-                                  className="text-xs text-emerald-900 bg-purple-50 border border-purple-200 rounded-lg p-2 cursor-pointer hover:bg-purple-100 transition"
-                                  onClick={() => copy(insight, `insight-${id}-${i}`)}
-                                  title="Click to copy this insight"
-                                >
-                                  {insight}
-                                </div>
-                              ))}
-                            </div>
+                      {/* Insights */}
+                      {Array.isArray(s.insights) && s.insights.length > 0 && (
+                        <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-semibold text-emerald-900">Insights</div>
+                            <button
+                              onClick={() => copy(s.insights.map((i) => `• ${i}`).join("\n"), `ins-${id}`)}
+                              className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white transition"
+                            >
+                              {copiedKey === `ins-${id}` ? "Copied!" : "Copy"}
+                            </button>
                           </div>
-                        )}
-                      </div>
-                    )}
+                          <div className="space-y-1">
+                            {s.insights.map((i, ix) => (
+                              <div
+                                key={`ins-${ix}`}
+                                className="text-xs text-emerald-900 bg-purple-50 border border-purple-200 rounded-lg p-2 cursor-pointer hover:bg-purple-100 transition"
+                                onClick={() => copy(i, `ins-${id}-${ix}`)}
+                                title="Click to copy"
+                              >
+                                {i}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -429,23 +360,24 @@ export default function RightPanel() {
           )}
         </div>
 
-        {commands.length > 0 && (
+        {/* Suggestions */}
+        {Array.isArray(suggestions) && suggestions.length > 0 && (
           <div className="mb-2 bg-gradient-to-r from-indigo-100 to-blue-100 border border-indigo-300 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 bg-indigo-700 rounded-full" />
               <h3 className="text-sm font-semibold text-indigo-900">Suggestions</h3>
               <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                {commands.length} available
+                {suggestions.length} available
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {commands
+              {suggestions
                 .slice()
                 .reverse()
                 .slice(0, 12)
                 .map((c, i) => (
                   <button
-                    key={(c.created_at || "") + c.command + i}
+                    key={(c.created_at || "") + (c.command || c.slug) + i}
                     onClick={() => {
                       const { addCommand } = useSessionStore.getState();
                       addCommand({ label: c.command || c.slug });
@@ -457,9 +389,9 @@ export default function RightPanel() {
                   </button>
                 ))}
             </div>
-            {commands.length > 12 && (
+            {suggestions.length > 12 && (
               <div className="text-xs text-indigo-600 mt-2 text-center">
-                +{commands.length - 12} more suggestions available
+                +{suggestions.length - 12} more suggestions available
               </div>
             )}
           </div>
