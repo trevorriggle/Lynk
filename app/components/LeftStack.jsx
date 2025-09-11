@@ -216,7 +216,7 @@ export default function EnhancedLeftStack({ onActivate }) {
     deleteProject,
     addContextFile,
     sendMessage,
-    clearSessions, // For clearing sessions on auth state change
+    clearSessions,
   } = useSessionStore((s) => s);
 
   // Monitor auth state changes to prevent session bleeding
@@ -236,7 +236,7 @@ export default function EnhancedLeftStack({ onActivate }) {
           if (authState.authenticated !== newAuthState.authenticated || 
               authState.userId !== newAuthState.userId) {
             console.log("Auth state changed, clearing sessions to prevent bleeding");
-            clearSessions?.(); // Clear sessions when auth state changes
+            clearSessions?.();
           }
           
           setAuthState(newAuthState);
@@ -260,7 +260,7 @@ export default function EnhancedLeftStack({ onActivate }) {
         setAuthState(newAuthState);
       }
     })();
-  }, []); // Only run once on mount, then rely on polling
+  }, []);
 
   // Filter sessions to only show those that belong to current auth state
   const recent = useMemo(() => {
@@ -289,41 +289,13 @@ export default function EnhancedLeftStack({ onActivate }) {
     }
   };
 
-  // Categorize commands by topic for better organization
-  const categorizedCommands = useMemo(() => {
-    const categories = {
-      numbers: [],
-      programming: [],
-      business: [],
-      data: [],
-      design: [],
-      project: [],
-      content: [],
-      research: [],
-      other: []
-    };
-
-    commands.forEach(cmd => {
-      const category = cmd.slug || 'other';
-      if (categories[category]) {
-        categories[category].push(cmd);
-      } else {
-        categories.other.push(cmd);
-      }
-    });
-
-    return categories;
-  }, [commands]);
-
   const totalCommands = commands.length;
-  const recentCommands = commands.slice(-6); // Show 6 most recent
+  const recentCommands = commands.slice(-6);
 
   // Secure session creation that doesn't reset user message counts
   const handleNewChat = () => {
     const newId = createSession();
     selectSession(newId);
-    // Note: This should NOT reset any user message counts
-    // Message counts should be per-session for authenticated users
   };
 
   if (authState.loading) {
@@ -420,3 +392,77 @@ export default function EnhancedLeftStack({ onActivate }) {
             label={project.label}
             onClick={() => onActivate?.({ type: "project", key: project.key })}
             onDelete={() => deleteProject(project.key)}
+            deletable
+          />
+        ))}
+        <Row 
+          label="+ New Project"
+          onClick={() => onActivate?.({ type: "project", key: "add-new" })} 
+          muted 
+        />
+      </Section>
+
+      {/* Recent Chats Section - Fixed session isolation */}
+      <Section title="Recent Chats" badge={recent.length || null} defaultOpen={false}>
+        {!authState.authenticated && (
+          <div className="text-xs text-gray-500 italic px-1 mb-2">
+            Guest sessions (sign in to sync chats across devices)
+          </div>
+        )}
+        
+        {authState.authenticated && (
+          <div className="text-xs text-gray-600 px-1 mb-2">
+            Your conversations ({authState.userId?.slice(0, 8)}...)
+          </div>
+        )}
+        
+        {recent.length === 0 ? (
+          <Row label="(no chats yet)" muted pill />
+        ) : (
+          recent.map((s) => {
+            const active = s.id === activeId;
+            return (
+              <div key={s.id} className="relative group">
+                <Row
+                  label={s.title || "New chat"}
+                  active={active}
+                  onClick={() => selectSession(s.id)}
+                  pill
+                />
+                <button
+                  type="button"
+                  title="Delete chat"
+                  aria-label="Delete chat"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSession(s.id);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-xl leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })
+        )}
+        
+        {/* Secure new chat creation */}
+        <div className="pt-2 border-t border-gray-200">
+          <Row
+            label="+ New Chat"
+            onClick={handleNewChat}
+            muted
+            pill
+          />
+        </div>
+        
+        {/* Warning about session security */}
+        {!authState.authenticated && recent.length > 0 && (
+          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2">
+            Guest chats are not synced. Sign in to save your conversations.
+          </div>
+        )}
+      </Section>
+    </aside>
+  );
+}
