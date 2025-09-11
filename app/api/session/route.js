@@ -1,4 +1,4 @@
-// app/api/session/route.js — Enhanced Live Notes with snapshots every 5 turns + Commands (every 4 mentions). Optimized tokenomics.
+// app/api/session/route.js — Fixed Live Notes with proper data flow + secure session management
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,29 +32,45 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
 // Optimized token budgets
 const INPUT_TOKEN_BUDGET = 1200;
 const OUTPUT_TOKENS = 600;
-const LIVE_NOTES_BUDGET = 800; // Increased for richer context
-const LIVE_NOTES_TOKENS = 150; // Increased for detailed snapshots
+const LIVE_NOTES_BUDGET = 800;
+const LIVE_NOTES_TOKENS = 150;
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
-const estTokens = (s) => Math.ceil((s || "").length / 3.8); // More accurate estimation
+const estTokens = (s) => Math.ceil((s || "").length / 3.8);
 
-// In-memory session storage
+// In-memory session storage with proper key separation
 const SESSIONS = new Map();
-function getSession(id, userId = null) {
-  const key = userId ? `${userId}:${id}` : `guest:${id}`;
+
+function getSessionKey(sessionId, userId = null) {
+  // Ensure proper isolation between guest and authenticated sessions
+  return userId ? `auth:${userId}:${sessionId}` : `guest:${sessionId}`;
+}
+
+function getSession(sessionId, userId = null) {
+  const key = getSessionKey(sessionId, userId);
   if (!SESSIONS.has(key)) {
     SESSIONS.set(key, {
+      id: sessionId,
       turns: [],
       last: {},
-      liveHistory: [], // Enhanced snapshot entries every 5 turns
+      liveHistory: [],
       topicCounts: {},
       commands: [],
       userId,
       isGuest: !userId,
+      createdAt: new Date().toISOString(),
     });
   }
   return SESSIONS.get(key);
+}
+
+// Clean up guest sessions when user authenticates (prevent session bleeding)
+function cleanupGuestSession(sessionId) {
+  const guestKey = getSessionKey(sessionId, null);
+  if (SESSIONS.has(guestKey)) {
+    SESSIONS.delete(guestKey);
+  }
 }
 
 // Auth helper
@@ -88,7 +104,7 @@ function buildBudgetedTurns(turns, maxTokens) {
   let used = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
-    const cost = estTokens(t.content) + 6; // Account for role markers
+    const cost = estTokens(t.content) + 6;
     if (used + cost > Math.max(100, Math.floor(maxTokens * 0.95))) break;
     out.unshift(t);
     used += cost;
@@ -203,7 +219,7 @@ function trackMessageTopics(session, message) {
   }
 }
 
-// Enhanced Live Notes generation with rich snapshot data
+// Enhanced Live Notes generation
 async function buildEnhancedLiveNotes(turns, fromTurn, toTurn) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
@@ -257,21 +273,31 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: H });
 }
 
-// GET handler (polling)
+// GET handler (polling) - Fixed to return proper data
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
   const userId = await getUserFromRequest(req);
 
   if (!sessionId) {
-    return Response.json({ ok: true, sessions: SESSIONS.size, userId: userId || "guest" }, { headers: H });
+    return Response.json({ 
+      ok: true, 
+      sessions: SESSIONS.size, 
+      userId: userId || "guest",
+      debug: "No sessionId provided"
+    }, { headers: H });
   }
 
-  const vKey = userId ? `${userId}:${sessionId}` : null;
-  const gKey = `guest:${sessionId}`;
-  const s = (vKey ? SESSIONS.get(vKey) : null) || SESSIONS.get(gKey);
+  const s = getSession(sessionId, userId);
 
-  if (!s) return Response.json({ ok: false, error: "session not found" }, { headers: H });
+  if (!s) {
+    return Response.json({ 
+      ok: false, 
+      error: "session not found",
+      sessionId,
+      userId: userId || "guest"
+    }, { headers: H });
+  }
 
   return Response.json(
     {
@@ -281,15 +307,25 @@ export async function GET(req) {
         commands: s.commands || [],
         topicCounts: s.topicCounts || {},
       },
-      turns: s.turns.length,
-      isGuest: s.isGuest,
-      userId: s.userId,
+      session: {
+        id: s.id,
+        turns: s.turns.length,
+        userTurns: userTurnCount(s.turns),
+        isGuest: s.isGuest,
+        userId: s.userId,
+        createdAt: s.createdAt,
+      },
+      debug: {
+        sessionKey: getSessionKey(sessionId, userId),
+        liveHistoryCount: (s.liveHistory || []).length,
+        commandsCount: (s.commands || []).length,
+      }
     },
     { headers: H },
   );
 }
 
-// POST handler (chat turn)
+// POST handler (chat turn) - Fixed session isolation and counting
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -301,17 +337,9 @@ export async function POST(req) {
 
     const userId = await getUserFromRequest(req);
 
-    // Merge guest→verified sessions
+    // If user just authenticated, clean up any guest session to prevent bleeding
     if (userId) {
-      const gKey = `guest:${sessionId}`;
-      const vKey = `${userId}:${sessionId}`;
-      if (SESSIONS.has(gKey) && !SESSIONS.has(vKey)) {
-        const guest = SESSIONS.get(gKey);
-        guest.userId = userId;
-        guest.isGuest = false;
-        SESSIONS.set(vKey, guest);
-        SESSIONS.delete(gKey);
-      }
+      cleanupGuestSession(sessionId);
     }
 
     const modelMeta = body?.model || {};
@@ -331,7 +359,7 @@ export async function POST(req) {
     const systemIdentity = needsIdentity ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName }) : null;
 
     const s = getSession(sessionId, userId);
-    s.turns.push({ role: "user", content: message, provider, model: modelName });
+    s.turns.push({ role: "user", content: message, provider, model: modelName, timestamp: new Date().toISOString() });
 
     // Provider routing and API calls
     let assistantText = "";
@@ -376,15 +404,18 @@ export async function POST(req) {
       assistantText = result?.response?.text?.() || "Okay.";
     }
 
-    s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
+    s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName, timestamp: new Date().toISOString() });
     s.last = { provider, model: modelName };
 
     // Track topics for command generation
     trackMessageTopics(s, message);
 
-    // Enhanced Live Notes generation every 5 turns for verified users
+    // Enhanced Live Notes generation every 5 turns for verified users only
     const uCount = userTurnCount(s.turns);
+    console.log(`Session ${sessionId}: User turn ${uCount}, isGuest: ${s.isGuest}`);
+    
     if (!s.isGuest && uCount >= 5 && uCount % 5 === 0) {
+      console.log(`Generating Live Notes for turn ${uCount}`);
       try {
         const fromTurn = uCount - 4;
         const toTurn = uCount;
@@ -402,6 +433,7 @@ export async function POST(req) {
         };
         
         (s.liveHistory ||= []).push(entry);
+        console.log(`Live Notes created: ${JSON.stringify(entry, null, 2)}`);
       } catch (e) {
         console.error("Enhanced Live Notes failed:", e);
       }
@@ -414,7 +446,14 @@ export async function POST(req) {
         commands: s.commands || [],
         topicCounts: s.topicCounts || {},
       },
-      sessionMeta: { isGuest: s.isGuest, userId: s.userId, provider, model: modelName },
+      sessionMeta: { 
+        isGuest: s.isGuest, 
+        userId: s.userId, 
+        provider, 
+        model: modelName,
+        userTurns: uCount,
+        totalTurns: s.turns.length,
+      },
     };
 
     return new Response(JSON.stringify(responseData), {

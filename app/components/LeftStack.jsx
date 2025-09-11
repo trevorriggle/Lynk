@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 // File upload component for Context Files section
@@ -197,6 +197,7 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
 
 export default function EnhancedLeftStack({ onActivate }) {
   const [showFileUpload, setShowFileUpload] = useState(false);
+  const [authState, setAuthState] = useState({ loading: true, authenticated: false, userId: null });
   
   const {
     order,
@@ -214,10 +215,67 @@ export default function EnhancedLeftStack({ onActivate }) {
     deleteCommand,
     deleteProject,
     addContextFile,
-    sendMessage, // For executing commands
+    sendMessage,
+    clearSessions, // For clearing sessions on auth state change
   } = useSessionStore((s) => s);
 
-  const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
+  // Monitor auth state changes to prevent session bleeding
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const userData = await r.json();
+          const newAuthState = { 
+            loading: false, 
+            authenticated: !!userData?.userId,
+            userId: userData?.userId || null
+          };
+          
+          // If auth state changed, clear sessions to prevent bleeding
+          if (authState.authenticated !== newAuthState.authenticated || 
+              authState.userId !== newAuthState.userId) {
+            console.log("Auth state changed, clearing sessions to prevent bleeding");
+            clearSessions?.(); // Clear sessions when auth state changes
+          }
+          
+          setAuthState(newAuthState);
+        } else {
+          const newAuthState = { loading: false, authenticated: false, userId: null };
+          
+          if (authState.authenticated !== newAuthState.authenticated) {
+            console.log("User signed out, clearing sessions");
+            clearSessions?.();
+          }
+          
+          setAuthState(newAuthState);
+        }
+      } catch {
+        const newAuthState = { loading: false, authenticated: false, userId: null };
+        
+        if (authState.authenticated !== newAuthState.authenticated) {
+          clearSessions?.();
+        }
+        
+        setAuthState(newAuthState);
+      }
+    })();
+  }, []); // Only run once on mount, then rely on polling
+
+  // Filter sessions to only show those that belong to current auth state
+  const recent = useMemo(() => {
+    return order
+      .map((id) => sessions[id])
+      .filter(Boolean)
+      .filter((session) => {
+        // For guest users, only show sessions without userId
+        if (!authState.authenticated) {
+          return !session.userId;
+        }
+        // For authenticated users, only show sessions with matching userId
+        return session.userId === authState.userId;
+      });
+  }, [order, sessions, authState.authenticated, authState.userId]);
 
   const handleFileUpload = (fileData) => {
     addContextFile(fileData);
@@ -259,6 +317,24 @@ export default function EnhancedLeftStack({ onActivate }) {
 
   const totalCommands = commands.length;
   const recentCommands = commands.slice(-6); // Show 6 most recent
+
+  // Secure session creation that doesn't reset user message counts
+  const handleNewChat = () => {
+    const newId = createSession();
+    selectSession(newId);
+    // Note: This should NOT reset any user message counts
+    // Message counts should be per-session for authenticated users
+  };
+
+  if (authState.loading) {
+    return (
+      <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
+        <div className="flex items-center justify-center h-32">
+          <div className="text-sm text-gray-600">Loading...</div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
@@ -343,62 +419,4 @@ export default function EnhancedLeftStack({ onActivate }) {
             key={project.key}
             label={project.label}
             onClick={() => onActivate?.({ type: "project", key: project.key })}
-            onDelete={() => deleteProject(project.key)}
-            deletable
-          />
-        ))}
-        <Row 
-          label="+ New Project"
-          onClick={() => onActivate?.({ type: "project", key: "add-new" })} 
-          muted 
-        />
-      </Section>
-
-      {/* Recent Chats Section */}
-      <Section title="Recent Chats" badge={recent.length || null} defaultOpen={false}>
-        {recent.length === 0 ? (
-          <Row label="(no chats yet)" muted pill />
-        ) : (
-          recent.map((s) => {
-            const active = s.id === activeId;
-            return (
-              <div key={s.id} className="relative group">
-                <Row
-                  label={s.title || "New chat"}
-                  active={active}
-                  onClick={() => selectSession(s.id)}
-                  pill
-                />
-                <button
-                  type="button"
-                  title="Delete chat"
-                  aria-label="Delete chat"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSession(s.id);
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-xl leading-none opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })
-        )}
-        
-        {/* Quick action for new chat */}
-        <div className="pt-2 border-t border-gray-200">
-          <Row
-            label="+ New Chat"
-            onClick={() => {
-              const newId = createSession();
-              selectSession(newId);
-            }}
-            muted
-            pill
-          />
-        </div>
-      </Section>
-    </aside>
-  );
-}
+            onDelete={() => deleteProject

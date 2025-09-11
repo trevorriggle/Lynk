@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — Enhanced Live Notes with rich snapshot data (summary, entities, actions, insights)
+// components/RightPanel.jsx — Fixed Live Notes display with proper data handling and session isolation
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,8 +7,9 @@ import { useSessionStore } from "../hooks/useSessionStore";
 export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
-  const [authState, setAuthState] = useState({ loading: true, authenticated: false });
+  const [authState, setAuthState] = useState({ loading: true, authenticated: false, userId: null });
   const [collapsedIds, setCollapsedIds] = useState(new Set());
+  const [debugInfo, setDebugInfo] = useState(null);
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -16,59 +17,102 @@ export default function RightPanel() {
     guestMessageCount: s.guestMessageCount,
   }));
 
-  // Authentication check
+  // Authentication check with user ID tracking
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch("/api/me", { cache: "no-store" });
-        setAuthState({ loading: false, authenticated: !!(r.ok && (await r.json())?.userId) });
+        if (r.ok) {
+          const userData = await r.json();
+          setAuthState({ 
+            loading: false, 
+            authenticated: !!userData?.userId,
+            userId: userData?.userId || null
+          });
+        } else {
+          setAuthState({ loading: false, authenticated: false, userId: null });
+        }
       } catch {
-        setAuthState({ loading: false, authenticated: false });
+        setAuthState({ loading: false, authenticated: false, userId: null });
       }
     })();
   }, []);
 
-  // Message count calculation
+  // Clear inspector data when auth state changes to prevent session bleeding
+  useEffect(() => {
+    setInspector(null);
+    setCollapsedIds(new Set());
+  }, [authState.authenticated, authState.userId]);
+
+  // Message count calculation - should not reset when creating new chats
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
+  
+  // For authenticated users, count should be per-session, not global
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
 
   // Live updates from inspector
   useEffect(() => {
-    const onUpdate = (e) => e?.detail && setInspector(e.detail);
+    const onUpdate = (e) => {
+      if (e?.detail) {
+        console.log("Inspector update received:", e.detail);
+        setInspector(e.detail);
+      }
+    };
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // Polling for session data
+  // Polling for session data with proper auth handling
   useEffect(() => {
-    if (!activeId) {
+    if (!activeId || authState.loading) {
       setInspector(null);
       setCollapsedIds(new Set());
+      setDebugInfo(null);
       return;
     }
     
     const load = async () => {
       try {
-        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
+        console.log(`Fetching session data for: ${activeId}, auth: ${authState.authenticated}, userId: ${authState.userId}`);
+        
+        const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { 
+          cache: "no-store",
+          credentials: "include" // Include cookies for auth
+        });
+        
         const j = await r.json();
-        if (j?.inspector) setInspector(j.inspector);
-      } catch {}
+        console.log("Session API response:", j);
+        
+        setDebugInfo(j.debug || null);
+        
+        if (j?.inspector) {
+          setInspector(j.inspector);
+          console.log("Inspector data set:", j.inspector);
+        } else {
+          console.log("No inspector data in response");
+        }
+      } catch (e) {
+        console.error("Failed to fetch session data:", e);
+      }
     };
     
     load();
-    const t = setInterval(load, 4000);
+    const t = setInterval(load, 5000); // Increased interval to 5 seconds
     return () => clearInterval(t);
-  }, [activeId]);
+  }, [activeId, authState.authenticated, authState.userId]);
 
   // Process live history data
-  const liveHistory = useMemo(() => 
-    (inspector?.live_history || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), 
-    [inspector]
-  );
+  const liveHistory = useMemo(() => {
+    const history = inspector?.live_history || [];
+    console.log("Processing live history:", history);
+    return history.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [inspector]);
   
   const liveBadge = liveHistory.length;
   const commands = inspector?.commands || [];
+
+  console.log(`Live history count: ${liveBadge}, Commands: ${commands.length}`);
 
   // Manage collapsed state by unique ID
   const getId = (e) => `${e.created_at}|${e.from_turn}|${e.to_turn}`;
@@ -94,7 +138,9 @@ export default function RightPanel() {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 1200);
-    } catch {}
+    } catch (e) {
+      console.error("Copy failed:", e);
+    }
   }
 
   // Enhanced copy function for complete snapshot
@@ -126,6 +172,18 @@ export default function RightPanel() {
 
   const chipStyle = "text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
 
+  if (authState.loading) {
+    return (
+      <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
+        <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-sm text-slate-600">Loading...</div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
@@ -136,10 +194,19 @@ export default function RightPanel() {
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
             <div className="flex items-center gap-1">
               <div className={`w-2 h-2 rounded-full ${authState.authenticated ? "bg-emerald-600" : "bg-amber-600"}`} />
-              <span className="text-xs text-slate-700">{authState.authenticated ? "Verified" : "Guest"}</span>
+              <span className="text-xs text-slate-700">
+                {authState.authenticated ? `Verified (${authState.userId?.slice(0, 8)}...)` : "Guest"}
+              </span>
             </div>
           </div>
-          <div className="text-xs text-slate-600">Messages: {currentUserMessageCount}</div>
+          <div className="text-xs text-slate-600">
+            Session Messages: {currentUserMessageCount}
+            {debugInfo && (
+              <div className="text-xs text-slate-400 mt-1">
+                Debug: {debugInfo.liveHistoryCount} notes, {debugInfo.commandsCount} commands
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Enhanced Live Notes Section */}
@@ -156,13 +223,19 @@ export default function RightPanel() {
             </div>
           </div>
 
-          {liveBadge === 0 && (
+          {!authState.authenticated && (
+            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-900 mb-3">
+              Live Notes are only available for authenticated users. Sign in to see rich conversation insights.
+            </div>
+          )}
+
+          {authState.authenticated && liveBadge === 0 && (
             <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-2xl p-4 text-xs text-emerald-900">
               First Live Notes snapshot appears at turn 5. Rich context including summaries, entities, actions, and insights.
             </div>
           )}
 
-          {liveBadge > 0 && (
+          {authState.authenticated && liveBadge > 0 && (
             <div className="space-y-3">
               {liveHistory.map((snapshot) => {
                 const id = getId(snapshot);
