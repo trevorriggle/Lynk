@@ -32,8 +32,9 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
 const INPUT_TOKEN_BUDGET = 1200;
 const OUTPUT_TOKENS = 600;
 
-const LIVE_NOTES_BUDGET = 800;
-const LIVE_NOTES_TOKENS = 150;
+// Optimized token budgets for snapshots
+const LIVE_NOTES_BUDGET = 600; // Reduced from 800
+const LIVE_NOTES_TOKENS = 100; // Reduced from 150
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
@@ -165,7 +166,7 @@ function extractJson(s) {
   return "{}";
 }
 
-function runWithTimeout(p, ms = 4500, label = "task") {
+function runWithTimeout(p, ms = 3000, label = "task") { // Reduced timeout
   let id;
   const guard = new Promise((_, rej) => {
     id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms);
@@ -205,72 +206,81 @@ function trackMessageTopics(session, message) {
   }
 }
 
-// ---------- Live Notes Generation ----------
+// ---------- Optimized Live Notes Generation ----------
 async function generateLiveNotes(turns, fromTurn, toTurn) {
-  // Extract content from the last 5 turns for analysis
-  const recentTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
-  const chatContent = recentTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
-  
-  // Try OpenAI enhanced notes first
   const key = process.env.OPENAI_API_KEY;
-  if (key) {
-    try {
-      const client = new OpenAI({ apiKey: key });
-      const system = "You are a conversation analyst. Return only valid JSON with concise, specific content.";
-      const user = `Analyze this conversation and create a structured summary.
+  if (!key) {
+    // Lightweight fallback without LLM
+    return createFallbackNotes(turns);
+  }
 
-Return JSON with this exact structure:
-{
-  "key_topics": ["topic1", "topic2", "topic3"],
-  "discussion": "2-3 sentence summary of main points discussed"
+  try {
+    // Only use last 5 turns for efficiency
+    const recentTurns = turns.slice(-10).filter(t => t.role === "user" || t.role === "assistant");
+    const chatText = recentTurns
+      .map(t => `${t.role === "user" ? "U" : "A"}: ${t.content}`)
+      .join("\n")
+      .slice(0, 1500); // Hard limit for tokens
+
+    const client = new OpenAI({ apiKey: key });
+    
+    // Minimal, efficient prompt
+    const response = await runWithTimeout(
+      client.chat.completions.create({
+        model: BACKGROUND_MODEL,
+        max_tokens: LIVE_NOTES_TOKENS,
+        temperature: BACKGROUND_TEMP,
+        messages: [
+          {
+            role: "system",
+            content: "Return only JSON. Be concise."
+          },
+          {
+            role: "user",
+            content: `Summarize this chat in JSON format:
+{"key_topics":["topic1","topic2"],"discussion":"Brief summary"}
+
+Chat:
+${chatText}`
+          }
+        ],
+      }),
+      3000,
+      "notes"
+    );
+
+    const raw = response?.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(extractJson(raw));
+    
+    return {
+      key_topics: Array.isArray(parsed.key_topics) ? parsed.key_topics.slice(0, 3) : [],
+      discussion: typeof parsed.discussion === "string" ? parsed.discussion.slice(0, 200) : "",
+    };
+  } catch (error) {
+    return createFallbackNotes(turns);
+  }
 }
 
-Conversation:
-${chatContent}`;
-
-      const response = await runWithTimeout(
-        client.chat.completions.create({
-          model: BACKGROUND_MODEL,
-          max_tokens: LIVE_NOTES_TOKENS,
-          temperature: BACKGROUND_TEMP,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-        }),
-        6000,
-        "live-notes"
-      );
-
-      const raw = response?.choices?.[0]?.message?.content?.toString?.() || "{}";
-      const parsed = JSON.parse(extractJson(raw));
-      
-      return {
-        key_topics: Array.isArray(parsed?.key_topics) ? parsed.key_topics.slice(0, 3) : [],
-        discussion: typeof parsed?.discussion === "string" ? parsed.discussion : "",
-      };
-    } catch (error) {
-      console.log("Enhanced notes failed, using fallback:", error.message);
-    }
-  }
-  
-  // Fallback analysis
-  const userMsgs = recentTurns.filter((t) => t.role === "user").map((t) => t.content || "");
-  const allContent = userMsgs.join(" ").toLowerCase();
+function createFallbackNotes(turns) {
+  const recent = turns.slice(-10);
+  const userContent = recent
+    .filter(t => t.role === "user")
+    .map(t => t.content)
+    .join(" ")
+    .toLowerCase();
   
   const topics = [];
-  if (/\b(design|ui|ux|layout|visual)\b/.test(allContent)) topics.push("Design");
-  if (/\b(code|programming|development|api)\b/.test(allContent)) topics.push("Programming");
-  if (/\b(data|analytics|metrics|chart)\b/.test(allContent)) topics.push("Data");
-  if (/\b(business|strategy|market|sales)\b/.test(allContent)) topics.push("Business");
-  if (/\b(ai|model|gpt|claude|gemini)\b/.test(allContent)) topics.push("AI");
-  if (/\b(project|management|planning)\b/.test(allContent)) topics.push("Project Management");
+  if (/\b(design|ui|ux|visual)\b/.test(userContent)) topics.push("Design");
+  if (/\b(code|programming|development)\b/.test(userContent)) topics.push("Programming");
+  if (/\b(data|analytics|metrics)\b/.test(userContent)) topics.push("Data");
+  if (/\b(business|strategy|market)\b/.test(userContent)) topics.push("Business");
+  if (/\b(ai|model|gpt|claude)\b/.test(userContent)) topics.push("AI");
   
-  if (topics.length === 0) topics.push("General Discussion");
+  if (topics.length === 0) topics.push("General");
   
   return {
     key_topics: topics.slice(0, 3),
-    discussion: `Conversation covering ${topics.slice(0, 2).join(" and ")} with ${userMsgs.length} user interactions.`,
+    discussion: `Discussion covering ${topics[0]} with interactive conversation.`,
   };
 }
 
@@ -291,9 +301,7 @@ export async function GET(req) {
     );
   }
 
-  // Product rule: if authed, ensure any guest thread with same id is gone
   if (userId) cleanupGuestSession(sessionId);
-
   const s = getSession(sessionId, userId);
 
   return Response.json(
@@ -327,7 +335,7 @@ export async function POST(req) {
     if (!sessionId) sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
 
     const userId = await getUserFromRequest(req);
-    if (userId) cleanupGuestSession(sessionId); // nuke guest if login happened
+    if (userId) cleanupGuestSession(sessionId);
 
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic");
@@ -441,7 +449,6 @@ export async function POST(req) {
     });
     s.last = { provider, model: modelName };
 
-    // Track topics for command suggestions
     trackMessageTopics(s, message);
 
     // ---- Snapshots (AUTH ONLY, EVERY 5 USER TURNS) ----
@@ -471,11 +478,10 @@ export async function POST(req) {
         s.liveHistory.push(entry);
         s._lastSnapshotUserCount = uCount;
       } catch (error) {
-        console.log("Snapshot generation failed:", error.message);
+        // Silently fail to avoid disrupting user experience
       }
     }
 
-    // ---- Response ----
     return new Response(
       JSON.stringify({
         text: assistantText,

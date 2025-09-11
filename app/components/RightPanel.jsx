@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — Lynk branded session insights with live notes
+// components/RightPanel.jsx — Lynk branded session insights with stable collapsibles
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -39,7 +39,9 @@ export default function RightPanel() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, userId: null });
   const [inspector, setInspector] = useState(null);
   const [copied, setCopied] = useState("");
-  const [openIds, setOpenIds] = useState(new Set());
+  
+  // Use refs to prevent state changes from affecting collapsible state
+  const [openSnapshots, setOpenSnapshots] = useState({});
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -64,12 +66,6 @@ export default function RightPanel() {
     })();
     return () => { cancel = true; };
   }, []);
-
-  // Reset when auth changes
-  useEffect(() => {
-    setInspector(null);
-    setOpenIds(new Set());
-  }, [auth.authenticated, auth.userId]);
 
   // Accept app events
   useEffect(() => {
@@ -100,12 +96,6 @@ export default function RightPanel() {
           const j = await r.json();
           if (j?.inspector) {
             setInspector(j.inspector);
-            // Auto-open newest snapshot on first load
-            const hx = (j.inspector.live_history || []).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-            if (hx.length) {
-              const newestId = `${hx[0].created_at}|${hx[0].from_turn}|${hx[0].to_turn}`;
-              setOpenIds((prev) => (prev.size ? prev : new Set([newestId])));
-            }
           }
         }
       } catch {}
@@ -118,14 +108,28 @@ export default function RightPanel() {
     };
   }, [activeId, auth.loading]);
 
-  // Derived state
-  const historyAll = inspector?.live_history || [];
+  // Memoize live history to prevent unnecessary re-renders
   const liveHistory = useMemo(() => {
+    const historyAll = inspector?.live_history || [];
     return historyAll
       .slice()
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 4); // Show latest 4 snapshots
-  }, [historyAll]);
+      .slice(0, 4);
+  }, [inspector?.live_history]);
+
+  // Auto-open newest snapshot only once when new data arrives
+  useEffect(() => {
+    if (liveHistory.length > 0) {
+      const newestId = `${liveHistory[0].created_at}|${liveHistory[0].from_turn}|${liveHistory[0].to_turn}`;
+      setOpenSnapshots(prev => {
+        // Only auto-open if this is a completely new snapshot and nothing is open
+        if (!prev[newestId] && Object.keys(prev).length === 0) {
+          return { [newestId]: true };
+        }
+        return prev;
+      });
+    }
+  }, [liveHistory.length > 0 ? liveHistory[0]?.id : null]); // Only depend on newest snapshot ID
 
   const commands = inspector?.commands || [];
   const badge = liveHistory.length;
@@ -137,12 +141,12 @@ export default function RightPanel() {
   // Helpers
   const getId = (s) => `${s.created_at}|${s.from_turn}|${s.to_turn}`;
   
-  const toggle = (id) =>
-    setOpenIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const toggleSnapshot = useCallback((id) => {
+    setOpenSnapshots(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  }, []);
 
   const copy = async (text, key) => {
     try {
@@ -178,13 +182,15 @@ export default function RightPanel() {
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0" aria-label="Session Insights">
-      <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white">
+      <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white shadow-sm">
         {/* Header */}
         <div className="mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
             <div className="flex items-center gap-1.5">
-              <div className={`w-2 h-2 rounded-full ${auth.authenticated ? "bg-emerald-500" : "bg-amber-500"}`} />
+              <div className={`w-2 h-2 rounded-full ${
+                auth.authenticated ? "bg-emerald-500" : "bg-amber-500"
+              }`} />
               <span className="text-xs text-slate-600 font-medium">
                 {auth.authenticated ? "Verified" : "Guest"}
               </span>
@@ -200,10 +206,10 @@ export default function RightPanel() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-900">Live Notes</h3>
             <span
-              className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${
+              className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium border ${
                 badge > 0 
-                  ? "bg-teal-100 text-teal-700 border border-teal-200" 
-                  : "bg-slate-100 text-slate-600 border border-slate-200"
+                  ? "bg-gradient-to-r from-teal-50 to-cyan-50 text-teal-700 border-teal-200" 
+                  : "bg-slate-100 text-slate-600 border-slate-200"
               }`}
             >
               {badge} {badge === 1 ? "Snapshot" : "Snapshots"}
@@ -212,7 +218,7 @@ export default function RightPanel() {
 
           {/* Guest State */}
           {!auth.authenticated && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
                   <svg className="w-3 h-3 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
@@ -231,10 +237,10 @@ export default function RightPanel() {
 
           {/* Empty State for Authenticated Users */}
           {auth.authenticated && badge === 0 && (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div className="bg-gradient-to-br from-slate-50 to-gray-50 border border-slate-200 rounded-xl p-4">
               <div className="text-center">
-                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-12 h-12 bg-gradient-to-br from-teal-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
@@ -251,19 +257,21 @@ export default function RightPanel() {
             <div className="space-y-3">
               {liveHistory.map((snapshot) => {
                 const id = getId(snapshot);
-                const isOpen = openIds.has(id);
+                const isOpen = openSnapshots[id] || false;
                 const topicsText = snapshot.key_topics?.length 
                   ? snapshot.key_topics.join(", ") 
                   : "General Discussion";
 
                 return (
-                  <div key={id} className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                  <div key={id} className="border border-slate-200 rounded-xl overflow-hidden bg-gradient-to-br from-white to-slate-50 shadow-sm hover:shadow-md transition-shadow">
                     {/* Snapshot Header */}
                     <button
-                      onClick={() => toggle(id)}
-                      className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50 transition-colors"
+                      onClick={() => toggleSnapshot(id)}
+                      className="w-full flex items-center gap-3 p-4 text-left hover:bg-gradient-to-r hover:from-teal-50 hover:to-cyan-50 transition-all duration-200"
                     >
-                      <ChevronDown open={isOpen} />
+                      <div className="flex-shrink-0">
+                        <ChevronDown open={isOpen} />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <h4 className="text-sm font-medium text-slate-900 truncate">
@@ -273,7 +281,7 @@ export default function RightPanel() {
                             {formatDate(snapshot.created_at)}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-600 truncate">
+                        <p className="text-xs text-teal-600 truncate font-medium">
                           {topicsText}
                         </p>
                       </div>
@@ -281,7 +289,7 @@ export default function RightPanel() {
 
                     {/* Snapshot Content */}
                     {isOpen && (
-                      <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
+                      <div className="px-4 pb-4 space-y-4 border-t border-slate-100 bg-white">
                         {/* Key Topics */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
@@ -290,13 +298,13 @@ export default function RightPanel() {
                             </h5>
                             <button
                               onClick={() => copy(snapshot.key_topics?.join(", ") || "", `topics-${id}`)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded transition-colors"
                               title="Copy topics"
                             >
                               {copied === `topics-${id}` ? (
                                 <>
-                                  <CheckIcon className="w-3 h-3 text-green-600" />
-                                  <span className="text-green-600">Copied</span>
+                                  <CheckIcon className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-600 font-medium">Copied</span>
                                 </>
                               ) : (
                                 <>
@@ -311,7 +319,7 @@ export default function RightPanel() {
                               snapshot.key_topics.map((topic, i) => (
                                 <span
                                   key={i}
-                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-100 text-teal-700 border border-teal-200"
+                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-teal-100 to-cyan-100 text-teal-700 border border-teal-200 hover:from-teal-200 hover:to-cyan-200 transition-all"
                                 >
                                   {topic}
                                 </span>
@@ -330,13 +338,13 @@ export default function RightPanel() {
                             </h5>
                             <button
                               onClick={() => copy(snapshot.discussion || "", `discussion-${id}`)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded transition-colors"
                               title="Copy discussion summary"
                             >
                               {copied === `discussion-${id}` ? (
                                 <>
-                                  <CheckIcon className="w-3 h-3 text-green-600" />
-                                  <span className="text-green-600">Copied</span>
+                                  <CheckIcon className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-600 font-medium">Copied</span>
                                 </>
                               ) : (
                                 <>
@@ -346,7 +354,7 @@ export default function RightPanel() {
                               )}
                             </button>
                           </div>
-                          <div className="bg-slate-50 rounded-lg p-3">
+                          <div className="bg-gradient-to-br from-slate-50 to-gray-50 rounded-lg p-3 border border-slate-200">
                             <p className="text-sm text-slate-700 leading-relaxed">
                               {snapshot.discussion || "No discussion summary available."}
                             </p>
@@ -366,7 +374,7 @@ export default function RightPanel() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-900">Suggested Commands</h3>
-              <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200">
                 {commands.length}
               </span>
             </div>
@@ -378,7 +386,7 @@ export default function RightPanel() {
                     const { addCommand } = useSessionStore.getState();
                     addCommand({ label: cmd.command || cmd.slug });
                   }}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:border-slate-400 transition-colors"
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-lg hover:from-teal-50 hover:to-cyan-50 hover:border-teal-300 hover:text-teal-700 transition-all duration-200 shadow-sm hover:shadow"
                   title={`Send "${cmd.command || cmd.slug}"`}
                 >
                   {cmd.command || cmd.slug}
