@@ -453,8 +453,18 @@ export async function POST(req) {
         model: modelName,
         userTurns: uCount,
         totalTurns: s.turns.length,
+        sessionId: sessionId,
       },
+      debug: {
+        sessionKey: getSessionKey(sessionId, userId),
+        liveHistoryCount: (s.liveHistory || []).length,
+        commandsCount: (s.commands || []).length,
+        lastUserTurn: uCount,
+        shouldGenerateLiveNotes: !s.isGuest && uCount >= 5 && uCount % 5 === 0,
+      }
     };
+
+    console.log(`Response data for session ${sessionId}:`, JSON.stringify(responseData, null, 2));
 
     return new Response(JSON.stringify(responseData), {
       status: 200,

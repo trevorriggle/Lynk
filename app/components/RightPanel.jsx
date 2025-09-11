@@ -201,9 +201,20 @@ export default function RightPanel() {
           </div>
           <div className="text-xs text-slate-600">
             Session Messages: {currentUserMessageCount}
+            {activeId && (
+              <div className="text-xs text-slate-400 mt-1">
+                Active Session: {activeId?.slice(0, 8)}...
+              </div>
+            )}
             {debugInfo && (
               <div className="text-xs text-slate-400 mt-1">
                 Debug: {debugInfo.liveHistoryCount} notes, {debugInfo.commandsCount} commands
+                <br />Last turn: {debugInfo.lastUserTurn}, Should gen: {debugInfo.shouldGenerateLiveNotes ? 'YES' : 'NO'}
+              </div>
+            )}
+            {inspector && (
+              <div className="text-xs text-emerald-600 mt-1">
+                Inspector: {(inspector.live_history || []).length} history, {(inspector.commands || []).length} commands
               </div>
             )}
           </div>

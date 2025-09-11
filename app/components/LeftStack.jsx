@@ -294,8 +294,21 @@ export default function EnhancedLeftStack({ onActivate }) {
 
   // Secure session creation that doesn't reset user message counts
   const handleNewChat = () => {
-    const newId = createSession();
-    selectSession(newId);
+    console.log("Creating new chat...");
+    try {
+      // Use the session store's createSession method properly
+      const newSessionId = createSession();
+      console.log("New session created:", newSessionId);
+      
+      // Select the new session
+      selectSession(newSessionId);
+      console.log("New session selected:", newSessionId);
+      
+      // Force a re-render by clearing any cached data
+      setAuthState(prev => ({ ...prev }));
+    } catch (error) {
+      console.error("Failed to create new chat:", error);
+    }
   };
 
   if (authState.loading) {
