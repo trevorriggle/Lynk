@@ -79,7 +79,7 @@ function FileUpload({ onFileUpload, onClose }) {
             </button>
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            Supports: .txt, .md, .json, .csv, .js, .py
+            Supports: .txt, .md, .json, .csv, .js, .py, .jsx, .tsx, .ts, .html, .css
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@ function FileUpload({ onFileUpload, onClose }) {
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".txt,.md,.json,.csv,.js,.py,.jsx,.tsx,.ts"
+        accept=".txt,.md,.json,.csv,.js,.py,.jsx,.tsx,.ts,.html,.css"
         onChange={handleFileSelect}
         className="hidden"
       />
@@ -95,16 +95,23 @@ function FileUpload({ onFileUpload, onClose }) {
   );
 }
 
-// Collapsible section with spec teal bar
-function Section({ title, defaultOpen = false, children }) {
+// Collapsible section with teal branding
+function Section({ title, defaultOpen = false, children, badge = null }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mb-3">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm"
+        className="w-full flex items-center justify-between px-3 py-2 rounded-xl !bg-[#176A82] text-white shadow-sm hover:bg-[#176A82]/90 transition"
       >
-        <span className="font-semibold">{title}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{title}</span>
+          {badge && (
+            <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full">
+              {badge}
+            </span>
+          )}
+        </div>
         <span
           className={`transition-transform select-none ${open ? "rotate-90" : ""}`}
           aria-hidden
@@ -122,8 +129,8 @@ function Section({ title, defaultOpen = false, children }) {
   );
 }
 
-/** Row that can render as an input-like pill when `pill` is true */
-function Row({ label, onClick, onDelete, muted = false, active = false, pill = false, deletable = false }) {
+// Row component for interactive items
+function Row({ label, onClick, onDelete, muted = false, active = false, pill = false, deletable = false, icon = null }) {
   const pillBase =
     "w-full rounded-full bg-white px-4 py-3 text-base leading-4 text-slate-800 transition outline-none select-none truncate";
   const pillInactive =
@@ -143,7 +150,7 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
 
   if (deletable) {
     return (
-      <div className="relative">
+      <div className="relative group">
         <button
           type="button"
           onClick={onClick}
@@ -151,7 +158,10 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
           className={cls}
           title={label}
         >
-          {label}
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-sm">{icon}</span>}
+            <span className="truncate">{label}</span>
+          </div>
         </button>
         <button
           type="button"
@@ -161,7 +171,7 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
             e.stopPropagation();
             onDelete?.();
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-2xl leading-none"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-xl leading-none opacity-0 group-hover:opacity-100 transition-opacity"
         >
           ×
         </button>
@@ -177,7 +187,10 @@ function Row({ label, onClick, onDelete, muted = false, active = false, pill = f
       className={cls}
       title={label}
     >
-      {label}
+      <div className="flex items-center gap-2">
+        {icon && <span className="text-sm">{icon}</span>}
+        <span className="truncate">{label}</span>
+      </div>
     </button>
   );
 }
@@ -201,6 +214,7 @@ export default function EnhancedLeftStack({ onActivate }) {
     deleteCommand,
     deleteProject,
     addContextFile,
+    sendMessage, // For executing commands
   } = useSessionStore((s) => s);
 
   const recent = useMemo(() => order.map((id) => sessions[id]).filter(Boolean), [order, sessions]);
@@ -210,9 +224,47 @@ export default function EnhancedLeftStack({ onActivate }) {
     setShowFileUpload(false);
   };
 
+  // Enhanced command execution
+  const executeCommand = (command) => {
+    if (sendMessage) {
+      sendMessage(command.label || command.command);
+    }
+  };
+
+  // Categorize commands by topic for better organization
+  const categorizedCommands = useMemo(() => {
+    const categories = {
+      numbers: [],
+      programming: [],
+      business: [],
+      data: [],
+      design: [],
+      project: [],
+      content: [],
+      research: [],
+      other: []
+    };
+
+    commands.forEach(cmd => {
+      const category = cmd.slug || 'other';
+      if (categories[category]) {
+        categories[category].push(cmd);
+      } else {
+        categories.other.push(cmd);
+      }
+    });
+
+    return categories;
+  }, [commands]);
+
+  const totalCommands = commands.length;
+  const recentCommands = commands.slice(-6); // Show 6 most recent
+
   return (
     <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
-      <Section title="Context Files" defaultOpen={true}>
+      
+      {/* Context Files Section */}
+      <Section title="Context Files" badge={contextFiles.length || null} defaultOpen={true}>
         {showFileUpload && (
           <FileUpload 
             onFileUpload={handleFileUpload}
@@ -223,7 +275,7 @@ export default function EnhancedLeftStack({ onActivate }) {
         {contextFiles.map(file => (
           <Row 
             key={file.key}
-            label={file.label} 
+            label={file.label}
             onClick={() => onActivate?.({ type: "file", key: file.key, data: file })}
             onDelete={() => deleteContextFile(file.key)}
             deletable
@@ -237,63 +289,80 @@ export default function EnhancedLeftStack({ onActivate }) {
         />
       </Section>
 
-      <Section title="Behaviors">
+      {/* Behaviors Section */}
+      <Section title="Behaviors" badge={behaviors.length || null}>
         {behaviors.map(behavior => (
           <Row 
             key={behavior.key}
-            label={behavior.label} 
+            label={behavior.label}
             onClick={() => onActivate?.({ type: "behavior", key: behavior.key })}
             onDelete={() => deleteBehavior(behavior.key)}
             deletable
           />
         ))}
         <Row 
-          label="+ Add Behavior" 
+          label="+ Add Behavior"
           onClick={() => onActivate?.({ type: "behavior", key: "add-new" })} 
           muted 
         />
       </Section>
 
-      <Section title="Commands">
-        {commands.map(command => (
-          <Row 
-            key={command.key}
-            label={command.label} 
-            onClick={() => onActivate?.({ type: "command", key: command.key })}
-            onDelete={() => deleteCommand(command.key)}
-            deletable
-          />
-        ))}
-        <div className="pt-1">
-          <Row label="See All" onClick={() => onActivate?.({ type: "command", key: "see-all" })} muted />
-        </div>
+      {/* Enhanced Commands Section */}
+      <Section title="Commands" badge={totalCommands || null}>
+        {recentCommands.length > 0 ? (
+          <>
+            <div className="text-xs text-gray-600 mb-2 px-1">Recent suggestions:</div>
+            {recentCommands.map(command => (
+              <Row 
+                key={command.key || `${command.slug}-${command.created_at}`}
+                label={command.command || command.label}
+                onClick={() => executeCommand(command)}
+                onDelete={() => deleteCommand(command.key)}
+                deletable={!!command.key}
+              />
+            ))}
+            <div className="pt-1 border-t border-gray-200 mt-2">
+              <Row 
+                label="See All Commands"
+                onClick={() => onActivate?.({ type: "command", key: "see-all" })} 
+                muted 
+              />
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-gray-500 italic px-1">
+            Commands appear after topic mentions (every 4th mention generates suggestions)
+          </div>
+        )}
       </Section>
 
-      <Section title="Projects">
+      {/* Projects Section */}
+      <Section title="Projects" badge={projects.length || null}>
         {projects.map(project => (
           <Row 
             key={project.key}
-            label={project.label} 
+            label={project.label}
             onClick={() => onActivate?.({ type: "project", key: project.key })}
             onDelete={() => deleteProject(project.key)}
             deletable
           />
         ))}
         <Row 
-          label="+ New Project" 
+          label="+ New Project"
           onClick={() => onActivate?.({ type: "project", key: "add-new" })} 
           muted 
         />
       </Section>
 
-      <Section title="Recent Chats" defaultOpen={false}>
+      {/* Recent Chats Section */}
+      <Section title="Recent Chats" badge={recent.length || null} defaultOpen={false}>
         {recent.length === 0 ? (
           <Row label="(no chats yet)" muted pill />
         ) : (
           recent.map((s) => {
             const active = s.id === activeId;
             return (
-              <div key={s.id} className="relative">
+              <div key={s.id} className="relative group">
                 <Row
                   label={s.title || "New chat"}
                   active={active}
@@ -308,7 +377,7 @@ export default function EnhancedLeftStack({ onActivate }) {
                     e.stopPropagation();
                     deleteSession(s.id);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-2xl leading-none"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#176A82] hover:opacity-80 text-xl leading-none opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   ×
                 </button>
@@ -316,6 +385,19 @@ export default function EnhancedLeftStack({ onActivate }) {
             );
           })
         )}
+        
+        {/* Quick action for new chat */}
+        <div className="pt-2 border-t border-gray-200">
+          <Row
+            label="+ New Chat"
+            onClick={() => {
+              const newId = createSession();
+              selectSession(newId);
+            }}
+            muted
+            pill
+          />
+        </div>
       </Section>
     </aside>
   );

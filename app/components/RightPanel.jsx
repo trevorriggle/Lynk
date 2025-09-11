@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — Live Notes cards (history), collapsible with Copy, green counter, + Commands (4x rule). No snapshots.
+// components/RightPanel.jsx — Enhanced Live Notes with rich snapshot data (summary, entities, actions, insights)
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +8,7 @@ export default function RightPanel() {
   const [inspector, setInspector] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [authState, setAuthState] = useState({ loading: true, authenticated: false });
-  const [collapsedIds, setCollapsedIds] = useState(new Set()); // snapshot-like per LiveNote card
+  const [collapsedIds, setCollapsedIds] = useState(new Set());
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -16,7 +16,7 @@ export default function RightPanel() {
     guestMessageCount: s.guestMessageCount,
   }));
 
-  // auth
+  // Authentication check
   useEffect(() => {
     (async () => {
       try {
@@ -28,25 +28,26 @@ export default function RightPanel() {
     })();
   }, []);
 
-  // message counts (for badge)
+  // Message count calculation
   const currentThread = activeId ? sessions[activeId]?.messages || [] : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
   const currentUserMessageCount = authState.authenticated ? threadUserCount : guestMessageCount;
 
-  // push updates
+  // Live updates from inspector
   useEffect(() => {
     const onUpdate = (e) => e?.detail && setInspector(e.detail);
     window.addEventListener("inspector:update", onUpdate);
     return () => window.removeEventListener("inspector:update", onUpdate);
   }, []);
 
-  // polling
+  // Polling for session data
   useEffect(() => {
     if (!activeId) {
       setInspector(null);
       setCollapsedIds(new Set());
       return;
     }
+    
     const load = async () => {
       try {
         const r = await fetch(`/api/session?sessionId=${encodeURIComponent(activeId)}`, { cache: "no-store" });
@@ -54,25 +55,32 @@ export default function RightPanel() {
         if (j?.inspector) setInspector(j.inspector);
       } catch {}
     };
+    
     load();
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
   }, [activeId]);
 
-  const liveHistory = useMemo(() => (inspector?.live_history || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [inspector]);
+  // Process live history data
+  const liveHistory = useMemo(() => 
+    (inspector?.live_history || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), 
+    [inspector]
+  );
+  
   const liveBadge = liveHistory.length;
   const commands = inspector?.commands || [];
 
-  // maintain collapsed state by id
+  // Manage collapsed state by unique ID
   const getId = (e) => `${e.created_at}|${e.from_turn}|${e.to_turn}`;
+  
   useEffect(() => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
       for (const e of liveHistory) {
         const id = getId(e);
-        if (!next.has(id)) next.add(id); // default collapsed when first seen (like “pop in”)
+        if (!next.has(id)) next.add(id); // Default collapsed for new entries
       }
-      // prune stale
+      // Clean up stale IDs
       for (const id of Array.from(next)) {
         if (!liveHistory.some((e) => getId(e) === id)) next.delete(id);
       }
@@ -80,21 +88,49 @@ export default function RightPanel() {
     });
   }, [liveHistory.map(getId).join("|")]);
 
-  // copy helper
+  // Copy functionality
   async function copy(text, key) {
     try {
       await navigator.clipboard.writeText(text || "");
       setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 900);
+      setTimeout(() => setCopiedKey(null), 1200);
     } catch {}
   }
 
-  const chip = "text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
+  // Enhanced copy function for complete snapshot
+  function buildSnapshotCopy(snapshot) {
+    const sections = [];
+    
+    if (snapshot.gist) {
+      sections.push(`SUMMARY\n${snapshot.gist}`);
+    }
+    
+    if (snapshot.key_points?.length) {
+      sections.push(`KEY POINTS\n${snapshot.key_points.map(p => `• ${p}`).join('\n')}`);
+    }
+    
+    if (snapshot.entities?.length) {
+      sections.push(`ENTITIES\n${snapshot.entities.map(e => `• ${e}`).join('\n')}`);
+    }
+    
+    if (snapshot.actions?.length) {
+      sections.push(`ACTIONS\n${snapshot.actions.map(a => `• ${a}`).join('\n')}`);
+    }
+    
+    if (snapshot.insights?.length) {
+      sections.push(`INSIGHTS\n${snapshot.insights.map(i => `• ${i}`).join('\n')}`);
+    }
+    
+    return sections.join('\n\n');
+  }
+
+  const chipStyle = "text-xs px-3 py-1.5 rounded-full border bg-white/80 border-emerald-300 text-emerald-900 hover:bg-white active:scale-95 transition";
 
   return (
     <aside className="hidden w-80 shrink-0 lg:block px-4 pb-4 pt-0">
       <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-300 rounded-3xl p-5 h-full max-h-screen overflow-y-auto shadow-sm">
-        {/* Header */}
+        
+        {/* Header Section */}
         <div className="mb-4 pb-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
@@ -106,7 +142,7 @@ export default function RightPanel() {
           <div className="text-xs text-slate-600">Messages: {currentUserMessageCount}</div>
         </div>
 
-        {/* LIVE NOTES LIST */}
+        {/* Enhanced Live Notes Section */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-emerald-900">Live Notes</h3>
@@ -114,7 +150,7 @@ export default function RightPanel() {
               className={`min-w-6 h-6 px-2 rounded-full flex items-center justify-center text-[11px] font-semibold ${
                 liveBadge > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
               }`}
-              title="Updates every 5 user turns"
+              title="Snapshots every 5 user turns"
             >
               {liveBadge}
             </div>
@@ -122,24 +158,21 @@ export default function RightPanel() {
 
           {liveBadge === 0 && (
             <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-300 rounded-2xl p-4 text-xs text-emerald-900">
-              First Live Notes card appears at turn 5.
+              First Live Notes snapshot appears at turn 5. Rich context including summaries, entities, actions, and insights.
             </div>
           )}
 
           {liveBadge > 0 && (
             <div className="space-y-3">
-              {liveHistory.map((ln) => {
-                const id = getId(ln);
+              {liveHistory.map((snapshot) => {
+                const id = getId(snapshot);
                 const isCollapsed = collapsedIds.has(id);
-                const copyAll = [
-                  ln.gist ? `Summary:\n• ${ln.gist}` : "",
-                  ...(ln.key_points?.length ? ["\nKey Points:", ...ln.key_points.map((p) => `• ${p}`)] : []),
-                ]
-                  .filter(Boolean)
-                  .join("\n");
+                const fullCopy = buildSnapshotCopy(snapshot);
 
                 return (
                   <div key={id} className="bg-gradient-to-r from-emerald-100 to-teal-100 border border-emerald-300 rounded-2xl p-4 shadow-sm">
+                    
+                    {/* Header with collapse toggle and copy all */}
                     <div className="flex items-center justify-between mb-2">
                       <button
                         onClick={() =>
@@ -155,69 +188,191 @@ export default function RightPanel() {
                         <svg className={`w-3 h-3 transition-transform ${isCollapsed ? "" : "rotate-90"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
-                        Turns {ln.from_turn}—{ln.to_turn} • {new Date(ln.created_at).toLocaleDateString()}
+                        Turns {snapshot.from_turn}—{snapshot.to_turn} • {new Date(snapshot.created_at).toLocaleDateString()}
                       </button>
 
-                      <button onClick={() => copy(copyAll, `ln-all-${id}`)} className={chip}>
-                        {copiedKey === `ln-all-${id}` ? "Copied!" : "Copy All"}
+                      <button onClick={() => copy(fullCopy, `snapshot-all-${id}`)} className={chipStyle}>
+                        {copiedKey === `snapshot-all-${id}` ? "Copied!" : "Copy All"}
                       </button>
                     </div>
 
+                    {/* Collapsed view - section overview */}
                     {isCollapsed ? (
-                      <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
                         <button
-                          onClick={() => copy(ln.gist || "", `ln-gist-${id}`)}
-                          className="w-full flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          onClick={() => copy(snapshot.gist || "", `summary-${id}`)}
+                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
                           title="Copy Summary"
                         >
                           <span className="font-semibold text-emerald-950">Summary</span>
-                          <span className="text-emerald-950">{copiedKey === `ln-gist-${id}` ? "✓" : (ln.gist ? 1 : 0)}</span>
+                          <span className="text-emerald-950">{copiedKey === `summary-${id}` ? "✓" : (snapshot.gist ? "1" : "0")}</span>
                         </button>
+                        
                         <button
-                          onClick={() => copy((ln.key_points || []).map((p) => `• ${p}`).join("\n"), `ln-kp-${id}`)}
-                          className="w-full flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          onClick={() => copy((snapshot.key_points || []).map(p => `• ${p}`).join("\n"), `keypoints-${id}`)}
+                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
                           title="Copy Key Points"
                         >
-                          <span className="font-semibold text-emerald-950">Key Points</span>
-                          <span className="text-emerald-950">{copiedKey === `ln-kp-${id}` ? "✓" : (ln.key_points?.length || 0)}</span>
+                          <span className="font-semibold text-emerald-950">Points</span>
+                          <span className="text-emerald-950">{copiedKey === `keypoints-${id}` ? "✓" : (snapshot.key_points?.length || 0)}</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => copy((snapshot.entities || []).map(e => `• ${e}`).join("\n"), `entities-${id}`)}
+                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          title="Copy Entities"
+                        >
+                          <span className="font-semibold text-emerald-950">Entities</span>
+                          <span className="text-emerald-950">{copiedKey === `entities-${id}` ? "✓" : (snapshot.entities?.length || 0)}</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => copy((snapshot.actions || []).map(a => `• ${a}`).join("\n"), `actions-${id}`)}
+                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          title="Copy Actions"
+                        >
+                          <span className="font-semibold text-emerald-950">Actions</span>
+                          <span className="text-emerald-950">{copiedKey === `actions-${id}` ? "✓" : (snapshot.actions?.length || 0)}</span>
+                        </button>
+                        
+                        <button
+                          onClick={() => copy((snapshot.insights || []).map(i => `• ${i}`).join("\n"), `insights-${id}`)}
+                          className="flex items-center justify-between text-xs bg-emerald-200 hover:bg-emerald-300 border border-emerald-400 rounded-xl px-3 py-2 transition"
+                          title="Copy Insights"
+                        >
+                          <span className="font-semibold text-emerald-950">Insights</span>
+                          <span className="text-emerald-950">{copiedKey === `insights-${id}` ? "✓" : (snapshot.insights?.length || 0)}</span>
                         </button>
                       </div>
                     ) : (
+                      /* Expanded view - full content display */
                       <div className="space-y-3 mt-1">
-                        {/* Summary */}
-                        {ln.gist && (
+                        
+                        {/* Summary Section */}
+                        {snapshot.gist && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900">Summary</div>
-                              <button onClick={() => copy(ln.gist, `ln-gist-${id}`)} className={chip}>
-                                {copiedKey === `ln-gist-${id}` ? "Copied!" : "Copy"}
+                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
+                                <span>Summary</span>
+                              </div>
+                              <button onClick={() => copy(snapshot.gist, `summary-${id}`)} className={chipStyle}>
+                                {copiedKey === `summary-${id}` ? "Copied!" : "Copy"}
                               </button>
                             </div>
-                            <div className="text-xs text-emerald-900 whitespace-pre-wrap">{ln.gist}</div>
+                            <div className="text-xs text-emerald-900 whitespace-pre-wrap leading-relaxed">{snapshot.gist}</div>
                           </div>
                         )}
 
-                        {/* Key Points */}
-                        {Array.isArray(ln.key_points) && ln.key_points.length > 0 && (
+                        {/* Key Points Section */}
+                        {Array.isArray(snapshot.key_points) && snapshot.key_points.length > 0 && (
                           <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
                             <div className="flex items-center justify-between mb-2">
-                              <div className="text-xs font-semibold text-emerald-900">Key Points</div>
+                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
+                                <span>Key Points</span>
+                              </div>
                               <button
-                                onClick={() => copy(ln.key_points.map((p) => `• ${p}`).join("\n"), `ln-kp-${id}`)}
-                                className={chip}
+                                onClick={() => copy(snapshot.key_points.map(p => `• ${p}`).join("\n"), `keypoints-${id}`)}
+                                className={chipStyle}
                               >
-                                {copiedKey === `ln-kp-${id}` ? "Copied!" : "Copy"}
+                                {copiedKey === `keypoints-${id}` ? "Copied!" : "Copy"}
                               </button>
                             </div>
                             <div className="space-y-1">
-                              {ln.key_points.map((p, i) => (
+                              {snapshot.key_points.map((point, i) => (
                                 <div
                                   key={`kp-${i}`}
-                                  className="text-xs text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-2"
-                                  onClick={() => copy(p, `ln-kp-${id}-${i}`)}
-                                  title="Click to copy"
+                                  className="text-xs text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-2 cursor-pointer hover:bg-white/90 transition"
+                                  onClick={() => copy(point, `kp-${id}-${i}`)}
+                                  title="Click to copy this point"
                                 >
-                                  {p}
+                                  • {point}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Entities Section */}
+                        {Array.isArray(snapshot.entities) && snapshot.entities.length > 0 && (
+                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
+                                <span>Entities</span>
+                              </div>
+                              <button
+                                onClick={() => copy(snapshot.entities.map(e => `• ${e}`).join("\n"), `entities-${id}`)}
+                                className={chipStyle}
+                              >
+                                {copiedKey === `entities-${id}` ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {snapshot.entities.map((entity, i) => (
+                                <span
+                                  key={`entity-${i}`}
+                                  className="text-xs bg-teal-100 text-teal-800 px-2 py-1 rounded-full border border-teal-200 cursor-pointer hover:bg-teal-200 transition"
+                                  onClick={() => copy(entity, `entity-${id}-${i}`)}
+                                  title="Click to copy this entity"
+                                >
+                                  {entity}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions Section */}
+                        {Array.isArray(snapshot.actions) && snapshot.actions.length > 0 && (
+                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
+                                <span>Actions</span>
+                              </div>
+                              <button
+                                onClick={() => copy(snapshot.actions.map(a => `• ${a}`).join("\n"), `actions-${id}`)}
+                                className={chipStyle}
+                              >
+                                {copiedKey === `actions-${id}` ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              {snapshot.actions.map((action, i) => (
+                                <div
+                                  key={`action-${i}`}
+                                  className="text-xs text-emerald-900 bg-orange-50 border border-orange-200 rounded-lg p-2 cursor-pointer hover:bg-orange-100 transition"
+                                  onClick={() => copy(action, `action-${id}-${i}`)}
+                                  title="Click to copy this action"
+                                >
+                                  {action}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Insights Section */}
+                        {Array.isArray(snapshot.insights) && snapshot.insights.length > 0 && (
+                          <div className="border border-emerald-300 rounded-xl p-3 bg-white/80">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-semibold text-emerald-900 flex items-center gap-1">
+                                <span>Insights</span>
+                              </div>
+                              <button
+                                onClick={() => copy(snapshot.insights.map(i => `• ${i}`).join("\n"), `insights-${id}`)}
+                                className={chipStyle}
+                              >
+                                {copiedKey === `insights-${id}` ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              {snapshot.insights.map((insight, i) => (
+                                <div
+                                  key={`insight-${i}`}
+                                  className="text-xs text-emerald-900 bg-purple-50 border border-purple-200 rounded-lg p-2 cursor-pointer hover:bg-purple-100 transition"
+                                  onClick={() => copy(insight, `insight-${id}-${i}`)}
+                                  title="Click to copy this insight"
+                                >
+                                  {insight}
                                 </div>
                               ))}
                             </div>
@@ -232,12 +387,15 @@ export default function RightPanel() {
           )}
         </div>
 
-        {/* COMMANDS */}
+        {/* Commands Section */}
         {commands.length > 0 && (
           <div className="mb-2 bg-gradient-to-r from-indigo-100 to-blue-100 border border-indigo-300 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 bg-indigo-700 rounded-full" />
               <h3 className="text-sm font-semibold text-indigo-900">Suggestions</h3>
+              <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                {commands.length} available
+              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               {commands
@@ -251,13 +409,18 @@ export default function RightPanel() {
                       const { addCommand } = useSessionStore.getState();
                       addCommand({ label: c.command || c.slug });
                     }}
-                    className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-indigo-300 text-indigo-900 hover:bg-white active:scale-95 transition"
+                    className="text-xs px-3 py-1.5 rounded-full border bg-white/80 border-indigo-300 text-indigo-900 hover:bg-white active:scale-95 transition font-medium"
                     title={`Send "${c.command || c.slug}"`}
                   >
                     {c.command || c.slug}
                   </button>
                 ))}
             </div>
+            {commands.length > 12 && (
+              <div className="text-xs text-indigo-600 mt-2 text-center">
+                +{commands.length - 12} more suggestions available
+              </div>
+            )}
           </div>
         )}
       </div>

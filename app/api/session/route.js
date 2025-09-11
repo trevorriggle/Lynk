@@ -1,11 +1,11 @@
-// app/api/session/route.js — Live Notes history (every 5 turns) + Commands (every 4 mentions). No snapshots.
+// app/api/session/route.js — Enhanced Live Notes with snapshots every 5 turns + Commands (every 4 mentions). Optimized tokenomics.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai"; // harmless if unused
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // CORS
 const H = {
@@ -29,17 +29,17 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
-// Budgets / model
-const INPUT_TOKEN_BUDGET = 1000;
+// Optimized token budgets
+const INPUT_TOKEN_BUDGET = 1200;
 const OUTPUT_TOKENS = 600;
-const LIVE_NOTES_BUDGET = 400;
-const LIVE_NOTES_TOKENS = 64;
+const LIVE_NOTES_BUDGET = 800; // Increased for richer context
+const LIVE_NOTES_TOKENS = 150; // Increased for detailed snapshots
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
-const estTokens = (s) => Math.ceil((s || "").length / 4);
+const estTokens = (s) => Math.ceil((s || "").length / 3.8); // More accurate estimation
 
-// In-memory session
+// In-memory session storage
 const SESSIONS = new Map();
 function getSession(id, userId = null) {
   const key = userId ? `${userId}:${id}` : `guest:${id}`;
@@ -47,10 +47,8 @@ function getSession(id, userId = null) {
     SESSIONS.set(key, {
       turns: [],
       last: {},
-      // Latest live note (for convenience) + full history array
-      live: { gist: "", key_points: [] },
-      liveHistory: [], // [{created_at, from_turn, to_turn, gist, key_points}]
-      topicCounts: {}, // for command rule
+      liveHistory: [], // Enhanced snapshot entries every 5 turns
+      topicCounts: {},
       commands: [],
       userId,
       isGuest: !userId,
@@ -59,7 +57,7 @@ function getSession(id, userId = null) {
   return SESSIONS.get(key);
 }
 
-// Auth
+// Auth helper
 async function getUserFromRequest(req) {
   try {
     const cookies = req.headers.get("cookie");
@@ -77,43 +75,50 @@ async function getUserFromRequest(req) {
   }
 }
 
-// Helpers
+// Utility functions
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
+
 function shouldInjectIdentity(message) {
   const triggers = [/(^|\b)(who are you|what are you|what model|what ai|what is lynk)(\b)/i];
   return triggers.some((re) => re.test(message || ""));
 }
+
 function buildBudgetedTurns(turns, maxTokens) {
   const out = [];
   let used = 0;
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
-    const cost = estTokens(t.content) + 4;
-    if (used + cost > Math.max(64, Math.floor(maxTokens * 0.95))) break;
+    const cost = estTokens(t.content) + 6; // Account for role markers
+    if (used + cost > Math.max(100, Math.floor(maxTokens * 0.95))) break;
     out.unshift(t);
     used += cost;
   }
   return out;
 }
+
 const userTurnCount = (turns) => turns.reduce((n, t) => (t.role === "user" ? n + 1 : n), 0);
+
 function buildOpenAIMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
     content: t.content,
   }));
 }
+
 function buildAnthropicMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
     content: [{ type: "text", text: t.content }],
   }));
 }
+
 function buildGeminiHistory(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "model" : "user",
     parts: [{ text: t.content }],
   }));
 }
+
 async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens = OUTPUT_TOKENS, temperature = 0.4 }) {
   const res = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
@@ -125,6 +130,7 @@ async function callOpenAICompatible({ baseURL, key, model, messages, max_tokens 
   const data = JSON.parse(txt);
   return data?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
 }
+
 function extractJson(s) {
   const str = (s || "").trim();
   const start = str.indexOf("{");
@@ -132,29 +138,32 @@ function extractJson(s) {
   if (start >= 0 && end > start) return str.slice(start, end + 1);
   return "{}";
 }
-function runWithTimeout(promise, ms = 2000, label = "task") {
+
+function runWithTimeout(promise, ms = 3000, label = "task") {
   let id;
   const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
   return Promise.race([promise.finally(() => clearTimeout(id)), t]);
 }
 
-// Topic → Commands (every 4 mentions)
+// Enhanced topic tracking for command generation
 function trackMessageTopics(session, message) {
   if (!message || typeof message !== "string") return;
 
   const patterns = {
-    ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt)\b/i,
-    programming: /\b(code|coding|programming|javascript|python|react|api|development|software)\b/i,
-    business: /\b(business|strategy|revenue|cost|optimization|market|sales|customer)\b/i,
-    data: /\b(data|database|sql|analytics|metrics|statistics|analysis)\b/i,
-    design: /\b(design|ui|ux|interface|user experience|frontend|styling)\b/i,
-    project: /\b(project|task|deadline|planning|management|timeline)\b/i,
+    ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt|neural|algorithm)\b/i,
+    programming: /\b(code|coding|programming|javascript|python|react|api|development|software|function|variable|debug)\b/i,
+    business: /\b(business|strategy|revenue|cost|optimization|market|sales|customer|profit|growth|analysis)\b/i,
+    data: /\b(data|database|sql|analytics|metrics|statistics|analysis|chart|graph|visualization)\b/i,
+    design: /\b(design|ui|ux|interface|user experience|frontend|styling|layout|visual|aesthetic)\b/i,
+    project: /\b(project|task|deadline|planning|management|timeline|milestone|deliverable|scope)\b/i,
+    content: /\b(content|writing|documentation|blog|article|copy|text|narrative|story)\b/i,
+    research: /\b(research|study|analysis|investigation|findings|methodology|hypothesis|evidence)\b/i,
   };
 
   const msg = message.trim();
   const numbers =
     /^[\s\d]+$/.test(msg) ||
-    /\b(count|counting|sequence|sequential|next number|increment)\b/i.test(msg) ||
+    /\b(count|counting|sequence|sequential|next number|increment|calculate|math)\b/i.test(msg) ||
     /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
 
   const hits = new Set();
@@ -178,43 +187,77 @@ function trackMessageTopics(session, message) {
         add("numbers?");
         add("continue counting");
         add("analyze the sequence");
+      } else if (topic === "programming") {
+        add("debug this code");
+        add("optimize performance");
+        add("add error handling");
+      } else if (topic === "business") {
+        add("analyze market trends");
+        add("calculate ROI");
+        add("competitive analysis");
       } else {
         add(`tell me more about ${topic}`);
+        add(`${topic} best practices`);
       }
     }
   }
 }
 
-// Live Notes — build one entry (returns parsed object)
-async function buildLiveNotes(turns) {
+// Enhanced Live Notes generation with rich snapshot data
+async function buildEnhancedLiveNotes(turns, fromTurn, toTurn) {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return { gist: "", key_points: [] };
+  if (!key) return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
 
-  const lastTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
-  const chatExcerpt = lastTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
-  const prompt = `Update live notes. Return JSON: {"gist":"","key_points":[]}\n\n${chatExcerpt}`;
+  const relevantTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
+  const chatExcerpt = relevantTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
+  
+  const prompt = `Analyze this conversation segment (turns ${fromTurn}-${toTurn}) and create comprehensive live notes.
 
-  const client = new OpenAI({ apiKey: key });
-  const r = await client.chat.completions.create({
-    model: BACKGROUND_MODEL,
-    max_tokens: LIVE_NOTES_TOKENS,
-    temperature: BACKGROUND_TEMP,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
-  const obj = JSON.parse(extractJson(raw));
-  return {
-    gist: typeof obj?.gist === "string" ? obj.gist : "",
-    key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
-  };
+Return JSON with this exact structure:
+{
+  "gist": "2-3 sentence summary of main discussion",
+  "key_points": ["point 1", "point 2", "point 3"],
+  "entities": ["person/company/concept 1", "entity 2"],
+  "actions": ["action item 1", "decision made"],
+  "insights": ["key insight or pattern", "important observation"]
 }
 
-// OPTIONS
+Keep each array to 3-4 items max. Be concise but informative.
+
+Conversation:
+${chatExcerpt}`;
+
+  try {
+    const client = new OpenAI({ apiKey: key });
+    const r = await client.chat.completions.create({
+      model: BACKGROUND_MODEL,
+      max_tokens: LIVE_NOTES_TOKENS,
+      temperature: BACKGROUND_TEMP,
+      messages: [{ role: "user", content: prompt }],
+    });
+    
+    const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+    const obj = JSON.parse(extractJson(raw));
+    
+    return {
+      gist: typeof obj?.gist === "string" ? obj.gist : "",
+      key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
+      entities: Array.isArray(obj?.entities) ? obj.entities.slice(0, 4) : [],
+      actions: Array.isArray(obj?.actions) ? obj.actions.slice(0, 4) : [],
+      insights: Array.isArray(obj?.insights) ? obj.insights.slice(0, 4) : [],
+    };
+  } catch (e) {
+    console.error("Live Notes generation failed:", e);
+    return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
+  }
+}
+
+// OPTIONS handler
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: H });
 }
 
-// GET (poll)
+// GET handler (polling)
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
@@ -234,7 +277,6 @@ export async function GET(req) {
     {
       ok: true,
       inspector: {
-        live: s.live || {},
         live_history: s.liveHistory || [],
         commands: s.commands || [],
         topicCounts: s.topicCounts || {},
@@ -247,7 +289,7 @@ export async function GET(req) {
   );
 }
 
-// POST (chat turn)
+// POST handler (chat turn)
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -259,7 +301,7 @@ export async function POST(req) {
 
     const userId = await getUserFromRequest(req);
 
-    // merge guest→verified
+    // Merge guest→verified sessions
     if (userId) {
       const gKey = `guest:${sessionId}`;
       const vKey = `${userId}:${sessionId}`;
@@ -291,7 +333,7 @@ export async function POST(req) {
     const s = getSession(sessionId, userId);
     s.turns.push({ role: "user", content: message, provider, model: modelName });
 
-    // provider call
+    // Provider routing and API calls
     let assistantText = "";
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
@@ -337,32 +379,37 @@ export async function POST(req) {
     s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName });
     s.last = { provider, model: modelName };
 
-    // Commands counted every turn (so 4x cadence can hit)
+    // Track topics for command generation
     trackMessageTopics(s, message);
 
-    // Live Notes **only** at 5/10/15...
+    // Enhanced Live Notes generation every 5 turns for verified users
     const uCount = userTurnCount(s.turns);
     if (!s.isGuest && uCount >= 5 && uCount % 5 === 0) {
       try {
-        const ln = await runWithTimeout(buildLiveNotes(s.turns), 2000, "live-notes");
+        const fromTurn = uCount - 4;
+        const toTurn = uCount;
+        const liveNotes = await runWithTimeout(
+          buildEnhancedLiveNotes(s.turns, fromTurn, toTurn), 
+          3000, 
+          "enhanced-live-notes"
+        );
+        
         const entry = {
           created_at: new Date().toISOString(),
-          from_turn: uCount - 4,
-          to_turn: uCount,
-          gist: ln.gist || "",
-          key_points: ln.key_points || [],
+          from_turn: fromTurn,
+          to_turn: toTurn,
+          ...liveNotes,
         };
-        s.live = { gist: entry.gist, key_points: entry.key_points };
+        
         (s.liveHistory ||= []).push(entry);
       } catch (e) {
-        // ignore background failures
+        console.error("Enhanced Live Notes failed:", e);
       }
     }
 
     const responseData = {
       text: assistantText,
       inspector: {
-        live: s.live || {},
         live_history: s.liveHistory || [],
         commands: s.commands || [],
         topicCounts: s.topicCounts || {},
@@ -375,6 +422,7 @@ export async function POST(req) {
       headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId },
     });
   } catch (e) {
+    console.error("Session error:", e);
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
   }
 }
