@@ -319,7 +319,8 @@ export default function RightPanel() {
                               snapshot.key_topics.map((topic, i) => (
                                 <span
                                   key={i}
-                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-600 text-white hover:bg-teal-700 transition-colors cursor-default"
+                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium text-white hover:opacity-90 transition-opacity cursor-default"
+                                  style={{ backgroundColor: '#1a6b82' }}
                                 >
                                   {topic}
                                 </span>

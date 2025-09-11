@@ -481,11 +481,12 @@ export async function POST(req) {
     const uCount = userTurnCount(s.turns);
     const shouldCreateSnapshot = 
       !s.isGuest && 
+      uCount >= 5 && 
       uCount % 5 === 0 && 
-      uCount > s._lastSnapshotUserCount;
+      uCount > (s._lastSnapshotUserCount || 0);
 
     if (shouldCreateSnapshot) {
-      const fromTurn = s._lastSnapshotUserCount + 1;
+      const fromTurn = (s._lastSnapshotUserCount || 0) + 1;
       const toTurn = uCount;
       
       try {
@@ -501,10 +502,12 @@ export async function POST(req) {
         };
 
         if (!s.liveHistory) s.liveHistory = [];
-        s.liveHistory.push(entry);
+        s.liveHistory.push(entry); // This ADDS to the array, doesn't replace
         s._lastSnapshotUserCount = uCount;
+        
+        console.log(`✅ Created snapshot ${entry.id} for turns ${fromTurn}-${toTurn}. Total snapshots: ${s.liveHistory.length}`);
       } catch (error) {
-        // Silently fail to avoid disrupting user experience
+        console.log("❌ Snapshot generation failed:", error.message);
       }
     }
 
