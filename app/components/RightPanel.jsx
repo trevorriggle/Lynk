@@ -1,27 +1,36 @@
-// components/RightPanel.jsx — compact, collapsible, auto-open newest snapshot
+// components/RightPanel.jsx — Lynk branded session insights with live notes
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-function Chevron({ open }) {
+function ChevronDown({ open }) {
   return (
     <svg
-      className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-90" : ""}`}
+      className={`w-4 h-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
+      strokeWidth={2}
     >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+      <path d="M6 9l6 6 6-6" />
     </svg>
   );
 }
 
-function CopyIcon() {
+function CopyIcon({ className = "w-3.5 h-3.5" }) {
   return (
-    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <rect x="2" y="2" width="13" height="13" rx="2" />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className = "w-3.5 h-3.5" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <polyline points="20,6 9,17 4,12" />
     </svg>
   );
 }
@@ -30,7 +39,7 @@ export default function RightPanel() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, userId: null });
   const [inspector, setInspector] = useState(null);
   const [copied, setCopied] = useState("");
-  const [openIds, setOpenIds] = useState(new Set()); // collapsed by default
+  const [openIds, setOpenIds] = useState(new Set());
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -74,7 +83,7 @@ export default function RightPanel() {
     };
   }, []);
 
-  // Polling
+  // Polling for session data
   useEffect(() => {
     if (!activeId || auth.loading) {
       setInspector(null);
@@ -89,10 +98,9 @@ export default function RightPanel() {
         });
         if (!cancel && r.ok) {
           const j = await r.json();
-          console.log("🔍 Frontend: Full API response:", JSON.stringify(j, null, 2));
           if (j?.inspector) {
             setInspector(j.inspector);
-            // Auto-open newest once
+            // Auto-open newest snapshot on first load
             const hx = (j.inspector.live_history || []).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
             if (hx.length) {
               const newestId = `${hx[0].created_at}|${hx[0].from_turn}|${hx[0].to_turn}`;
@@ -110,32 +118,16 @@ export default function RightPanel() {
     };
   }, [activeId, auth.loading]);
 
-  // Derived
+  // Derived state
   const historyAll = inspector?.live_history || [];
   const liveHistory = useMemo(() => {
     return historyAll
       .slice()
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 12);
+      .slice(0, 4); // Show latest 4 snapshots
   }, [historyAll]);
 
-  // Debug live history data
-  useEffect(() => {
-    if (liveHistory.length > 0) {
-      console.log("🔍 Frontend: Live History Data:", liveHistory);
-      console.log("🔍 Frontend: First snapshot detailed:", JSON.stringify(liveHistory[0], null, 2));
-      
-      // Check each field specifically
-      const first = liveHistory[0];
-      console.log("🔍 Frontend: Gist:", first?.gist);
-      console.log("🔍 Frontend: Key Points:", first?.key_points);
-      console.log("🔍 Frontend: Entities:", first?.entities);
-      console.log("🔍 Frontend: Actions:", first?.actions);
-      console.log("🔍 Frontend: Insights:", first?.insights);
-    }
-  }, [liveHistory]);
-
-  const suggestions = inspector?.commands || [];
+  const commands = inspector?.commands || [];
   const badge = liveHistory.length;
 
   const currentThread = activeId ? (sessions[activeId]?.messages || []) : [];
@@ -144,6 +136,7 @@ export default function RightPanel() {
 
   // Helpers
   const getId = (s) => `${s.created_at}|${s.from_turn}|${s.to_turn}`;
+  
   const toggle = (id) =>
     setOpenIds((prev) => {
       const next = new Set(prev);
@@ -155,31 +148,29 @@ export default function RightPanel() {
     try {
       await navigator.clipboard.writeText(text || "");
       setCopied(key);
-      setTimeout(() => setCopied(""), 900);
+      setTimeout(() => setCopied(""), 1500);
     } catch {}
   };
 
-  const oneLine = (t = "") => {
-    const s = t.replace(/\s+/g, " ").trim();
-    return s.length > 88 ? s.slice(0, 88) + "…" : s;
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", { 
+      month: "short", 
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    });
   };
 
-  const blockCopy = (s) => {
-    const chunks = [];
-    if (s.gist) chunks.push(`SUMMARY\n${s.gist}`);
-    if (s.key_points?.length) chunks.push(`KEY POINTS\n${s.key_points.map((p) => `• ${p}`).join("\n")}`);
-    if (s.entities?.length) chunks.push(`ENTITIES\n${s.entities.map((e) => `• ${e}`).join("\n")}`);
-    if (s.actions?.length) chunks.push(`ACTIONS\n${s.actions.map((a) => `• ${a}`).join("\n")}`);
-    if (s.insights?.length) chunks.push(`INSIGHTS\n${s.insights.map((i) => `• ${i}`).join("\n")}`);
-    return chunks.join("\n\n");
-  };
-
-  // Render
+  // Render loading state
   if (auth.loading) {
     return (
       <aside className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0">
         <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white">
-          <div className="h-24 flex items-center justify-center text-xs text-slate-600">Loading…</div>
+          <div className="h-24 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600"></div>
+          </div>
         </div>
       </aside>
     );
@@ -189,188 +180,178 @@ export default function RightPanel() {
     <aside className="hidden w-80 shrink-0 lg:block px-3 pb-3 pt-0" aria-label="Session Insights">
       <div className="border border-slate-200 rounded-2xl p-4 h-full max-h-screen overflow-y-auto bg-white">
         {/* Header */}
-        <div className="mb-3 pb-2 border-b border-slate-200">
-          <div className="flex items-center justify-between">
+        <div className="mb-4 pb-3 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
-            <div className="flex items-center gap-1">
-              <span className={`inline-block w-2 h-2 rounded-full ${auth.authenticated ? "bg-emerald-600" : "bg-amber-600"}`} />
-              <span className="text-[11px] text-slate-700">{auth.authenticated ? "Verified" : "Guest"}</span>
+            <div className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${auth.authenticated ? "bg-emerald-500" : "bg-amber-500"}`} />
+              <span className="text-xs text-slate-600 font-medium">
+                {auth.authenticated ? "Verified" : "Guest"}
+              </span>
             </div>
           </div>
-          <div className="text-[11px] text-slate-600 mt-1">Session Messages: {sessionMsgCount}</div>
+          <div className="text-xs text-slate-500">
+            Session Messages: <span className="font-medium text-slate-700">{sessionMsgCount}</span>
+          </div>
         </div>
 
-        {/* Live Notes */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold text-slate-900">Live Notes</h3>
+        {/* Live Notes Section */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-900">Live Notes</h3>
             <span
-              className={`px-1.5 min-w-5 h-5 inline-flex items-center justify-center rounded-full text-[10px] font-semibold ${
-                badge ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
+              className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${
+                badge > 0 
+                  ? "bg-teal-100 text-teal-700 border border-teal-200" 
+                  : "bg-slate-100 text-slate-600 border border-slate-200"
               }`}
-              title="Snapshots"
             >
-              {badge}
+              {badge} {badge === 1 ? "Snapshot" : "Snapshots"}
             </span>
           </div>
 
+          {/* Guest State */}
           {!auth.authenticated && (
-            <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              Sign in to enable Live Notes.
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
+                  <svg className="w-3 h-3 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-amber-800 mb-1">Sign in to unlock Live Notes</p>
+                  <p className="text-xs text-amber-700">
+                    Get automatic conversation summaries and insights every 5 turns when you're signed in.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
-          {auth.authenticated && !badge && (
-            <div className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-              Snapshots appear automatically as you chat.
+          {/* Empty State for Authenticated Users */}
+          {auth.authenticated && badge === 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-slate-700 mb-1">No snapshots yet</p>
+                <p className="text-xs text-slate-500">
+                  Conversation summaries will appear automatically every 5 user messages.
+                </p>
+              </div>
             </div>
           )}
 
+          {/* Snapshots List */}
           {auth.authenticated && badge > 0 && (
-            <div className="space-y-2">
-              {liveHistory.map((s) => {
-                const id = getId(s);
-                const open = openIds.has(id);
-                const when = new Date(s.created_at);
-                const header = `User turns ${s.from_turn}—${s.to_turn}`;
-                const preview = s.gist ? oneLine(s.gist) : "Snapshot";
-                const all = blockCopy(s);
-
-                // Debug individual snapshot
-                console.log(`🔍 Frontend: Rendering snapshot ${id}:`, {
-                  gist: s.gist,
-                  key_points: s.key_points,
-                  entities: s.entities,
-                  actions: s.actions,
-                  insights: s.insights
-                });
+            <div className="space-y-3">
+              {liveHistory.map((snapshot) => {
+                const id = getId(snapshot);
+                const isOpen = openIds.has(id);
+                const topicsText = snapshot.key_topics?.length 
+                  ? snapshot.key_topics.join(", ") 
+                  : "General Discussion";
 
                 return (
-                  <div key={id} className="border border-slate-200 rounded-xl">
+                  <div key={id} className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                    {/* Snapshot Header */}
                     <button
                       onClick={() => toggle(id)}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-slate-50 rounded-t-xl"
-                      title={open ? "Collapse" : "Expand"}
+                      className="w-full flex items-center gap-3 p-4 text-left hover:bg-slate-50 transition-colors"
                     >
-                      <Chevron open={open} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-[12px] font-medium text-slate-900 truncate">{header}</div>
-                          <div className="text-[10px] text-slate-500 whitespace-nowrap">
-                            {when.toLocaleDateString()} · {when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                          </div>
+                      <ChevronDown open={isOpen} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <h4 className="text-sm font-medium text-slate-900 truncate">
+                            Turns {snapshot.from_turn}—{snapshot.to_turn}
+                          </h4>
+                          <span className="text-xs text-slate-500 whitespace-nowrap">
+                            {formatDate(snapshot.created_at)}
+                          </span>
                         </div>
-                        <div className="text-[11px] text-slate-700 truncate">{preview}</div>
-                      </div>
-                      <div
-                        onClick={(e) => { e.stopPropagation(); copy(all, `all-${id}`); }}
-                        className="ml-1 inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 active:scale-95"
-                        title="Copy all"
-                        role="button"
-                      >
-                        <CopyIcon />
-                        {copied === `all-${id}` ? "Copied" : "Copy"}
+                        <p className="text-xs text-slate-600 truncate">
+                          {topicsText}
+                        </p>
                       </div>
                     </button>
 
-                    {open && (
-                      <div className="px-2.5 pb-2.5 pt-0 space-y-1.5">
-                        {s.gist && (
-                          <Section title="Summary" onCopy={() => copy(s.gist, `sum-${id}`)} copied={copied === `sum-${id}`}>
-                            <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-relaxed">{s.gist}</p>
-                          </Section>
-                        )}
-
-                        {Array.isArray(s.key_points) && s.key_points.length > 0 && (
-                          <Section
-                            title="Key Points"
-                            onCopy={() => copy(s.key_points.map((p) => `• ${p}`).join("\n"), `kp-${id}`)}
-                            copied={copied === `kp-${id}`}
-                          >
-                            <ul className="space-y-1">
-                              {s.key_points.map((p, i) => (
-                                <li
-                                  key={`kp-${i}`}
-                                  className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(p, `kpi-${id}-${i}`)}
-                                  title="Click to copy"
-                                >
-                                  • {p}
-                                </li>
-                              ))}
-                            </ul>
-                          </Section>
-                        )}
-
-                        {Array.isArray(s.entities) && s.entities.length > 0 && (
-                          <Section
-                            title="Entities"
-                            onCopy={() => copy(s.entities.map((e) => `• ${e}`).join("\n"), `ent-${id}`)}
-                            copied={copied === `ent-${id}`}
-                          >
-                            <div className="flex flex-wrap gap-1">
-                              {s.entities.map((e, i) => (
+                    {/* Snapshot Content */}
+                    {isOpen && (
+                      <div className="px-4 pb-4 space-y-4 border-t border-slate-100">
+                        {/* Key Topics */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">
+                              Key Topics
+                            </h5>
+                            <button
+                              onClick={() => copy(snapshot.key_topics?.join(", ") || "", `topics-${id}`)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                              title="Copy topics"
+                            >
+                              {copied === `topics-${id}` ? (
+                                <>
+                                  <CheckIcon className="w-3 h-3 text-green-600" />
+                                  <span className="text-green-600">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CopyIcon className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {snapshot.key_topics?.length ? (
+                              snapshot.key_topics.map((topic, i) => (
                                 <span
-                                  key={`ent-${i}`}
-                                  className="text-[10px] px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(e, `enti-${id}-${i}`)}
-                                  title="Click to copy"
+                                  key={i}
+                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-teal-100 text-teal-700 border border-teal-200"
                                 >
-                                  {e}
+                                  {topic}
                                 </span>
-                              ))}
-                            </div>
-                          </Section>
-                        )}
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-500 italic">No topics identified</span>
+                            )}
+                          </div>
+                        </div>
 
-                        {Array.isArray(s.actions) && s.actions.length > 0 && (
-                          <Section
-                            title="Actions"
-                            onCopy={() => copy(s.actions.map((a) => `• ${a}`).join("\n"), `act-${id}`)}
-                            copied={copied === `act-${id}`}
-                          >
-                            <ul className="space-y-1">
-                              {s.actions.map((a, i) => (
-                                <li
-                                  key={`act-${i}`}
-                                  className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(a, `acti-${id}-${i}`)}
-                                  title="Click to copy"
-                                >
-                                  {a}
-                                </li>
-                              ))}
-                            </ul>
-                          </Section>
-                        )}
-
-                        {Array.isArray(s.insights) && s.insights.length > 0 && (
-                          <Section
-                            title="Insights"
-                            onCopy={() => copy(s.insights.map((i) => `• ${i}`).join("\n"), `ins-${id}`)}
-                            copied={copied === `ins-${id}`}
-                          >
-                            <ul className="space-y-1">
-                              {s.insights.map((i, ix) => (
-                                <li
-                                  key={`ins-${ix}`}
-                                  className="text-[11px] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-1 cursor-pointer hover:bg-slate-50"
-                                  onClick={() => copy(i, `insi-${id}-${ix}`)}
-                                  title="Click to copy"
-                                >
-                                  {i}
-                                </li>
-                              ))}
-                            </ul>
-                          </Section>
-                        )}
-
-                        {/* Debug section - remove this once you identify the issue */}
-                        <Section title="DEBUG DATA" onCopy={() => copy(JSON.stringify(s, null, 2), `debug-${id}`)} copied={copied === `debug-${id}`}>
-                          <pre className="text-[9px] bg-gray-100 p-2 rounded overflow-auto max-h-32">
-                            {JSON.stringify(s, null, 2)}
-                          </pre>
-                        </Section>
+                        {/* Discussion Summary */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">
+                              Discussion
+                            </h5>
+                            <button
+                              onClick={() => copy(snapshot.discussion || "", `discussion-${id}`)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded transition-colors"
+                              title="Copy discussion summary"
+                            >
+                              {copied === `discussion-${id}` ? (
+                                <>
+                                  <CheckIcon className="w-3 h-3 text-green-600" />
+                                  <span className="text-green-600">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CopyIcon className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <div className="bg-slate-50 rounded-lg p-3">
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                              {snapshot.discussion || "No discussion summary available."}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -380,56 +361,33 @@ export default function RightPanel() {
           )}
         </div>
 
-        {/* Suggestions (compact) */}
-        {suggestions?.length > 0 && (
-          <div className="border border-slate-200 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-900">Suggestions</h3>
-              <span className="text-[10px] text-slate-600 bg-slate-100 rounded-full px-1.5 py-0.5">
-                {suggestions.length}
+        {/* Commands Section */}
+        {commands?.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-900">Suggested Commands</h3>
+              <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                {commands.length}
               </span>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {suggestions
-                .slice()
-                .reverse()
-                .slice(0, 12)
-                .map((c, i) => (
-                  <button
-                    key={(c.created_at || "") + (c.command || c.slug) + i}
-                    onClick={() => {
-                      const { addCommand } = useSessionStore.getState();
-                      addCommand({ label: c.command || c.slug });
-                    }}
-                    className="text-[11px] px-2 py-1 rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:scale-95"
-                    title={`Send "${c.command || c.slug}"`}
-                  >
-                    {c.command || c.slug}
-                  </button>
-                ))}
+            <div className="flex flex-wrap gap-2">
+              {commands.slice(0, 6).map((cmd, i) => (
+                <button
+                  key={`${cmd.slug}-${i}`}
+                  onClick={() => {
+                    const { addCommand } = useSessionStore.getState();
+                    addCommand({ label: cmd.command || cmd.slug });
+                  }}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:border-slate-400 transition-colors"
+                  title={`Send "${cmd.command || cmd.slug}"`}
+                >
+                  {cmd.command || cmd.slug}
+                </button>
+              ))}
             </div>
           </div>
         )}
       </div>
     </aside>
-  );
-}
-
-function Section({ title, children, onCopy, copied }) {
-  return (
-    <section className="border border-slate-200 rounded-lg p-2 bg-slate-50/40">
-      <div className="flex items-center justify-between mb-1">
-        <h4 className="text-[11px] font-semibold text-slate-900">{title}</h4>
-        <button
-          onClick={onCopy}
-          className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:scale-95"
-          title="Copy"
-        >
-          <CopyIcon />
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      {children}
-    </section>
   );
 }
