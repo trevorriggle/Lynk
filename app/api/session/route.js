@@ -1,4 +1,4 @@
-// app/api/session/route.js — Live Notes enabled for logged-in sessions only; guest session nuked on login
+// app/api/session/route.js — Auth-only snapshots, delta trigger, improved fallback entities
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,6 +7,7 @@ export const revalidate = 0;
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// ---------- CORS / headers ----------
 const H = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -15,6 +16,7 @@ const H = {
   "X-Lynk-Route": "session",
 };
 
+// ---------- Identity / prompts ----------
 const APP_NAME = "Lynk";
 function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   return [
@@ -27,13 +29,17 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
-const INPUT_TOKEN_BUDGET = 1200;
-const OUTPUT_TOKENS = 600;
-const LIVE_NOTES_BUDGET = 800; // budget used only for context windowing (no LLM calls)
-const LIVE_NOTES_TOKENS = 150; // informational only; we don't call LLM for notes now
-const BACKGROUND_MODEL = "gpt-4o-mini"; // kept for easy re-enable
+// ---------- Token budgets ----------
+const INPUT_TOKEN_BUDGET = 1200;     // per request input cap (approx)
+const OUTPUT_TOKENS = 600;           // per request output cap
+
+// Snapshot / background
+const LIVE_NOTES_BUDGET = 800;       // for LLM snapshot input build window
+const LIVE_NOTES_TOKENS = 150;       // snapshot generation output cap
+const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
+// ---------- Utilities ----------
 const estTokens = (s) => Math.ceil((s || "").length / 3.8);
 
 const SESSIONS = new Map();
@@ -55,8 +61,7 @@ function getSession(sessionId, userId = null) {
       userId,
       isGuest: !userId,
       createdAt: new Date().toISOString(),
-      _lastSnapshotUserCount: 0, // internal marker for delta-based snapshots
-      _firstSnapDone: false,
+      _lastSnapshotUserCount: 0,
     });
   }
   return SESSIONS.get(key);
@@ -64,9 +69,7 @@ function getSession(sessionId, userId = null) {
 
 function cleanupGuestSession(sessionId) {
   const guestKey = getSessionKey(sessionId, null);
-  if (SESSIONS.has(guestKey)) {
-    SESSIONS.delete(guestKey);
-  }
+  if (SESSIONS.has(guestKey)) SESSIONS.delete(guestKey);
 }
 
 async function getUserFromRequest(req) {
@@ -75,7 +78,7 @@ async function getUserFromRequest(req) {
     if (!cookies) return null;
     const { origin } = new URL(req.url);
     const base = process.env.NEXTAUTH_URL || origin;
-    const r = await fetch(`${base}/api/me`, { headers: { cookie: cookies }, cache: "no-store" });
+    const r = await fetch(`${base}/api/me`, { headers: { cookie: cookies }, cache: "no-store", credentials: "include" });
     if (r.ok) {
       const j = await r.json();
       return j.userId || null;
@@ -89,10 +92,13 @@ async function getUserFromRequest(req) {
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
 
 function shouldInjectIdentity(message) {
-  const triggers = [/(^|\b)(who are you|what are you|what model|what ai|what is lynk)(\b)/i];
+  const triggers = [
+    /(^|\b)(who are you|what are you|what model|what ai|what is lynk|which model|are you openai|are you claude)(\b)/i,
+  ];
   return triggers.some((re) => re.test(message || ""));
 }
 
+// Keep most-recent turns within budget
 function buildBudgetedTurns(turns, maxTokens) {
   const out = [];
   let used = 0;
@@ -114,14 +120,12 @@ function buildOpenAIMessages(turns) {
     content: t.content,
   }));
 }
-
 function buildAnthropicMessages(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "assistant" : "user",
     content: [{ type: "text", text: t.content }],
   }));
 }
-
 function buildGeminiHistory(turns) {
   return buildBudgetedTurns(turns, INPUT_TOKEN_BUDGET).map((t) => ({
     role: t.role === "assistant" ? "model" : "user",
@@ -149,121 +153,94 @@ function extractJson(s) {
   return "{}";
 }
 
+// Optional utility if you want to guard external calls with timeouts
+function runWithTimeout(promise, ms = 3500, label = "task") {
+  let id;
+  const t = new Promise((_, rej) => (id = setTimeout(() => rej(new Error(`Timeout: ${label}`)), ms)));
+  return Promise.race([promise.finally(() => clearTimeout(id)), t]);
+}
+
+// Topic tracking -> lightweight suggestions
 function trackMessageTopics(session, message) {
   if (!message || typeof message !== "string") return;
 
   const patterns = {
-    ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt|neural|algorithm)\b/i,
-    programming: /\b(code|coding|programming|javascript|python|react|api|development|software|function|variable|debug)\b/i,
-    business: /\b(business|strategy|revenue|cost|optimization|market|sales|customer|profit|growth|analysis)\b/i,
-    data: /\b(data|database|sql|analytics|metrics|statistics|analysis|chart|graph|visualization)\b/i,
-    design: /\b(design|ui|ux|interface|user experience|frontend|styling|layout|visual|aesthetic)\b/i,
-    project: /\b(project|task|deadline|planning|management|timeline|milestone|deliverable|scope)\b/i,
-    content: /\b(content|writing|documentation|blog|article|copy|text|narrative|story)\b/i,
-    research: /\b(research|study|analysis|investigation|findings|methodology|hypothesis|evidence)\b/i,
+    ai: /\b(ai|artificial intelligence|machine learning|ml|llm|model|claude|openai|gpt|neural)\b/i,
+    programming: /\b(code|coding|programming|javascript|python|react|api|function|debug)\b/i,
+    business: /\b(business|strategy|revenue|cost|market|sales|customer|profit|growth)\b/i,
+    data: /\b(data|database|sql|analytics|metrics|statistics|visualization)\b/i,
+    design: /\b(design|ui|ux|interface|layout|visual|aesthetic)\b/i,
+    project: /\b(project|deadline|planning|management|timeline|milestone|scope)\b/i,
   };
 
   const msg = message.trim();
-  const numbers =
-    /^[\s\d]+$/.test(msg) ||
-    /\b(count|counting|sequence|sequential|next number|increment|calculate|math)\b/i.test(msg) ||
-    /(?:^|\s)\d+(?:[\s,]+\d+){2,}\s*$/.test(msg);
-
   const hits = new Set();
-  for (const [topic, re] of Object.entries(patterns)) if (re.test(message)) hits.add(topic);
-  if (numbers) hits.add("numbers");
+  for (const [topic, re] of Object.entries(patterns)) if (re.test(msg)) hits.add(topic);
 
   for (const topic of hits) {
     const count = (session.topicCounts[topic] || 0) + 1;
     session.topicCounts[topic] = count;
-
     if (count % 4 === 0) {
-      const add = (label) =>
-        (session.commands ||= []).push({
-          slug: topic,
-          command: label,
-          created_at: new Date().toISOString(),
-          confidence: "med",
-        });
-
-      if (topic === "numbers") {
-        add("numbers?");
-        add("continue counting");
-        add("analyze the sequence");
-      } else if (topic === "programming") {
-        add("debug this code");
-        add("optimize performance");
-        add("add error handling");
-      } else if (topic === "business") {
-        add("analyze market trends");
-        add("calculate ROI");
-        add("competitive analysis");
-      } else {
-        add(`tell me more about ${topic}`);
-        add(`${topic} best practices`);
-      }
+      (session.commands ||= []).push({
+        slug: topic,
+        command: `${topic} best practices`,
+        created_at: new Date().toISOString(),
+        confidence: "med",
+      });
     }
   }
 }
 
-/**
- * Create lightweight live notes from recent turns.
- * No external LLM calls → $0 token spend for snapshots.
- */
-function createSnapshot(session, fromUserTurn, toUserTurn) {
-  const recentTurns = session.turns.slice(-10);
-  const userMessages = recentTurns.filter((t) => t.role === "user").map((t) => t.content);
-  const assistantMessages = recentTurns.filter((t) => t.role === "assistant").map((t) => t.content);
+// ----------- LLM-enhanced snapshot builder -----------
+async function buildEnhancedLiveNotes(turns, fromTurn, toTurn) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return { gist: "", key_points: [], entities: [], actions: [], insights: [] };
 
-  const topics = [];
-  const entities = [];
-  const actions = [];
+  // Keep a tight context for notes
+  const relevantTurns = buildBudgetedTurns(turns, LIVE_NOTES_BUDGET);
+  const chatExcerpt = relevantTurns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
-  const allText = [...userMessages, ...assistantMessages].join(" ");
+  const prompt = `Analyze this conversation segment (user turns ${fromTurn}-${toTurn}) and produce concise live notes.
 
-  // Topics (lowercase for checks)
-  const lower = allText.toLowerCase();
-  if (/\b(food|cooking|recipe|eat|ingredient|nutrition)\b/.test(lower)) topics.push("Food & Cooking");
-  if (/\b(code|programming|javascript|python|react|api)\b/.test(lower)) topics.push("Programming");
-  if (/\b(business|strategy|market|revenue|sales)\b/.test(lower)) topics.push("Business");
-  if (/\b(data|analysis|chart|graph|metrics)\b/.test(lower)) topics.push("Data Analysis");
-  if (/\b(design|ui|ux|interface|layout)\b/.test(lower)) topics.push("Design");
-
-  // Simple "entity" extraction: capitalized tokens (from original case)
-  const capWords = (allText.match(/\b[A-Z][a-zA-Z]+\b/g) || []).slice(0, 16);
-  const uniq = Array.from(new Set(capWords)).slice(0, 6);
-  entities.push(...uniq);
-
-  // Action hints
-  if (/\b(create|build|make|develop|implement)\b/.test(lower)) actions.push("Create or build something");
-  if (/\b(analyze|review|examine|study)\b/.test(lower)) actions.push("Analyze information");
-  if (/\b(explain|describe|tell|clarify)\b/.test(lower)) actions.push("Provide explanation");
-  if (/\b(help|assist|support|guide)\b/.test(lower)) actions.push("Offer assistance");
-
-  const entry = {
-    id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    created_at: new Date().toISOString(),
-    from_turn: fromUserTurn,
-    to_turn: toUserTurn,
-    gist:
-      topics.length > 0
-        ? `Discussion touched on ${topics.join(", ")}.`
-        : `Active back-and-forth with ${userMessages.length} user messages and ${assistantMessages.length} responses.`,
-    key_points:
-      topics.length > 0
-        ? topics.map((t) => `Discussion about ${t}`).slice(0, 4)
-        : ["Active exchange", "User seeking info", "Assistant provided guidance"],
-    entities: entities.length ? entities.slice(0, 6) : ["User", "Assistant"],
-    actions: actions.length ? actions.slice(0, 4) : ["Continue conversation"],
-    insights: [
-      topics[0] ? `Primary topic focus: ${topics[0]}` : "General information-seeking pattern",
-      "Concise, periodic note to maintain context",
-    ].slice(0, 3),
-  };
-
-  (session.liveHistory ||= []).push(entry);
+Return STRICT JSON with:
+{
+  "gist": "2-3 sentence summary",
+  "key_points": ["point 1","point 2","point 3"],
+  "entities": ["entity 1","entity 2"],
+  "actions": ["action item 1","decision made"],
+  "insights": ["insight 1","insight 2"]
 }
 
+Keep arrays to 3-4 items max.`;
+
+  const client = new OpenAI({ apiKey: key });
+  const r = await runWithTimeout(
+    client.chat.completions.create({
+      model: BACKGROUND_MODEL,
+      max_tokens: LIVE_NOTES_TOKENS,
+      temperature: BACKGROUND_TEMP,
+      messages: [
+        { role: "system", content: "You produce terse, information-dense JSON only." },
+        { role: "user", content: `${prompt}\n\nConversation:\n${chatExcerpt}` },
+      ],
+    }),
+    5000,
+    "live-notes"
+  );
+
+  const raw = r?.choices?.[0]?.message?.content?.toString?.() || "{}";
+  const obj = JSON.parse(extractJson(raw));
+
+  return {
+    gist: typeof obj?.gist === "string" ? obj.gist : "",
+    key_points: Array.isArray(obj?.key_points) ? obj.key_points.slice(0, 4) : [],
+    entities: Array.isArray(obj?.entities) ? obj.entities.slice(0, 6) : [],
+    actions: Array.isArray(obj?.actions) ? obj.actions.slice(0, 4) : [],
+    insights: Array.isArray(obj?.insights) ? obj.insights.slice(0, 4) : [],
+  };
+}
+
+// ----------- ROUTES -----------
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: H });
 }
@@ -275,16 +252,14 @@ export async function GET(req) {
 
   if (!sessionId) {
     return Response.json(
-      {
-        ok: true,
-        sessions: SESSIONS.size,
-        userId: userId || "guest",
-      },
-      { headers: H },
+      { ok: true, sessions: SESSIONS.size, userId: userId || "guest" },
+      { headers: H }
     );
   }
 
-  // Do NOT migrate; we want guest to remain separate and ephemeral.
+  // If the caller is authenticated, ensure any guest thread with this id is gone.
+  if (userId) cleanupGuestSession(sessionId);
+
   const s = getSession(sessionId, userId);
 
   return Response.json(
@@ -304,7 +279,7 @@ export async function GET(req) {
         createdAt: s.createdAt,
       },
     },
-    { headers: H },
+    { headers: H }
   );
 }
 
@@ -315,12 +290,11 @@ export async function POST(req) {
     if (!message) return new Response("Missing message", { status: 400, headers: H });
 
     let sessionId = asText(body?.sessionId || "");
-    if (!sessionId)
-      sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
+    if (!sessionId) sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
 
     const userId = await getUserFromRequest(req);
 
-    // If user is now authenticated, nuke the guest session of the same id immediately.
+    // Product rule: if authenticated, guest thread with this id must vanish.
     if (userId) cleanupGuestSession(sessionId);
 
     const modelMeta = body?.model || {};
@@ -333,80 +307,43 @@ export async function POST(req) {
           ? "gemini-1.5-flash"
           : provider === "xai"
           ? "grok-2"
-          : "claude-3-haiku-20240307"),
+          : "claude-3-haiku-20240307")
     );
 
     const needsIdentity = shouldInjectIdentity(message);
-    const systemIdentity = needsIdentity
-      ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName })
-      : null;
+    const systemIdentity = needsIdentity ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName }) : null;
 
     const s = getSession(sessionId, userId);
-    s.turns.push({
-      role: "user",
-      content: message,
-      provider,
-      model: modelName,
-      timestamp: new Date().toISOString(),
-    });
+    s.turns.push({ role: "user", content: message, provider, model: modelName, timestamp: new Date().toISOString() });
 
+    // --------- Route to selected provider ---------
     let assistantText = "";
     if (provider === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      assistantText = await callOpenAICompatible({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        messages,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-      });
+      const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
+      assistantText = await callOpenAICompatible({ baseURL: "https://api.x.ai/v1", key, model: modelName, messages, max_tokens: OUTPUT_TOKENS, temperature: 0.4 });
     } else if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
       if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
       const client = new OpenAI({ apiKey: key });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      const r = await client.chat.completions.create({
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages,
-      });
+      const messages = needsIdentity ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)] : buildOpenAIMessages(s.turns);
+      const r = await client.chat.completions.create({ model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages });
       assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
     } else if (provider === "anthropic") {
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
-      const bodyJson = {
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages: buildAnthropicMessages(s.turns),
-        ...(needsIdentity ? { system: systemIdentity } : {}),
-      };
+      const bodyJson = { model: modelName, max_tokens: OUTPUT_TOKENS, temperature: 0.4, messages: buildAnthropicMessages(s.turns), ...(needsIdentity ? { system: systemIdentity } : {}) };
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "x-api-key": key,
-        },
+        headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": key },
         body: JSON.stringify(bodyJson),
       });
       const txt = await r.text();
       if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
       try {
         const data = JSON.parse(txt);
-        assistantText =
-          (data?.content || [])
-            .filter((b) => b?.type === "text")
-            .map((b) => b.text)
-            .join("") || "Okay.";
+        assistantText = (data?.content || []).filter((b) => b?.type === "text").map((b) => b.text).join("") || "Okay.";
       } catch {
         assistantText = txt || "Okay.";
       }
@@ -418,43 +355,102 @@ export async function POST(req) {
       if (needsIdentity) cfg.systemInstruction = systemIdentity;
       const model = genAI.getGenerativeModel(cfg);
       const history = buildGeminiHistory(s.turns);
-      const result = await model.generateContent({
-        contents: history,
-        generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
-      });
+      const result = await model.generateContent({ contents: history, generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 } });
       assistantText = result?.response?.text?.() || "Okay.";
     }
 
-    s.turns.push({
-      role: "assistant",
-      content: assistantText,
-      provider,
-      model: modelName,
-      timestamp: new Date().toISOString(),
-    });
+    s.turns.push({ role: "assistant", content: assistantText, provider, model: modelName, timestamp: new Date().toISOString() });
     s.last = { provider, model: modelName };
 
+    // suggestions
     trackMessageTopics(s, message);
 
-    // ----- Snapshot logic: ONLY for logged in users -----
+    // --------- Snapshot logic (AUTH ONLY) ---------
     const uCount = userTurnCount(s.turns);
 
-    // First snapshot when uCount >= 5, then each +5 user messages after the last snapshot
-    if (!s.isGuest && uCount >= 5) {
-      const delta = uCount - (s._lastSnapshotUserCount || 0);
-      if (!s._firstSnapDone || delta >= 5) {
-        const fromTurn = s._firstSnapDone ? s._lastSnapshotUserCount + 1 : 1;
-        const toTurn = uCount;
+    // Trigger: first at >=5, then every +5 user messages since last snapshot
+    const readyForSnapshot = !s.isGuest && uCount >= 5 && (uCount - (s._lastSnapshotUserCount || 0) >= 5);
 
-        // Lightweight notes (no LLM calls)
-        createSnapshot(s, fromTurn, toTurn);
+    if (readyForSnapshot) {
+      const fromTurn = (s._lastSnapshotUserCount || 0) + 1;
+      const toTurn = uCount;
 
-        // mark
-        s._firstSnapDone = true;
-        s._lastSnapshotUserCount = uCount;
+      let entry = null;
+
+      // Try LLM-powered notes first (if OpenAI key available)
+      try {
+        if (process.env.OPENAI_API_KEY) {
+          const contextTurns = s.turns.slice(-20);
+          const note = await buildEnhancedLiveNotes(contextTurns, fromTurn, toTurn);
+          entry = {
+            id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            created_at: new Date().toISOString(),
+            from_turn: fromTurn,
+            to_turn: toTurn,
+            gist: note.gist || "",
+            key_points: Array.isArray(note.key_points) ? note.key_points.slice(0, 4) : [],
+            entities: Array.isArray(note.entities) ? note.entities.slice(0, 6) : [],
+            actions: Array.isArray(note.actions) ? note.actions.slice(0, 4) : [],
+            insights: Array.isArray(note.insights) ? note.insights.slice(0, 4) : [],
+          };
+        }
+      } catch {
+        // fall through to lightweight
       }
+
+      // Token-free fallback (improved entity extraction)
+      if (!entry) {
+        const recentTurns = s.turns.slice(-12);
+        const userMsgs = recentTurns.filter((t) => t.role === "user").map((t) => t.content || "");
+        const asstMsgs = recentTurns.filter((t) => t.role === "assistant").map((t) => t.content || "");
+
+        const rawText = [...userMsgs, ...asstMsgs].join(" ").replace(/\s+/g, " ").trim();
+        const lc = rawText.toLowerCase();
+
+        const topics = [];
+        if (/\b(food|cooking|recipe|ingredient|nutrition)\b/.test(lc)) topics.push("Food & Cooking");
+        if (/\b(code|programming|javascript|python|react|api)\b/.test(lc)) topics.push("Programming");
+        if (/\b(business|strategy|market|revenue|sales)\b/.test(lc)) topics.push("Business");
+        if (/\b(data|analysis|chart|graph|metrics)\b/.test(lc)) topics.push("Data Analysis");
+        if (/\b(design|ui|ux|interface|layout)\b/.test(lc)) topics.push("Design");
+
+        // FIX: extract candidates from non-lowercased text and de-noise
+        const stop = new Set([
+          "I","We","You","They","It","The","A","An","And","Or","Of","To","In","On","For","With","By","At","As","Be",
+          "This","That","These","Those","My","Your","Our","Their","He","She","His","Her","Its"
+        ]);
+        const capWords = (rawText.match(/\b[A-Z][A-Za-z0-9-]{2,}\b/g) || [])
+          .filter((w) => !stop.has(w))
+          .slice(0, 8);
+
+        const actions = [];
+        if (/\b(create|build|make|develop|implement|ship)\b/.test(lc)) actions.push("Create / build");
+        if (/\b(analyze|review|examine|study|audit)\b/.test(lc)) actions.push("Analyze information");
+        if (/\b(explain|describe|clarify|summarize)\b/.test(lc)) actions.push("Provide explanation");
+        if (/\b(help|assist|support|guide)\b/.test(lc)) actions.push("Offer assistance");
+
+        const topicLine = topics.length ? topics.join(", ") : "various topics";
+
+        entry = {
+          id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          created_at: new Date().toISOString(),
+          from_turn: fromTurn,
+          to_turn: toTurn,
+          gist: `Discussion touched on ${topicLine}.`,
+          key_points: topics.length ? topics.map((t) => `Discussion about ${t}`).slice(0, 4) : ["Active conversation"],
+          entities: capWords.length ? capWords.slice(0, 6) : ["User", "Assistant"],
+          actions: actions.slice(0, 4),
+          insights: [
+            topics.length ? `Primary topic: ${topics[0]}` : "General discussion",
+            "Periodic context note",
+          ].slice(0, 4),
+        };
+      }
+
+      if (!s.liveHistory) s.liveHistory = [];
+      s.liveHistory.push(entry);
+      s._lastSnapshotUserCount = uCount;
     }
-    // -----------------------------------------------
 
     const responseData = {
       text: assistantText,
@@ -476,11 +472,7 @@ export async function POST(req) {
 
     return new Response(JSON.stringify(responseData), {
       status: 200,
-      headers: {
-        ...H,
-        "Content-Type": "application/json; charset=utf-8",
-        "X-Session-Id": sessionId,
-      },
+      headers: { ...H, "Content-Type": "application/json; charset=utf-8", "X-Session-Id": sessionId },
     });
   } catch (e) {
     return new Response(`Session error: ${e?.message || String(e)}`, { status: 500, headers: H });
