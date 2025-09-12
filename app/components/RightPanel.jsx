@@ -319,8 +319,11 @@ export default function RightPanel() {
                               snapshot.key_topics.map((topic, i) => (
                                 <span
                                   key={i}
-                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium text-white hover:opacity-90 transition-opacity cursor-default"
-                                  style={{ backgroundColor: '#1a6b82' }}
+                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+                                  style={{
+                                    backgroundColor: '#1a6b82',
+                                    color: 'white'
+                                  }}
                                 >
                                   {topic}
                                 </span>
@@ -375,7 +378,14 @@ export default function RightPanel() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-900">Suggested Commands</h3>
-              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200">
+              <span
+                className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium border"
+                style={{
+                  background: 'linear-gradient(to right, #f0f9ff, #eef2ff)',
+                  color: '#1a6b82',
+                  borderColor: '#1a6b82'
+                }}
+              >
                 {commands.length}
               </span>
             </div>

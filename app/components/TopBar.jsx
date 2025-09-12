@@ -51,10 +51,10 @@ function DownloadIcon({ className = "h-4 w-4" }) {
 
 export default function EnhancedTopBar() {
   const logoSizeClass = "h-12";
-  const { createSession, selectedModel } = useSessionStore((s) => ({
-    createSession: s.createSession,
-    selectedModel: s.selectedModel,
-  }));
+  
+  // Get the store functions we need
+  const createSession = useSessionStore((s) => s.createSession);
+  const selectedModel = useSessionStore((s) => s.selectedModel);
 
   // Check authentication status
   const [authState, setAuthState] = useState({
@@ -116,6 +116,25 @@ export default function EnhancedTopBar() {
     setInteractOpen(false);
   }
 
+  // Handle new chat creation - simplified and direct
+  const handleNewChat = () => {
+    try {
+      // Create the new session - this automatically sets it as active
+      const sessionId = createSession(selectedModel);
+      
+      // Dispatch custom event to notify other components
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("session:created", { 
+          detail: { sessionId, model: selectedModel }
+        }));
+      }
+      
+      console.log("New chat created:", sessionId);
+    } catch (error) {
+      console.error("Failed to create new chat:", error);
+    }
+  };
+
   return (
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
@@ -165,8 +184,10 @@ export default function EnhancedTopBar() {
           {/* RIGHT: actions */}
           <div className="relative flex items-center gap-3 shrink-0">
             <button
-              onClick={() => createSession(selectedModel)}
-              className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              onClick={handleNewChat}
+              className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 active:opacity-90 transition-opacity"
+              type="button"
+              title="Create new chat session"
             >
               New Chat
             </button>
@@ -182,7 +203,7 @@ export default function EnhancedTopBar() {
                 title="Interact & Collaborate"
               >
                 Interact
-                <span className={`transition-transform ${interactOpen ? "rotate-90" : ""}`} aria-hidden>
+                <span className={`transition-transform duration-200 ${interactOpen ? "rotate-90" : ""}`} aria-hidden>
                   ▸
                 </span>
               </button>
@@ -196,7 +217,7 @@ export default function EnhancedTopBar() {
                     role="option"
                     type="button"
                     onClick={() => openInteraction("draw")}
-                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold transition-colors"
                     style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
                   >
                     <PencilIcon className="h-4 w-4" />
@@ -207,7 +228,7 @@ export default function EnhancedTopBar() {
                     role="option"
                     type="button"
                     onClick={() => openInteraction("share")}
-                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold transition-colors"
                     style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
                   >
                     <ShareIcon className="h-4 w-4" />
@@ -218,7 +239,7 @@ export default function EnhancedTopBar() {
                     role="option"
                     type="button"
                     onClick={() => openInteraction("invite")}
-                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold transition-colors"
                     style={{ borderBottom: "1px dotted rgba(201,238,237,0.85)" }}
                   >
                     <ShareIcon className="h-4 w-4" />
@@ -229,7 +250,7 @@ export default function EnhancedTopBar() {
                     role="option"
                     type="button"
                     onClick={() => openInteraction("download")}
-                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold"
+                    className="flex items-center gap-3 w-full text-left px-4 py-3 text-white text-base hover:bg-white/10 font-semibold transition-colors"
                   >
                     <DownloadIcon className="h-4 w-4" />
                     Download Transcript
@@ -246,7 +267,7 @@ export default function EnhancedTopBar() {
             ) : authState.authenticated ? (
               <Link href="/account">
                 <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[#176A82] bg-white text-[13px] font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer transition-colors"
                   aria-label="Account"
                   title="Account"
                 >
@@ -258,7 +279,7 @@ export default function EnhancedTopBar() {
               </Link>
             ) : (
               <Link href="/account">
-                <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95">
+                <button className="rounded-full bg-[#176A82] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 transition-opacity">
                   Sign In/Create Account
                 </button>
               </Link>
