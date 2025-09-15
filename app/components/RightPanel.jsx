@@ -1,7 +1,7 @@
 // components/RightPanel.jsx — Lynk branded session insights with stable collapsibles
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
 function ChevronDown({ open }) {
@@ -42,6 +42,10 @@ export default function RightPanel() {
   
   // Use refs to prevent state changes from affecting collapsible state
   const [openSnapshots, setOpenSnapshots] = useState({});
+  
+  // Track which snapshots we've already seen to prevent random auto-opening
+  const seenSnapshotsRef = useRef(new Set());
+  const lastSnapshotCountRef = useRef(0);
 
   const { activeId, sessions, guestMessageCount } = useSessionStore((s) => ({
     activeId: s.activeId,
@@ -108,6 +112,13 @@ export default function RightPanel() {
     };
   }, [activeId, auth.loading]);
 
+  // Reset seen snapshots when switching sessions
+  useEffect(() => {
+    seenSnapshotsRef.current.clear();
+    lastSnapshotCountRef.current = 0;
+    setOpenSnapshots({});
+  }, [activeId]);
+
   // Memoize live history to prevent unnecessary re-renders
   const liveHistory = useMemo(() => {
     const historyAll = inspector?.live_history || [];
@@ -117,19 +128,36 @@ export default function RightPanel() {
       .slice(0, 4);
   }, [inspector?.live_history]);
 
-  // Auto-open newest snapshot only once when new data arrives
+  // Auto-open ONLY newly created snapshots (not on first load/refresh)
   useEffect(() => {
-    if (liveHistory.length > 0) {
-      const newestId = `${liveHistory[0].created_at}|${liveHistory[0].from_turn}|${liveHistory[0].to_turn}`;
-      setOpenSnapshots(prev => {
-        // Only auto-open if this is a completely new snapshot and nothing is open
-        if (!prev[newestId] && Object.keys(prev).length === 0) {
-          return { [newestId]: true };
-        }
-        return prev;
-      });
+    if (liveHistory.length === 0) return;
+
+    const currentCount = liveHistory.length;
+    const wasEmpty = lastSnapshotCountRef.current === 0;
+    
+    // Only auto-open if we have MORE snapshots than before (new snapshot was created)
+    if (currentCount > lastSnapshotCountRef.current && !wasEmpty) {
+      const newestSnapshot = liveHistory[0];
+      const newestId = `${newestSnapshot.created_at}|${newestSnapshot.from_turn}|${newestSnapshot.to_turn}`;
+      
+      // Only auto-open if we haven't seen this specific snapshot before
+      if (!seenSnapshotsRef.current.has(newestId)) {
+        setOpenSnapshots(prev => ({
+          ...prev,
+          [newestId]: true
+        }));
+        console.log('🎯 Auto-opened new snapshot:', newestId);
+      }
     }
-  }, [liveHistory.length > 0 ? liveHistory[0]?.id : null]); // Only depend on newest snapshot ID
+    
+    // Track all snapshots we've seen
+    liveHistory.forEach(snapshot => {
+      const id = `${snapshot.created_at}|${snapshot.from_turn}|${snapshot.to_turn}`;
+      seenSnapshotsRef.current.add(id);
+    });
+    
+    lastSnapshotCountRef.current = currentCount;
+  }, [liveHistory.length]); // Only depend on the count, not the full array
 
   const commands = inspector?.commands || [];
   const badge = liveHistory.length;
