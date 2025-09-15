@@ -482,7 +482,7 @@ export default function Chat() {
       </div>
 
       {/* Enhanced Composer with Quick Actions */}
-      <form onSubmit={handleSubmit} className="shrink-0 border-t bg-white/95 backdrop-blur px-4 py-3">
+      <form onSubmit={handleSubmit} className="shrink-0 border-t bg-white/95 backdrop-blur px-4 py-3 pb-6">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
           {/* Quick Actions Button */}
           <div ref={quickActionsRef} className="relative">
