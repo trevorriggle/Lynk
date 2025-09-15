@@ -77,7 +77,6 @@ export default function Page() {
         <div className="hidden lg:block">
           <RightPanel active={active} activeContext={activeContext} />
         </div>
-      </div>
 
       <DraggableModelButton />
     </div>
