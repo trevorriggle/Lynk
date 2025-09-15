@@ -292,7 +292,7 @@ export default function EnhancedLeftStack({ onActivate }) {
 
   if (authState.loading) {
     return (
-      <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
+      <aside className="h-full w-full px-3 pb-3 pt-4 !bg-[#C7EBEA] overflow-y-auto">
         <div className="flex items-center justify-center h-32">
           <div className="text-sm text-gray-600">Loading...</div>
         </div>
@@ -301,7 +301,7 @@ export default function EnhancedLeftStack({ onActivate }) {
   }
 
   return (
-    <aside className="h-full w-full lg:w-64 px-3 pb-3 pt-4 !bg-[#C7EBEA]">
+    <aside className="h-full w-full px-3 pb-3 pt-4 !bg-[#C7EBEA] overflow-y-auto">
       
       <Section title="Context Files" badge={contextFiles.length || null} defaultOpen={true}>
         {showFileUpload && (

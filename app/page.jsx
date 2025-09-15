@@ -1,4 +1,3 @@
-// app/page.jsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -61,24 +60,23 @@ export default function Page() {
   }, [activeId, order, createSession, selectedModel]);
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: "calc(100vh - var(--header-h))" }}>
-      <div
-        className="
-          mx-auto w-full max-w-7xl flex-1
-          grid grid-cols-1
-          md:grid-cols-[16rem_minmax(0,1fr)]
-          lg:grid-cols-[16rem_minmax(0,1fr)_20rem]
-          items-start pt-0 gap-x-6 gap-y-0
-          h-full min-h-0 overflow-hidden
-        "
-      >
-        <LeftStack onActivate={handleActivate} />
+    <div className="h-full overflow-hidden" style={{ height: "calc(100vh - var(--header-h))" }}>
+      {/* Fixed Three-Panel Flexbox Layout */}
+      <div className="flex h-full overflow-hidden">
+        {/* Left Panel - Fixed Width */}
+        <div className="w-64 shrink-0 h-full overflow-hidden">
+          <LeftStack onActivate={handleActivate} />
+        </div>
         
-        <main className="h-full min-h-0 overflow-hidden">
+        {/* Main Chat Area - Takes Remaining Space */}
+        <div className="flex-1 min-w-0 h-full overflow-hidden">
           <Chat />
-        </main>
+        </div>
         
-        <RightPanel active={active} activeContext={activeContext} />
+        {/* Right Panel - Fixed Width, Hidden on Smaller Screens */}
+        <div className="hidden lg:block">
+          <RightPanel active={active} activeContext={activeContext} />
+        </div>
       </div>
 
       <DraggableModelButton />

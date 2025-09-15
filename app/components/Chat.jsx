@@ -358,11 +358,11 @@ export default function Chat() {
   // Empty state
   if (!activeId) {
     return (
-      <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
-        <div className="px-6 pt-2 text-xs text-slate-500 font-light">
+      <div className="flex flex-col h-full font-['Poppins',sans-serif]">
+        <div className="shrink-0 px-6 pt-2 text-xs text-slate-500 font-light">
           Using: <b className="font-medium">{fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
         </div>
-        <div className="min-h-0 flex items-center justify-center px-6">
+        <div className="flex-1 min-h-0 flex items-center justify-center px-6">
           <div className="text-center text-slate-500">
             <div className="text-base font-medium mb-1">No chats yet</div>
             <div className="text-sm font-light">
@@ -373,7 +373,7 @@ export default function Chat() {
             </div>
           </div>
         </div>
-        <div className="border-t bg-white/95 backdrop-blur px-4 py-3">
+        <div className="shrink-0 border-t bg-white/95 backdrop-blur px-4 py-3">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
             <input
               disabled
@@ -395,14 +395,14 @@ export default function Chat() {
 
   // Main chat
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] pb-4 font-['Poppins',sans-serif]">
+    <div className="flex flex-col h-full font-['Poppins',sans-serif]">
       {/* Status line */}
-      <div className="px-6 pt-2 text-xs text-slate-500 font-light">
+      <div className="shrink-0 px-6 pt-2 text-xs text-slate-500 font-light">
         Using: <b className="font-medium">{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
         {thread.map((m) => {
           const isUser = m.role === "user";
           const timestamp = new Date(m.timestamp || Date.now());
@@ -482,7 +482,7 @@ export default function Chat() {
       </div>
 
       {/* Enhanced Composer with Quick Actions */}
-      <form onSubmit={handleSubmit} className="border-t bg-white/95 backdrop-blur px-4 py-3">
+      <form onSubmit={handleSubmit} className="shrink-0 border-t bg-white/95 backdrop-blur px-4 py-3">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
           {/* Quick Actions Button */}
           <div ref={quickActionsRef} className="relative">
