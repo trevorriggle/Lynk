@@ -60,7 +60,7 @@ export default function Page() {
   }, [activeId, order, createSession, selectedModel]);
 
   return (
-    <div className="h-full overflow-hidden" style={{ height: "calc(100vh - var(--header-h))" }}>
+    <div className="relative" style={{ height: "calc(100vh - var(--header-h))" }}>
       {/* Fixed Three-Panel Flexbox Layout */}
       <div className="flex h-full overflow-hidden">
         {/* Left Panel - Fixed Width */}
@@ -77,7 +77,9 @@ export default function Page() {
         <div className="hidden lg:block">
           <RightPanel active={active} activeContext={activeContext} />
         </div>
+      </div>
 
+      {/* Draggable button positioned absolutely */}
       <DraggableModelButton />
     </div>
   );
