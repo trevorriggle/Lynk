@@ -17,6 +17,31 @@ const CLICK_DRAG_THRESHOLD = 6;
 const PILL_W = 192;
 const PILL_H = 48;
 const EDGE = 8;
+const LEFT_PANEL_WIDTH = 256; // w-64 = 256px
+const RIGHT_PANEL_WIDTH = 320; // w-80 = 320px
+
+// Calculate initial centered position in chat area
+const getInitialPosition = () => {
+  if (typeof window === 'undefined') {
+    return { x: 400, y: 200 }; // Server-side fallback
+  }
+  
+  const viewportWidth = window.innerWidth || 1400;
+  const viewportHeight = window.innerHeight || 800;
+  
+  // Chat area starts after left panel and has width minus both panels
+  const chatAreaStart = LEFT_PANEL_WIDTH;
+  const chatAreaWidth = Math.max(400, viewportWidth - LEFT_PANEL_WIDTH - (viewportWidth >= 1024 ? RIGHT_PANEL_WIDTH : 0));
+  
+  // Center horizontally in chat area, center vertically in viewport
+  const centerX = chatAreaStart + (chatAreaWidth / 2) - (PILL_W / 2);
+  const centerY = (viewportHeight / 2) - (PILL_H / 2);
+  
+  return {
+    x: Math.max(EDGE, Math.min(centerX, viewportWidth - PILL_W - EDGE)),
+    y: Math.max(EDGE, Math.min(centerY, viewportHeight - PILL_H - EDGE))
+  };
+};
 
 export default function DraggableModelButton({ model, setModel }) {
   // Force OpenAI as the actual default, regardless of what's passed in
@@ -28,7 +53,7 @@ export default function DraggableModelButton({ model, setModel }) {
   const [current, setCurrent] = useState(initial);
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [pos, setPos] = useState({ x: 24, y: 160 });
+  const [pos, setPos] = useState(getInitialPosition);
 
   const setSelectedModel = useSessionStore((s) => s.setSelectedModel);
 
@@ -42,13 +67,19 @@ export default function DraggableModelButton({ model, setModel }) {
     setSelectedModel(selected);
   }, [current, setModel, setSelectedModel]);
 
-  // Load/save pill position
+  // Load/save pill position with better initial positioning
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setPos(JSON.parse(saved));
+      if (saved) {
+        setPos(JSON.parse(saved));
+      } else {
+        // First time - center it in chat area
+        setPos(getInitialPosition());
+      }
     } catch (e) {
       console.warn("Failed to load pill position:", e);
+      setPos(getInitialPosition());
     }
   }, []);
 

@@ -303,7 +303,7 @@ export default function EnhancedLeftStack({ onActivate }) {
   return (
     <aside className="h-full w-full px-3 pb-3 pt-4 !bg-[#C7EBEA] overflow-y-auto">
       
-      <Section title="Context Files" badge={contextFiles.length || null} defaultOpen={true}>
+      <Section title="Context Files" badge={contextFiles.length || null} defaultOpen={false}>
         {showFileUpload && (
           <FileUpload 
             onFileUpload={handleFileUpload}
