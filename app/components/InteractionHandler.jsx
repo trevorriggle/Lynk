@@ -1,33 +1,61 @@
 "use client";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-// Drawing Canvas Modal
-function DrawingCanvas({ isOpen, onClose, onSave }) {
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [context, setContext] = useState(null);
+// Enhanced Drawing Canvas with Photoshop-like features
+function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
   const canvasRef = useRef(null);
+  const [context, setContext] = useState(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [tool, setTool] = useState('brush'); // brush, eraser, select, text
+  const [brushSize, setBrushSize] = useState(5);
+  const [brushColor, setBrushColor] = useState('#000000');
+  const [layers, setLayers] = useState([]);
+  const [activeLayer, setActiveLayer] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [historyStep, setHistoryStep] = useState(0);
 
+  // Initialize canvas and first layer
   useEffect(() => {
     if (isOpen && canvasRef.current) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
-      setContext(ctx);
       
-      // Set canvas size
       canvas.width = 800;
       canvas.height = 600;
       
-      // White background
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Create initial layer
+      const initialLayer = {
+        id: 0,
+        name: 'Layer 1',
+        canvas: document.createElement('canvas'),
+        visible: true,
+        opacity: 1
+      };
+      initialLayer.canvas.width = 800;
+      initialLayer.canvas.height = 600;
+      const layerCtx = initialLayer.canvas.getContext('2d');
+      layerCtx.fillStyle = 'white';
+      layerCtx.fillRect(0, 0, 800, 600);
       
-      // Drawing settings
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
+      setLayers([initialLayer]);
+      setActiveLayer(0);
+      setContext(ctx);
+      redrawCanvas([initialLayer], ctx);
     }
   }, [isOpen]);
+
+  const redrawCanvas = useCallback((layerList, ctx) => {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, 800, 600);
+    layerList.forEach(layer => {
+      if (layer.visible) {
+        ctx.globalAlpha = layer.opacity;
+        ctx.drawImage(layer.canvas, 0, 0);
+      }
+    });
+    ctx.globalAlpha = 1;
+  }, []);
 
   const getCanvasCoordinates = (e) => {
     const canvas = canvasRef.current;
@@ -41,25 +69,170 @@ function DrawingCanvas({ isOpen, onClose, onSave }) {
     };
   };
 
+  const saveToHistory = useCallback(() => {
+    const newHistory = history.slice(0, historyStep + 1);
+    const snapshot = layers.map(layer => ({
+      ...layer,
+      canvas: cloneCanvas(layer.canvas)
+    }));
+    newHistory.push(snapshot);
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
+  }, [layers, history, historyStep]);
+
+  const cloneCanvas = (canvas) => {
+    const clone = document.createElement('canvas');
+    clone.width = canvas.width;
+    clone.height = canvas.height;
+    clone.getContext('2d').drawImage(canvas, 0, 0);
+    return clone;
+  };
+
   const startDrawing = (e) => {
-    if (!context) return;
+    if (!layers[activeLayer]) return;
     setIsDrawing(true);
     const { x, y } = getCanvasCoordinates(e);
-    context.beginPath();
-    context.moveTo(x, y);
+    const layerCtx = layers[activeLayer].canvas.getContext('2d');
+    
+    if (tool === 'brush') {
+      layerCtx.globalCompositeOperation = 'source-over';
+      layerCtx.strokeStyle = brushColor;
+      layerCtx.lineWidth = brushSize;
+      layerCtx.lineCap = 'round';
+    } else if (tool === 'eraser') {
+      layerCtx.globalCompositeOperation = 'destination-out';
+      layerCtx.lineWidth = brushSize;
+      layerCtx.lineCap = 'round';
+    }
+    
+    layerCtx.beginPath();
+    layerCtx.moveTo(x, y);
   };
 
   const draw = (e) => {
-    if (!isDrawing || !context) return;
+    if (!isDrawing || !layers[activeLayer]) return;
     const { x, y } = getCanvasCoordinates(e);
-    context.lineTo(x, y);
-    context.stroke();
+    const layerCtx = layers[activeLayer].canvas.getContext('2d');
+    
+    layerCtx.lineTo(x, y);
+    layerCtx.stroke();
+    
+    redrawCanvas(layers, context);
   };
 
   const stopDrawing = () => {
-    if (!context) return;
+    if (!isDrawing) return;
     setIsDrawing(false);
-    context.beginPath();
+    if (layers[activeLayer]) {
+      const layerCtx = layers[activeLayer].canvas.getContext('2d');
+      layerCtx.beginPath();
+    }
+    saveToHistory();
+  };
+
+  const addLayer = () => {
+    const newLayer = {
+      id: Date.now(),
+      name: `Layer ${layers.length + 1}`,
+      canvas: document.createElement('canvas'),
+      visible: true,
+      opacity: 1
+    };
+    newLayer.canvas.width = 800;
+    newLayer.canvas.height = 600;
+    const newLayers = [...layers, newLayer];
+    setLayers(newLayers);
+    setActiveLayer(newLayers.length - 1);
+  };
+
+  const deleteLayer = (layerIndex) => {
+    if (layers.length <= 1) return;
+    const newLayers = layers.filter((_, index) => index !== layerIndex);
+    setLayers(newLayers);
+    setActiveLayer(Math.max(0, Math.min(activeLayer, newLayers.length - 1)));
+    redrawCanvas(newLayers, context);
+  };
+
+  const toggleLayerVisibility = (layerIndex) => {
+    const newLayers = [...layers];
+    newLayers[layerIndex].visible = !newLayers[layerIndex].visible;
+    setLayers(newLayers);
+    redrawCanvas(newLayers, context);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Add new layer for uploaded image
+        const imageLayer = {
+          id: Date.now(),
+          name: `Image ${layers.length + 1}`,
+          canvas: document.createElement('canvas'),
+          visible: true,
+          opacity: 1
+        };
+        imageLayer.canvas.width = 800;
+        imageLayer.canvas.height = 600;
+        const layerCtx = imageLayer.canvas.getContext('2d');
+        
+        // Scale image to fit canvas while maintaining aspect ratio
+        const scale = Math.min(800 / img.width, 600 / img.height);
+        const width = img.width * scale;
+        const height = img.height * scale;
+        const x = (800 - width) / 2;
+        const y = (600 - height) / 2;
+        
+        layerCtx.drawImage(img, x, y, width, height);
+        
+        const newLayers = [...layers, imageLayer];
+        setLayers(newLayers);
+        setActiveLayer(newLayers.length - 1);
+        redrawCanvas(newLayers, context);
+        saveToHistory();
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const undo = () => {
+    if (historyStep > 0) {
+      const newStep = historyStep - 1;
+      const snapshot = history[newStep];
+      setLayers(snapshot.map(layer => ({
+        ...layer,
+        canvas: cloneCanvas(layer.canvas)
+      })));
+      setHistoryStep(newStep);
+      redrawCanvas(snapshot, context);
+    }
+  };
+
+  const redo = () => {
+    if (historyStep < history.length - 1) {
+      const newStep = historyStep + 1;
+      const snapshot = history[newStep];
+      setLayers(snapshot.map(layer => ({
+        ...layer,
+        canvas: cloneCanvas(layer.canvas)
+      })));
+      setHistoryStep(newStep);
+      redrawCanvas(snapshot, context);
+    }
+  };
+
+  const clearCanvas = () => {
+    if (layers[activeLayer]) {
+      const layerCtx = layers[activeLayer].canvas.getContext('2d');
+      layerCtx.clearRect(0, 0, 800, 600);
+      redrawCanvas(layers, context);
+      saveToHistory();
+    }
   };
 
   const saveDrawing = () => {
@@ -70,20 +243,13 @@ function DrawingCanvas({ isOpen, onClose, onSave }) {
     onClose();
   };
 
-  const clearCanvas = () => {
-    if (!canvasRef.current || !context) return;
-    const canvas = canvasRef.current;
-    context.fillStyle = 'white';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-  };
-
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200]">
-      <div className="bg-white rounded-2xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-auto">
+      <div className="bg-white rounded-2xl p-4 max-w-6xl w-full mx-4 max-h-[95vh] overflow-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">Draw & Sketch</h2>
+          <h2 className="text-xl font-semibold">Advanced Drawing Studio</h2>
           <button 
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
@@ -92,38 +258,164 @@ function DrawingCanvas({ isOpen, onClose, onSave }) {
           </button>
         </div>
         
-        <div className="border border-gray-300 rounded-lg overflow-hidden mb-4">
-          <canvas
-            ref={canvasRef}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            className="block cursor-crosshair max-w-full"
-            style={{ width: '100%', height: 'auto' }}
-          />
-        </div>
-        
-        <div className="flex gap-3 justify-between">
-          <button
-            onClick={clearCanvas}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Clear
-          </button>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={saveDrawing}
-              className="px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90 transition-opacity"
-            >
-              Save & Send
-            </button>
+        <div className="flex gap-4">
+          {/* Left Panel - Tools & Settings */}
+          <div className="w-64 space-y-4">
+            {/* Tools */}
+            <div className="border rounded-lg p-3">
+              <h3 className="font-semibold mb-2">Tools</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setTool('brush')}
+                  className={`p-2 rounded ${tool === 'brush' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                >
+                  🖌️ Brush
+                </button>
+                <button
+                  onClick={() => setTool('eraser')}
+                  className={`p-2 rounded ${tool === 'eraser' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                >
+                  🧽 Eraser
+                </button>
+              </div>
+            </div>
+
+            {/* Brush Settings */}
+            <div className="border rounded-lg p-3">
+              <h3 className="font-semibold mb-2">Brush Settings</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-sm">Size: {brushSize}px</label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    value={brushSize}
+                    onChange={(e) => setBrushSize(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm">Color:</label>
+                  <input
+                    type="color"
+                    value={brushColor}
+                    onChange={(e) => setBrushColor(e.target.value)}
+                    className="w-full h-8 rounded"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Image Upload */}
+            <div className="border rounded-lg p-3">
+              <h3 className="font-semibold mb-2">Add Image</h3>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="w-full text-sm"
+              />
+            </div>
+
+            {/* Layers Panel */}
+            <div className="border rounded-lg p-3">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="font-semibold">Layers</h3>
+                <button
+                  onClick={addLayer}
+                  className="text-xs bg-blue-500 text-white px-2 py-1 rounded"
+                >
+                  + Add
+                </button>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {layers.map((layer, index) => (
+                  <div
+                    key={layer.id}
+                    className={`flex items-center gap-2 p-2 rounded text-sm ${
+                      index === activeLayer ? 'bg-blue-100' : 'bg-gray-50'
+                    }`}
+                  >
+                    <button
+                      onClick={() => toggleLayerVisibility(index)}
+                      className="text-xs"
+                    >
+                      {layer.visible ? '👁️' : '🚫'}
+                    </button>
+                    <span
+                      className="flex-1 cursor-pointer"
+                      onClick={() => setActiveLayer(index)}
+                    >
+                      {layer.name}
+                    </span>
+                    {layers.length > 1 && (
+                      <button
+                        onClick={() => deleteLayer(index)}
+                        className="text-xs text-red-500"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Canvas */}
+          <div className="flex-1">
+            <div className="border border-gray-300 rounded-lg overflow-hidden mb-4">
+              <canvas
+                ref={canvasRef}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                className="block cursor-crosshair max-w-full bg-white"
+                style={{ width: '100%', height: 'auto' }}
+              />
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-between">
+              <div className="flex gap-2">
+                <button
+                  onClick={undo}
+                  disabled={historyStep <= 0}
+                  className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+                >
+                  ↶ Undo
+                </button>
+                <button
+                  onClick={redo}
+                  disabled={historyStep >= history.length - 1}
+                  className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300 disabled:opacity-50"
+                >
+                  ↷ Redo
+                </button>
+                <button
+                  onClick={clearCanvas}
+                  className="px-3 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                >
+                  Clear Layer
+                </button>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveDrawing}
+                  className="px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90"
+                >
+                  Save & Send to Chat
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -131,7 +423,7 @@ function DrawingCanvas({ isOpen, onClose, onSave }) {
   );
 }
 
-// Share Chat Modal
+// Share Chat Modal (unchanged from before)
 function ShareChatModal({ isOpen, onClose, sessionId }) {
   const { shareChat, exportSession } = useSessionStore();
   const [shareUrl, setShareUrl] = useState("");
@@ -204,7 +496,7 @@ function ShareChatModal({ isOpen, onClose, sessionId }) {
             </p>
             <button
               onClick={handleShare}
-              className="w-full px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90 transition-opacity"
+              className="w-full px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90"
             >
               Generate Share Link
             </button>
@@ -221,7 +513,7 @@ function ShareChatModal({ isOpen, onClose, sessionId }) {
               />
               <button
                 onClick={copyToClipboard}
-                className="px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90 transition-opacity whitespace-nowrap"
+                className="px-4 py-2 bg-[#176A82] text-white rounded-lg hover:opacity-90 whitespace-nowrap"
               >
                 {copied ? "Copied!" : "Copy"}
               </button>
@@ -234,19 +526,19 @@ function ShareChatModal({ isOpen, onClose, sessionId }) {
           <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => downloadTranscript('txt')}
-              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               TXT
             </button>
             <button
               onClick={() => downloadTranscript('markdown')}
-              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               Markdown
             </button>
             <button
               onClick={() => downloadTranscript('json')}
-              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+              className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               JSON
             </button>
@@ -257,7 +549,7 @@ function ShareChatModal({ isOpen, onClose, sessionId }) {
   );
 }
 
-// File Attachment Modal
+// File Attachment Modal (unchanged)
 function FileAttachModal({ isOpen, onClose, onFileSelect }) {
   const fileInputRef = useRef(null);
 
@@ -295,7 +587,7 @@ function FileAttachModal({ isOpen, onClose, onFileSelect }) {
           
           <button
             onClick={openFileDialog}
-            className="w-full px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#176A82] hover:bg-gray-50 transition-colors text-center"
+            className="w-full px-4 py-8 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#176A82] hover:bg-gray-50 text-center"
           >
             <div className="text-gray-600">
               <div className="text-lg mb-2">📁</div>
@@ -385,24 +677,16 @@ export default function InteractionHandler() {
       return;
     }
 
-    // Add drawing as message with attachment
+    // Add drawing as message with attachment that the AI can see
     appendToActive({
       role: "user",
-      content: "[Drawing attached - analyzing with vision model...]",
+      content: "I've created an image. Please analyze what you see in this image.",
       attachments: [{
         type: "image",
         data: dataURL,
         timestamp: new Date().toISOString()
       }]
     });
-    
-    // Simulate vision model response
-    setTimeout(() => {
-      appendToActive({
-        role: "assistant",
-        content: "I can see your drawing! This is where vision model analysis would appear. The drawing has been saved and is ready for integration with GPT-4V or Claude Vision."
-      });
-    }, 1000);
   };
 
   const handleFileSelect = (files) => {
@@ -450,7 +734,7 @@ export default function InteractionHandler() {
 
   return (
     <>
-      <DrawingCanvas
+      <EnhancedDrawingCanvas
         isOpen={activeModal === 'draw'}
         onClose={closeModal}
         onSave={handleDrawingSave}

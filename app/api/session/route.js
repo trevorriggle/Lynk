@@ -1,4 +1,4 @@
-// app/api/session/route.js — auth-only snapshots, delta trigger, high-signal notes
+// app/api/session/route.js — auth-only snapshots, delta trigger, high-signal notes, vision support
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +36,137 @@ const LIVE_NOTES_BUDGET = 800;
 const LIVE_NOTES_TOKENS = 150;
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
+
+// ---------- Vision Processing ----------
+async function processImageWithVision(imageDataURL, message, provider, modelName) {
+  try {
+    if (provider === "openai") {
+      const key = process.env.OPENAI_API_KEY;
+      if (!key) return "I can see you've shared an image, but OpenAI vision isn't configured.";
+      
+      const client = new OpenAI({ apiKey: key });
+      
+      // Use vision-capable model
+      const visionModel = modelName === "gpt-4o" ? "gpt-4o" : "gpt-4o";
+      
+      const response = await client.chat.completions.create({
+        model: visionModel,
+        max_tokens: OUTPUT_TOKENS,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: message || "What do you see in this image? Please describe it in detail."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: imageDataURL
+                }
+              }
+            ]
+          }
+        ]
+      });
+      
+      return response?.choices?.[0]?.message?.content || "I can see the image but couldn't generate a response.";
+      
+    } else if (provider === "anthropic") {
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (!key) return "I can see you've shared an image, but Claude vision isn't configured.";
+      
+      // Extract base64 data from data URL
+      const base64Match = imageDataURL.match(/^data:image\/[^;]+;base64,(.+)$/);
+      if (!base64Match) return "Invalid image format for Claude vision.";
+      
+      const base64Data = base64Match[1];
+      const mediaType = imageDataURL.match(/^data:(image\/[^;]+)/)?.[1] || "image/png";
+      
+      const payload = {
+        model: "claude-3-sonnet-20240229", // Use vision-capable model
+        max_tokens: OUTPUT_TOKENS,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: mediaType,
+                  data: base64Data
+                }
+              },
+              {
+                type: "text",
+                text: message || "What do you see in this image? Please describe it in detail."
+              }
+            ]
+          }
+        ]
+      };
+      
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": key,
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      const txt = await r.text();
+      if (!r.ok) return `Claude vision error: ${txt}`;
+      
+      try {
+        const data = JSON.parse(txt);
+        return (data?.content || [])
+          .filter((b) => b?.type === "text")
+          .map((b) => b.text)
+          .join("") || "I can see the image but couldn't generate a response.";
+      } catch {
+        return txt || "I can see the image but couldn't generate a response.";
+      }
+      
+    } else if (provider === "gemini") {
+      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (!key) return "I can see you've shared an image, but Gemini vision isn't configured.";
+      
+      const genAI = new GoogleGenerativeAI(key);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      
+      // Convert data URL to the format Gemini expects
+      const base64Match = imageDataURL.match(/^data:image\/[^;]+;base64,(.+)$/);
+      if (!base64Match) return "Invalid image format for Gemini vision.";
+      
+      const base64Data = base64Match[1];
+      const mimeType = imageDataURL.match(/^data:(image\/[^;]+)/)?.[1] || "image/png";
+      
+      const imagePart = {
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
+        }
+      };
+      
+      const textPart = message || "What do you see in this image? Please describe it in detail.";
+      
+      const result = await model.generateContent([textPart, imagePart]);
+      return result?.response?.text?.() || "I can see the image but couldn't generate a response.";
+      
+    } else {
+      return `I can see you've shared an image, but vision analysis isn't currently supported with ${provider}. Please switch to OpenAI, Claude, or Gemini to analyze images.`;
+    }
+  } catch (error) {
+    console.error("Vision processing error:", error);
+    return "I can see the image but encountered an error analyzing it.";
+  }
+}
 
 // ---------- Session store ----------
 const SESSIONS = new Map();
@@ -376,6 +507,10 @@ export async function POST(req) {
           : "claude-3-haiku-20240307")
     );
 
+    // Check if message has image attachments
+    const attachments = body?.attachments || [];
+    const hasImageAttachment = attachments.some(att => att.type === "image");
+
     const needsIdentity = shouldInjectIdentity(message);
     const systemIdentity = needsIdentity
       ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName })
@@ -390,80 +525,88 @@ export async function POST(req) {
       timestamp: new Date().toISOString(),
     });
 
-    // ---- Call chosen provider ----
+    // ---- Handle vision processing or regular provider calls ----
     let assistantText = "";
-    if (provider === "xai") {
-      const key = process.env.XAI_API_KEY;
-      if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      assistantText = await callOpenAICompatible({
-        baseURL: "https://api.x.ai/v1",
-        key,
-        model: modelName,
-        messages,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-      });
-    } else if (provider === "openai") {
-      const key = process.env.OPENAI_API_KEY;
-      if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
-      const client = new OpenAI({ apiKey: key });
-      const messages = needsIdentity
-        ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
-        : buildOpenAIMessages(s.turns);
-      const r = await client.chat.completions.create({
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages,
-      });
-      assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
-    } else if (provider === "anthropic") {
-      const key = process.env.ANTHROPIC_API_KEY;
-      if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
-      const payload = {
-        model: modelName,
-        max_tokens: OUTPUT_TOKENS,
-        temperature: 0.4,
-        messages: buildAnthropicMessages(s.turns),
-        ...(needsIdentity ? { system: systemIdentity } : {}),
-      };
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "anthropic-version": "2023-06-01",
-          "x-api-key": key,
-        },
-        body: JSON.stringify(payload),
-      });
-      const txt = await r.text();
-      if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
-      try {
-        const data = JSON.parse(txt);
-        assistantText =
-          (data?.content || [])
-            .filter((b) => b?.type === "text")
-            .map((b) => b.text)
-            .join("") || "Okay.";
-      } catch {
-        assistantText = txt || "Okay.";
-      }
+
+    if (hasImageAttachment) {
+      // Use vision processing with the current provider
+      const imageAttachment = attachments.find(att => att.type === "image");
+      assistantText = await processImageWithVision(imageAttachment.data, message, provider, modelName);
     } else {
-      const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-      if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
-      const genAI = new GoogleGenerativeAI(key);
-      const cfg = { model: modelName || "gemini-1.5-flash" };
-      if (needsIdentity) cfg.systemInstruction = systemIdentity;
-      const model = genAI.getGenerativeModel(cfg);
-      const history = buildGeminiHistory(s.turns);
-      const result = await model.generateContent({
-        contents: history,
-        generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
-      });
-      assistantText = result?.response?.text?.() || "Okay.";
+      // Regular text-only processing
+      if (provider === "xai") {
+        const key = process.env.XAI_API_KEY;
+        if (!key) return new Response("XAI_API_KEY missing", { status: 500, headers: H });
+        const messages = needsIdentity
+          ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
+          : buildOpenAIMessages(s.turns);
+        assistantText = await callOpenAICompatible({
+          baseURL: "https://api.x.ai/v1",
+          key,
+          model: modelName,
+          messages,
+          max_tokens: OUTPUT_TOKENS,
+          temperature: 0.4,
+        });
+      } else if (provider === "openai") {
+        const key = process.env.OPENAI_API_KEY;
+        if (!key) return new Response("OPENAI_API_KEY missing", { status: 500, headers: H });
+        const client = new OpenAI({ apiKey: key });
+        const messages = needsIdentity
+          ? [{ role: "system", content: systemIdentity }, ...buildOpenAIMessages(s.turns)]
+          : buildOpenAIMessages(s.turns);
+        const r = await client.chat.completions.create({
+          model: modelName,
+          max_tokens: OUTPUT_TOKENS,
+          temperature: 0.4,
+          messages,
+        });
+        assistantText = r?.choices?.[0]?.message?.content?.toString?.() || "Okay.";
+      } else if (provider === "anthropic") {
+        const key = process.env.ANTHROPIC_API_KEY;
+        if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
+        const payload = {
+          model: modelName,
+          max_tokens: OUTPUT_TOKENS,
+          temperature: 0.4,
+          messages: buildAnthropicMessages(s.turns),
+          ...(needsIdentity ? { system: systemIdentity } : {}),
+        };
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "x-api-key": key,
+          },
+          body: JSON.stringify(payload),
+        });
+        const txt = await r.text();
+        if (!r.ok) return new Response(`Claude ${r.status}: ${txt}`, { status: 502, headers: H });
+        try {
+          const data = JSON.parse(txt);
+          assistantText =
+            (data?.content || [])
+              .filter((b) => b?.type === "text")
+              .map((b) => b.text)
+              .join("") || "Okay.";
+        } catch {
+          assistantText = txt || "Okay.";
+        }
+      } else {
+        const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!key) return new Response("GEMINI_API_KEY missing", { status: 500, headers: H });
+        const genAI = new GoogleGenerativeAI(key);
+        const cfg = { model: modelName || "gemini-1.5-flash" };
+        if (needsIdentity) cfg.systemInstruction = systemIdentity;
+        const model = genAI.getGenerativeModel(cfg);
+        const history = buildGeminiHistory(s.turns);
+        const result = await model.generateContent({
+          contents: history,
+          generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
+        });
+        assistantText = result?.response?.text?.() || "Okay.";
+      }
     }
 
     s.turns.push({

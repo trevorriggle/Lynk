@@ -206,7 +206,7 @@ export default function Chat() {
     const current = getCurrentCount();
     const limit = getMessageLimit();
     return authState.authenticated
-      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId || "–"}`
+      ? `• authenticated (${current}/${limit} messages) • project: ${authState.projectId || "—"}`
       : `• guest mode (${current}/${limit} messages)`;
   };
 
@@ -296,8 +296,12 @@ export default function Chat() {
       return;
     }
 
+    // Get the current message for attachments
+    const currentMessage = thread[thread.length - 1];
+    
     // optimistic append
-    appendToActive({ role: "user", content: text });
+    const newMessage = { role: "user", content: text };
+    appendToActive(newMessage);
     setInput("");
     setSending(true);
 
@@ -310,6 +314,7 @@ export default function Chat() {
           sessionId: activeId,
           message: text,
           projectId: authState.projectId,
+          attachments: currentMessage?.attachments || [],
           model: {
             label: sessionModel?.label,
             provider: sessionModel?.provider,
@@ -430,6 +435,21 @@ export default function Chat() {
               {isUser ? (
                 <div className="text-right">
                   <div className="text-slate-800 font-normal break-words overflow-wrap-anywhere">
+                    {/* Render images if they exist */}
+                    {m.attachments?.some(att => att.type === "image") && (
+                      <div className="mb-3">
+                        {m.attachments
+                          .filter(att => att.type === "image")
+                          .map((att, idx) => (
+                            <img
+                              key={idx}
+                              src={att.data}
+                              alt="User drawing"
+                              className="max-w-full max-h-64 rounded-lg border border-slate-200 shadow-sm"
+                            />
+                          ))}
+                      </div>
+                    )}
                     {m.content}
                   </div>
                   <div className="text-xs text-slate-500 mt-1 opacity-0 hover:opacity-100 transition-opacity">
