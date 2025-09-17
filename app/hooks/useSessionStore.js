@@ -15,14 +15,24 @@ const genId = () => {
 
 // Default models configuration
 const DEFAULT_MODELS = [
-  { label: "Claude Sonnet", provider: "anthropic", model: "claude-3-sonnet-20240229" },
-  { label: "Claude Haiku", provider: "anthropic", model: "claude-3-haiku-20240307" },
-  { label: "GPT-4o", provider: "openai", model: "gpt-4o" },
-  { label: "GPT-4o Mini", provider: "openai", model: "gpt-4o-mini" },
-  { label: "Gemini Flash", provider: "gemini", model: "gemini-1.5-flash" },
-  { label: "Gemini Pro", provider: "gemini", model: "gemini-1.5-pro" },
+  { label: "OpenAI", provider: "openai", model: "gpt-4o-mini" },
+  { label: "Claude", provider: "anthropic", model: "claude-3-haiku-20240307" },
+  { label: "Gemini", provider: "gemini", model: "gemini-1.5-flash" },
   { label: "Grok", provider: "xai", model: "grok-2" },
 ];
+
+// Debounce function for API calls
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 // Initial state
 const initialState = {
@@ -36,7 +46,12 @@ const initialState = {
   // Usage tracking
   guestMessageCount: 0,
   
-  // Left panel items - now with full CRUD operations
+  // Sync state
+  isLoading: false,
+  lastSyncAt: null,
+  pendingSyncs: new Set(),
+  
+  // Left panel items
   contextFiles: [
     {
       key: "sys-prompt",
@@ -97,6 +112,7 @@ const initialState = {
   // Settings
   settings: {
     autoSave: true,
+    syncEnabled: true,
     darkMode: false,
     notificationsEnabled: true,
     defaultModel: DEFAULT_MODELS[0],
@@ -105,502 +121,744 @@ const initialState = {
 
 export const useSessionStore = create(
   persist(
-    (set, get) => ({
-      ...initialState,
-
-      // ==================== SESSION MANAGEMENT ====================
-      
-      createSession: (model = null) => {
-        const id = genId();
-        const newSession = {
-          id,
-          title: "New chat",
-          messages: [],
-          model: model || get().selectedModel,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+    (set, get) => {
+      // Sync functions
+      const syncToDatabase = async (type, data) => {
+        if (!get().settings.syncEnabled) return;
         
-        set((state) => ({
-          sessions: { ...state.sessions, [id]: newSession },
-          order: [id, ...state.order],
-          activeId: id,
-        }));
-        
-        return id;
-      },
-
-      selectSession: (id) => {
-        set({ activeId: id });
-      },
-
-      deleteSession: (id) => {
-        set((state) => {
-          const newSessions = { ...state.sessions };
-          delete newSessions[id];
+        try {
+          const response = await fetch('/api/chat-storage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ type, data }),
+          });
           
-          const newOrder = state.order.filter((sessionId) => sessionId !== id);
-          const newActiveId = state.activeId === id 
-            ? (newOrder.length > 0 ? newOrder[0] : null)
-            : state.activeId;
+          if (!response.ok && response.status !== 401) {
+            console.warn(`Failed to sync ${type}:`, response.statusText);
+          }
+        } catch (error) {
+          console.warn(`Failed to sync ${type}:`, error);
+        }
+      };
 
-          return {
-            sessions: newSessions,
-            order: newOrder,
-            activeId: newActiveId,
+      const debouncedSync = debounce(syncToDatabase, 1000);
+
+      const loadFromDatabase = async () => {
+        if (!get().settings.syncEnabled) return;
+        
+        set({ isLoading: true });
+        
+        try {
+          const response = await fetch('/api/chat-storage', {
+            credentials: 'include',
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            set({
+              sessions: data.sessions || {},
+              order: data.order || [],
+              contextFiles: data.contextFiles || get().contextFiles,
+              behaviors: data.behaviors || get().behaviors,
+              commands: data.commands || get().commands,
+              projects: data.projects || get().projects,
+              lastSyncAt: new Date().toISOString(),
+              isLoading: false,
+            });
+          } else if (response.status !== 401) {
+            console.warn('Failed to load from database:', response.statusText);
+            set({ isLoading: false });
+          } else {
+            // User not authenticated, keep local state
+            set({ isLoading: false });
+          }
+        } catch (error) {
+          console.warn('Failed to load from database:', error);
+          set({ isLoading: false });
+        }
+      };
+
+      // Check authentication status and load data if authenticated
+      const checkAuthAndLoad = async () => {
+        try {
+          const response = await fetch('/api/me', { credentials: 'include' });
+          if (response.ok) {
+            const userData = await response.json();
+            if (userData?.userId) {
+              await loadFromDatabase();
+            }
+          }
+        } catch (error) {
+          console.warn('Auth check failed:', error);
+        }
+      };
+
+      // Load initial data
+      if (typeof window !== 'undefined') {
+        setTimeout(checkAuthAndLoad, 100);
+      }
+
+      return {
+        ...initialState,
+
+        // ==================== SYNC METHODS ====================
+        
+        loadFromDatabase,
+        syncToDatabase,
+        
+        toggleSync: () => {
+          set((state) => ({
+            settings: {
+              ...state.settings,
+              syncEnabled: !state.settings.syncEnabled,
+            },
+          }));
+        },
+
+        // ==================== SESSION MANAGEMENT ====================
+        
+        createSession: (model = null) => {
+          const id = genId();
+          const sessionModel = model || get().selectedModel;
+          const newSession = {
+            id,
+            title: "New chat",
+            messages: [],
+            model: sessionModel,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            userId: null, // Will be set by sync if authenticated
           };
-        });
-      },
+          
+          set((state) => ({
+            sessions: { ...state.sessions, [id]: newSession },
+            order: [id, ...state.order],
+            activeId: id,
+          }));
 
-      updateSessionTitle: (id, title) => {
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [id]: {
-              ...state.sessions[id],
+          // Sync to database
+          debouncedSync('save_session', newSession);
+          
+          return id;
+        },
+
+        selectSession: (id) => {
+          set({ activeId: id });
+        },
+
+        deleteSession: (id) => {
+          set((state) => {
+            const newSessions = { ...state.sessions };
+            delete newSessions[id];
+            
+            const newOrder = state.order.filter((sessionId) => sessionId !== id);
+            const newActiveId = state.activeId === id 
+              ? (newOrder.length > 0 ? newOrder[0] : null)
+              : state.activeId;
+
+            return {
+              sessions: newSessions,
+              order: newOrder,
+              activeId: newActiveId,
+            };
+          });
+
+          // Delete from database
+          fetch(`/api/chat-storage?type=session&id=${id}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          }).catch(console.warn);
+        },
+
+        updateSessionTitle: (id, title) => {
+          set((state) => {
+            const session = state.sessions[id];
+            if (!session) return state;
+
+            const updatedSession = {
+              ...session,
               title,
               updatedAt: new Date().toISOString(),
-            },
-          },
-        }));
-      },
+            };
 
-      // ==================== MESSAGE MANAGEMENT ====================
-      
-      appendToActive: (message) => {
-        const { activeId } = get();
-        if (!activeId) return;
-
-        const messageWithId = {
-          id: genId(),
-          timestamp: new Date().toISOString(),
-          ...message,
-        };
-
-        set((state) => {
-          const session = state.sessions[activeId];
-          if (!session) return state;
-
-          // Update guest message count for user messages
-          let newGuestMessageCount = state.guestMessageCount;
-          if (message.role === "user" && !session.userId) {
-            newGuestMessageCount += 1;
-          }
-
-          // Auto-generate title from first user message
-          let newTitle = session.title;
-          if (message.role === "user" && session.messages.length === 0) {
-            newTitle = message.content.slice(0, 50) + (message.content.length > 50 ? "..." : "");
-          }
-
-          return {
-            sessions: {
-              ...state.sessions,
-              [activeId]: {
-                ...session,
-                title: newTitle,
-                messages: [...session.messages, messageWithId],
-                updatedAt: new Date().toISOString(),
+            return {
+              sessions: {
+                ...state.sessions,
+                [id]: updatedSession,
               },
-            },
-            order: [activeId, ...state.order.filter(id => id !== activeId)],
-            guestMessageCount: newGuestMessageCount,
+            };
+          });
+
+          // Sync to database
+          const session = get().sessions[id];
+          if (session) {
+            debouncedSync('save_session', session);
+          }
+        },
+
+        // ==================== MESSAGE MANAGEMENT ====================
+        
+        appendToActive: (message) => {
+          const { activeId } = get();
+          if (!activeId) return;
+
+          const messageWithId = {
+            id: genId(),
+            timestamp: new Date().toISOString(),
+            ...message,
           };
-        });
-      },
 
-      clearActiveMessages: () => {
-        const { activeId } = get();
-        if (!activeId) return;
+          set((state) => {
+            const session = state.sessions[activeId];
+            if (!session) return state;
 
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [activeId]: {
+            // Update guest message count for user messages
+            let newGuestMessageCount = state.guestMessageCount;
+            if (message.role === "user" && !session.userId) {
+              newGuestMessageCount += 1;
+            }
+
+            // Auto-generate title from first user message
+            let newTitle = session.title;
+            if (message.role === "user" && session.messages.length === 0) {
+              newTitle = message.content.slice(0, 50) + (message.content.length > 50 ? "..." : "");
+            }
+
+            const updatedSession = {
+              ...session,
+              title: newTitle,
+              messages: [...session.messages, messageWithId],
+              updatedAt: new Date().toISOString(),
+            };
+
+            return {
+              sessions: {
+                ...state.sessions,
+                [activeId]: updatedSession,
+              },
+              order: [activeId, ...state.order.filter(id => id !== activeId)],
+              guestMessageCount: newGuestMessageCount,
+            };
+          });
+
+          // Sync session and message to database
+          const updatedSession = get().sessions[activeId];
+          if (updatedSession) {
+            debouncedSync('save_session', updatedSession);
+            debouncedSync('save_message', {
+              ...messageWithId,
+              sessionId: activeId,
+            });
+          }
+        },
+
+        clearActiveMessages: () => {
+          const { activeId } = get();
+          if (!activeId) return;
+
+          set((state) => {
+            const updatedSession = {
               ...state.sessions[activeId],
               messages: [],
               title: "New chat",
               updatedAt: new Date().toISOString(),
-            },
-          },
-        }));
-      },
+            };
 
-      // ==================== MODEL MANAGEMENT ====================
-      
-      setSelectedModel: (model) => {
-        set({ selectedModel: model });
-      },
+            return {
+              sessions: {
+                ...state.sessions,
+                [activeId]: updatedSession,
+              },
+            };
+          });
 
-      updateSessionModel: (sessionId, model) => {
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [sessionId]: {
+          // Sync to database
+          const session = get().sessions[activeId];
+          if (session) {
+            debouncedSync('save_session', session);
+          }
+        },
+
+        // ==================== MODEL MANAGEMENT ====================
+        
+        setSelectedModel: (model) => {
+          set({ selectedModel: model });
+        },
+
+        updateSessionModel: (sessionId, model) => {
+          set((state) => {
+            const updatedSession = {
               ...state.sessions[sessionId],
               model,
               updatedAt: new Date().toISOString(),
-            },
-          },
-        }));
-      },
+            };
 
-      // ==================== CONTEXT FILES MANAGEMENT ====================
-      
-      addContextFile: (file) => {
-        const fileWithMetadata = {
-          key: file.key || genId(),
-          label: file.label || file.name || "Untitled File",
-          content: file.content || "",
-          type: file.type || "text/plain",
-          size: file.size || 0,
-          createdAt: new Date().toISOString(),
-          ...file,
-        };
-
-        set((state) => ({
-          contextFiles: [...state.contextFiles, fileWithMetadata],
-        }));
-      },
-
-      updateContextFile: (key, updates) => {
-        set((state) => ({
-          contextFiles: state.contextFiles.map(file =>
-            file.key === key 
-              ? { ...file, ...updates, updatedAt: new Date().toISOString() }
-              : file
-          ),
-        }));
-      },
-
-      deleteContextFile: (key) => {
-        set((state) => ({
-          contextFiles: state.contextFiles.filter(file => file.key !== key),
-        }));
-      },
-
-      // ==================== BEHAVIORS MANAGEMENT ====================
-      
-      addBehavior: (behavior) => {
-        const behaviorWithMetadata = {
-          key: behavior.key || genId(),
-          label: behavior.label || "Untitled Behavior",
-          content: behavior.content || "",
-          createdAt: new Date().toISOString(),
-          ...behavior,
-        };
-
-        set((state) => ({
-          behaviors: [...state.behaviors, behaviorWithMetadata],
-        }));
-      },
-
-      updateBehavior: (key, updates) => {
-        set((state) => ({
-          behaviors: state.behaviors.map(behavior =>
-            behavior.key === key 
-              ? { ...behavior, ...updates, updatedAt: new Date().toISOString() }
-              : behavior
-          ),
-        }));
-      },
-
-      deleteBehavior: (key) => {
-        set((state) => ({
-          behaviors: state.behaviors.filter(behavior => behavior.key !== key),
-        }));
-      },
-
-      // ==================== COMMANDS MANAGEMENT ====================
-      
-      addCommand: (command) => {
-        const commandWithMetadata = {
-          key: command.key || genId(),
-          label: command.label || "Untitled Command",
-          content: command.content || "",
-          createdAt: new Date().toISOString(),
-          ...command,
-        };
-
-        set((state) => ({
-          commands: [...state.commands, commandWithMetadata],
-        }));
-      },
-
-      updateCommand: (key, updates) => {
-        set((state) => ({
-          commands: state.commands.map(command =>
-            command.key === key 
-              ? { ...command, ...updates, updatedAt: new Date().toISOString() }
-              : command
-          ),
-        }));
-      },
-
-      deleteCommand: (key) => {
-        set((state) => ({
-          commands: state.commands.filter(command => command.key !== key),
-        }));
-      },
-
-      // ==================== PROJECTS MANAGEMENT ====================
-      
-      addProject: (project) => {
-        const projectWithMetadata = {
-          key: project.key || genId(),
-          label: project.label || "Untitled Project",
-          description: project.description || "",
-          createdAt: new Date().toISOString(),
-          ...project,
-        };
-
-        set((state) => ({
-          projects: [...state.projects, projectWithMetadata],
-        }));
-      },
-
-      updateProject: (key, updates) => {
-        set((state) => ({
-          projects: state.projects.map(project =>
-            project.key === key 
-              ? { ...project, ...updates, updatedAt: new Date().toISOString() }
-              : project
-          ),
-        }));
-      },
-
-      deleteProject: (key) => {
-        set((state) => ({
-          projects: state.projects.filter(project => project.key !== key),
-        }));
-      },
-
-      // ==================== COLLABORATION FEATURES ====================
-      
-      shareChat: (sessionId, options = {}) => {
-        const shareId = genId();
-        const session = get().sessions[sessionId];
-        if (!session) return null;
-
-        const sharedChat = {
-          id: shareId,
-          sessionId,
-          title: session.title,
-          messages: session.messages,
-          sharedAt: new Date().toISOString(),
-          expiresAt: options.expiresAt,
-          allowComments: options.allowComments || false,
-          isPublic: options.isPublic || false,
-          password: options.password,
-        };
-
-        set((state) => ({
-          sharedChats: {
-            ...state.sharedChats,
-            [shareId]: sharedChat,
-          },
-        }));
-
-        return shareId;
-      },
-
-      unshareChat: (shareId) => {
-        set((state) => {
-          const newSharedChats = { ...state.sharedChats };
-          delete newSharedChats[shareId];
-          return { sharedChats: newSharedChats };
-        });
-      },
-
-      addCollaborator: (sessionId, collaborator) => {
-        set((state) => ({
-          collaborators: {
-            ...state.collaborators,
-            [sessionId]: [
-              ...(state.collaborators[sessionId] || []),
-              {
-                id: genId(),
-                ...collaborator,
-                addedAt: new Date().toISOString(),
+            return {
+              sessions: {
+                ...state.sessions,
+                [sessionId]: updatedSession,
               },
-            ],
-          },
-        }));
-      },
+            };
+          });
 
-      removeCollaborator: (sessionId, collaboratorId) => {
-        set((state) => ({
-          collaborators: {
-            ...state.collaborators,
-            [sessionId]: (state.collaborators[sessionId] || []).filter(
-              collab => collab.id !== collaboratorId
-            ),
-          },
-        }));
-      },
+          // Sync to database
+          const session = get().sessions[sessionId];
+          if (session) {
+            debouncedSync('save_session', session);
+          }
+        },
 
-      // ==================== SKETCHING/DRAWING FEATURES ====================
-      
-      addSketch: (sessionId, sketchData) => {
-        const sketchId = genId();
-        const sketch = {
-          id: sketchId,
-          sessionId,
-          createdAt: new Date().toISOString(),
-          ...sketchData,
-        };
-
-        set((state) => ({
-          sketches: {
-            ...state.sketches,
-            [sketchId]: sketch,
-          },
-        }));
-
-        return sketchId;
-      },
-
-      updateSketch: (sketchId, updates) => {
-        set((state) => ({
-          sketches: {
-            ...state.sketches,
-            [sketchId]: {
-              ...state.sketches[sketchId],
-              ...updates,
-              updatedAt: new Date().toISOString(),
-            },
-          },
-        }));
-      },
-
-      deleteSketch: (sketchId) => {
-        set((state) => {
-          const newSketches = { ...state.sketches };
-          delete newSketches[sketchId];
-          return { sketches: newSketches };
-        });
-      },
-
-      // ==================== DATA EXPORT/IMPORT ====================
-      
-      exportSession: (sessionId, format = 'json') => {
-        const session = get().sessions[sessionId];
-        if (!session) return null;
-
-        if (format === 'json') {
-          return JSON.stringify(session, null, 2);
-        } else if (format === 'markdown') {
-          const content = session.messages.map(msg => {
-            const role = msg.role === 'user' ? 'You' : 'Assistant';
-            return `## ${role}\n\n${msg.content}\n`;
-          }).join('\n');
-          
-          return `# ${session.title}\n\nCreated: ${session.createdAt}\n\n${content}`;
-        } else if (format === 'txt') {
-          return session.messages.map(msg => {
-            const role = msg.role === 'user' ? 'You' : 'Assistant';
-            return `${role}: ${msg.content}`;
-          }).join('\n\n');
-        }
+        // ==================== CONTEXT FILES MANAGEMENT ====================
         
-        return null;
-      },
+        addContextFile: (file) => {
+          const fileWithMetadata = {
+            key: file.key || genId(),
+            label: file.label || file.name || "Untitled File",
+            content: file.content || "",
+            type: file.type || "text/plain",
+            size: file.size || 0,
+            createdAt: new Date().toISOString(),
+            ...file,
+          };
 
-      exportAllData: () => {
-        const state = get();
-        return {
-          sessions: state.sessions,
-          contextFiles: state.contextFiles,
-          behaviors: state.behaviors,
-          commands: state.commands,
-          projects: state.projects,
-          settings: state.settings,
-          exportedAt: new Date().toISOString(),
-        };
-      },
-
-      importData: (data) => {
-        try {
           set((state) => ({
-            ...state,
-            ...data,
-            // Preserve certain client-side state
-            activeId: state.activeId,
-            guestMessageCount: state.guestMessageCount,
+            contextFiles: [...state.contextFiles, fileWithMetadata],
           }));
-          return true;
-        } catch (error) {
-          console.error('Import failed:', error);
-          return false;
-        }
-      },
 
-      // ==================== SETTINGS ====================
-      
-      updateSettings: (updates) => {
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            ...updates,
-          },
-        }));
-      },
+          // Sync to database
+          debouncedSync('save_context_file', fileWithMetadata);
+        },
 
-      // ==================== UTILITY METHODS ====================
-      
-      resetStore: () => {
-        set(initialState);
-      },
+        updateContextFile: (key, updates) => {
+          let updatedFile;
+          set((state) => {
+            const newContextFiles = state.contextFiles.map(file => {
+              if (file.key === key) {
+                updatedFile = { ...file, ...updates, updatedAt: new Date().toISOString() };
+                return updatedFile;
+              }
+              return file;
+            });
+            
+            return { contextFiles: newContextFiles };
+          });
 
-      getSessionStats: () => {
-        const { sessions, guestMessageCount } = get();
-        const sessionCount = Object.keys(sessions).length;
-        const totalMessages = Object.values(sessions).reduce(
-          (total, session) => total + session.messages.length, 
-          0
-        );
-        const userMessages = Object.values(sessions).reduce(
-          (total, session) => total + session.messages.filter(m => m.role === 'user').length,
-          0
-        );
+          // Sync to database
+          if (updatedFile) {
+            debouncedSync('save_context_file', updatedFile);
+          }
+        },
 
-        return {
-          sessionCount,
-          totalMessages,
-          userMessages,
-          guestMessageCount,
-        };
-      },
+        deleteContextFile: (key) => {
+          set((state) => ({
+            contextFiles: state.contextFiles.filter(file => file.key !== key),
+          }));
 
-      // Search functionality
-      searchSessions: (query) => {
-        const { sessions } = get();
-        const lowercaseQuery = query.toLowerCase();
+          // Delete from database
+          fetch(`/api/chat-storage?type=context_file&key=${encodeURIComponent(key)}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          }).catch(console.warn);
+        },
+
+        // ==================== BEHAVIORS MANAGEMENT ====================
         
-        return Object.values(sessions).filter(session => {
-          return session.title.toLowerCase().includes(lowercaseQuery) ||
-                 session.messages.some(msg => 
-                   msg.content.toLowerCase().includes(lowercaseQuery)
-                 );
-        });
-      },
+        addBehavior: (behavior) => {
+          const behaviorWithMetadata = {
+            key: behavior.key || genId(),
+            label: behavior.label || "Untitled Behavior",
+            content: behavior.content || "",
+            createdAt: new Date().toISOString(),
+            ...behavior,
+          };
 
-      searchContextFiles: (query) => {
-        const { contextFiles } = get();
-        const lowercaseQuery = query.toLowerCase();
+          set((state) => ({
+            behaviors: [...state.behaviors, behaviorWithMetadata],
+          }));
+
+          // Sync to database
+          debouncedSync('save_behavior', behaviorWithMetadata);
+        },
+
+        updateBehavior: (key, updates) => {
+          let updatedBehavior;
+          set((state) => {
+            const newBehaviors = state.behaviors.map(behavior => {
+              if (behavior.key === key) {
+                updatedBehavior = { ...behavior, ...updates, updatedAt: new Date().toISOString() };
+                return updatedBehavior;
+              }
+              return behavior;
+            });
+            
+            return { behaviors: newBehaviors };
+          });
+
+          // Sync to database
+          if (updatedBehavior) {
+            debouncedSync('save_behavior', updatedBehavior);
+          }
+        },
+
+        deleteBehavior: (key) => {
+          set((state) => ({
+            behaviors: state.behaviors.filter(behavior => behavior.key !== key),
+          }));
+
+          // Delete from database
+          fetch(`/api/chat-storage?type=behavior&key=${encodeURIComponent(key)}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          }).catch(console.warn);
+        },
+
+        // ==================== COMMANDS MANAGEMENT ====================
         
-        return contextFiles.filter(file => 
-          file.label.toLowerCase().includes(lowercaseQuery) ||
-          file.content.toLowerCase().includes(lowercaseQuery)
-        );
-      },
-    }),
+        addCommand: (command) => {
+          const commandWithMetadata = {
+            key: command.key || genId(),
+            label: command.label || "Untitled Command",
+            content: command.content || "",
+            createdAt: new Date().toISOString(),
+            ...command,
+          };
+
+          set((state) => ({
+            commands: [...state.commands, commandWithMetadata],
+          }));
+
+          // Sync to database
+          debouncedSync('save_command', commandWithMetadata);
+        },
+
+        updateCommand: (key, updates) => {
+          let updatedCommand;
+          set((state) => {
+            const newCommands = state.commands.map(command => {
+              if (command.key === key) {
+                updatedCommand = { ...command, ...updates, updatedAt: new Date().toISOString() };
+                return updatedCommand;
+              }
+              return command;
+            });
+            
+            return { commands: newCommands };
+          });
+
+          // Sync to database
+          if (updatedCommand) {
+            debouncedSync('save_command', updatedCommand);
+          }
+        },
+
+        deleteCommand: (key) => {
+          set((state) => ({
+            commands: state.commands.filter(command => command.key !== key),
+          }));
+
+          // Delete from database
+          fetch(`/api/chat-storage?type=command&key=${encodeURIComponent(key)}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          }).catch(console.warn);
+        },
+
+        // ==================== PROJECTS MANAGEMENT ====================
+        
+        addProject: (project) => {
+          const projectWithMetadata = {
+            key: project.key || genId(),
+            label: project.label || "Untitled Project",
+            description: project.description || "",
+            createdAt: new Date().toISOString(),
+            ...project,
+          };
+
+          set((state) => ({
+            projects: [...state.projects, projectWithMetadata],
+          }));
+
+          // Sync to database
+          debouncedSync('save_project', projectWithMetadata);
+        },
+
+        updateProject: (key, updates) => {
+          let updatedProject;
+          set((state) => {
+            const newProjects = state.projects.map(project => {
+              if (project.key === key) {
+                updatedProject = { ...project, ...updates, updatedAt: new Date().toISOString() };
+                return updatedProject;
+              }
+              return project;
+            });
+            
+            return { projects: newProjects };
+          });
+
+          // Sync to database
+          if (updatedProject) {
+            debouncedSync('save_project', updatedProject);
+          }
+        },
+
+        deleteProject: (key) => {
+          set((state) => ({
+            projects: state.projects.filter(project => project.key !== key),
+          }));
+
+          // Delete from database
+          fetch(`/api/chat-storage?type=project&key=${encodeURIComponent(key)}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          }).catch(console.warn);
+        },
+
+        // ==================== COLLABORATION FEATURES ====================
+        
+        shareChat: (sessionId, options = {}) => {
+          const shareId = genId();
+          const session = get().sessions[sessionId];
+          if (!session) return null;
+
+          const sharedChat = {
+            id: shareId,
+            sessionId,
+            title: session.title,
+            messages: session.messages,
+            sharedAt: new Date().toISOString(),
+            expiresAt: options.expiresAt,
+            allowComments: options.allowComments || false,
+            isPublic: options.isPublic || false,
+            password: options.password,
+          };
+
+          set((state) => ({
+            sharedChats: {
+              ...state.sharedChats,
+              [shareId]: sharedChat,
+            },
+          }));
+
+          return shareId;
+        },
+
+        unshareChat: (shareId) => {
+          set((state) => {
+            const newSharedChats = { ...state.sharedChats };
+            delete newSharedChats[shareId];
+            return { sharedChats: newSharedChats };
+          });
+        },
+
+        addCollaborator: (sessionId, collaborator) => {
+          set((state) => ({
+            collaborators: {
+              ...state.collaborators,
+              [sessionId]: [
+                ...(state.collaborators[sessionId] || []),
+                {
+                  id: genId(),
+                  ...collaborator,
+                  addedAt: new Date().toISOString(),
+                },
+              ],
+            },
+          }));
+        },
+
+        removeCollaborator: (sessionId, collaboratorId) => {
+          set((state) => ({
+            collaborators: {
+              ...state.collaborators,
+              [sessionId]: (state.collaborators[sessionId] || []).filter(
+                collab => collab.id !== collaboratorId
+              ),
+            },
+          }));
+        },
+
+        // ==================== SKETCHING/DRAWING FEATURES ====================
+        
+        addSketch: (sessionId, sketchData) => {
+          const sketchId = genId();
+          const sketch = {
+            id: sketchId,
+            sessionId,
+            createdAt: new Date().toISOString(),
+            ...sketchData,
+          };
+
+          set((state) => ({
+            sketches: {
+              ...state.sketches,
+              [sketchId]: sketch,
+            },
+          }));
+
+          return sketchId;
+        },
+
+        updateSketch: (sketchId, updates) => {
+          set((state) => ({
+            sketches: {
+              ...state.sketches,
+              [sketchId]: {
+                ...state.sketches[sketchId],
+                ...updates,
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          }));
+        },
+
+        deleteSketch: (sketchId) => {
+          set((state) => {
+            const newSketches = { ...state.sketches };
+            delete newSketches[sketchId];
+            return { sketches: newSketches };
+          });
+        },
+
+        // ==================== DATA EXPORT/IMPORT ====================
+        
+        exportSession: (sessionId, format = 'json') => {
+          const session = get().sessions[sessionId];
+          if (!session) return null;
+
+          if (format === 'json') {
+            return JSON.stringify(session, null, 2);
+          } else if (format === 'markdown') {
+            const content = session.messages.map(msg => {
+              const role = msg.role === 'user' ? 'You' : 'Assistant';
+              return `## ${role}\n\n${msg.content}\n`;
+            }).join('\n');
+            
+            return `# ${session.title}\n\nCreated: ${session.createdAt}\n\n${content}`;
+          } else if (format === 'txt') {
+            return session.messages.map(msg => {
+              const role = msg.role === 'user' ? 'You' : 'Assistant';
+              return `${role}: ${msg.content}`;
+            }).join('\n\n');
+          }
+          
+          return null;
+        },
+
+        exportAllData: () => {
+          const state = get();
+          return {
+            sessions: state.sessions,
+            contextFiles: state.contextFiles,
+            behaviors: state.behaviors,
+            commands: state.commands,
+            projects: state.projects,
+            settings: state.settings,
+            exportedAt: new Date().toISOString(),
+          };
+        },
+
+        importData: (data) => {
+          try {
+            set((state) => ({
+              ...state,
+              ...data,
+              // Preserve certain client-side state
+              activeId: state.activeId,
+              guestMessageCount: state.guestMessageCount,
+            }));
+            return true;
+          } catch (error) {
+            console.error('Import failed:', error);
+            return false;
+          }
+        },
+
+        // ==================== SETTINGS ====================
+        
+        updateSettings: (updates) => {
+          set((state) => ({
+            settings: {
+              ...state.settings,
+              ...updates,
+            },
+          }));
+        },
+
+        // ==================== UTILITY METHODS ====================
+        
+        clearSessions: () => {
+          set({
+            sessions: {},
+            order: [],
+            activeId: null,
+            guestMessageCount: 0,
+          });
+        },
+
+        resetStore: () => {
+          set(initialState);
+        },
+
+        getSessionStats: () => {
+          const { sessions, guestMessageCount } = get();
+          const sessionCount = Object.keys(sessions).length;
+          const totalMessages = Object.values(sessions).reduce(
+            (total, session) => total + session.messages.length, 
+            0
+          );
+          const userMessages = Object.values(sessions).reduce(
+            (total, session) => total + session.messages.filter(m => m.role === 'user').length,
+            0
+          );
+
+          return {
+            sessionCount,
+            totalMessages,
+            userMessages,
+            guestMessageCount,
+          };
+        },
+
+        // Search functionality
+        searchSessions: (query) => {
+          const { sessions } = get();
+          const lowercaseQuery = query.toLowerCase();
+          
+          return Object.values(sessions).filter(session => {
+            return session.title.toLowerCase().includes(lowercaseQuery) ||
+                   session.messages.some(msg => 
+                     msg.content.toLowerCase().includes(lowercaseQuery)
+                   );
+          });
+        },
+
+        searchContextFiles: (query) => {
+          const { contextFiles } = get();
+          const lowercaseQuery = query.toLowerCase();
+          
+          return contextFiles.filter(file => 
+            file.label.toLowerCase().includes(lowercaseQuery) ||
+            file.content.toLowerCase().includes(lowercaseQuery)
+          );
+        },
+
+        sendMessage: (message) => {
+          // Helper function for commands to send messages
+          const { activeId, appendToActive } = get();
+          if (activeId) {
+            appendToActive({ role: "user", content: message });
+          }
+        },
+      };
+    },
     {
-      name: "lynk-sessions-v3", // Updated version
-      version: 3,
+      name: "lynk-sessions-v4", // Updated version
+      version: 4,
       migrate: (persistedState, version) => {
         // Handle migration from older versions
-        if (version < 3) {
+        if (version < 4) {
           return {
             ...initialState,
             sessions: persistedState.sessions || {},
@@ -608,6 +866,10 @@ export const useSessionStore = create(
             activeId: persistedState.activeId || null,
             selectedModel: persistedState.selectedModel || DEFAULT_MODELS[0],
             guestMessageCount: persistedState.guestMessageCount || 0,
+            contextFiles: persistedState.contextFiles || initialState.contextFiles,
+            behaviors: persistedState.behaviors || initialState.behaviors,
+            commands: persistedState.commands || initialState.commands,
+            projects: persistedState.projects || initialState.projects,
           };
         }
         return persistedState;
