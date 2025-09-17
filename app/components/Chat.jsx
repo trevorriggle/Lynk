@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-// Time formatting helper
 function formatTimeAgo(timestamp) {
   const now = new Date();
   const diff = now - timestamp;
@@ -19,7 +18,6 @@ function formatTimeAgo(timestamp) {
   return timestamp.toLocaleDateString();
 }
 
-// Quick Action Icons
 function PlusIcon({ className = "h-5 w-5" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
@@ -56,8 +54,17 @@ function CameraIcon({ className = "h-4 w-4" }) {
   );
 }
 
-// Quick Actions Dropdown
 function QuickActionsDropdown({ onAction, onClose }) {
+  const fileInputRef = useRef(null);
+
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      onAction('file-upload', files);
+    }
+    e.target.value = '';
+  };
+
   return (
     <div className="absolute bottom-12 left-0 w-48 rounded-2xl overflow-hidden shadow-xl bg-white border border-slate-200 z-50">
       <button
@@ -69,11 +76,11 @@ function QuickActionsDropdown({ onAction, onClose }) {
       </button>
       
       <button
-        onClick={() => onAction('attach')}
+        onClick={() => fileInputRef.current?.click()}
         className="flex items-center gap-3 w-full text-left px-4 py-3 text-slate-700 hover:bg-slate-50 border-b border-slate-100"
       >
         <AttachIcon className="h-4 w-4" />
-        <span className="text-sm font-medium">Attach File</span>
+        <span className="text-sm font-medium">Upload Files</span>
       </button>
       
       <button
@@ -83,6 +90,15 @@ function QuickActionsDropdown({ onAction, onClose }) {
         <CameraIcon className="h-4 w-4" />
         <span className="text-sm font-medium">Take Photo</span>
       </button>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,.txt,.md,.json,.csv,.js,.py,.jsx,.tsx,.ts,.pdf,.doc,.docx"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
     </div>
   );
 }
@@ -91,18 +107,17 @@ export default function Chat() {
   const endpoint = "/api/session";
   const meEndpoint = "/api/me";
   
-  // Read selected model directly from store instead of props
-  const { selectedModel, activeId, sessions, appendToActive, guestMessageCount } = useSessionStore(s => ({
+  const { selectedModel, activeId, sessions, appendToActive, guestMessageCount, addContextFile } = useSessionStore(s => ({
     selectedModel: s.selectedModel,
     activeId: s.activeId,
     sessions: s.sessions,
     appendToActive: s.appendToActive,
     guestMessageCount: s.guestMessageCount,
+    addContextFile: s.addContextFile,
   }));
   
   const fallbackLabel = selectedModel?.label || "OpenAI";
 
-  // Auth state
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
@@ -179,16 +194,13 @@ export default function Chat() {
     };
   }, []);
 
-  // Session and messages
   const thread = useMemo(
     () => (activeId ? sessions[activeId]?.messages || [] : []),
     [activeId, sessions]
   );
 
-  // Always use the global selected model for new messages
   const sessionModel = selectedModel;
 
-  // Message limits
   const getUserMessageCount = () => thread.filter((m) => m && m.role === "user").length;
   const getMessageLimit = () => (authState.authenticated ? 20 : 10);
   const getCurrentCount = () => (authState.authenticated ? getUserMessageCount() : guestMessageCount);
@@ -210,25 +222,20 @@ export default function Chat() {
       : `• guest mode (${current}/${limit} messages)`;
   };
 
-  // UI state
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
   const scrollRef = useRef(null);
-
-  // Expanding textarea refs/state
   const taRef = useRef(null);
   const quickActionsRef = useRef(null);
   const [isComposing, setIsComposing] = useState(false);
   const MAX_ROWS = 5;
 
-  // Auto-scroll messages
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread, sending]);
 
-  // Auto-resize textarea up to MAX_ROWS
   useEffect(() => {
     const el = taRef.current;
     if (!el) return;
@@ -238,7 +245,6 @@ export default function Chat() {
     el.style.height = Math.min(el.scrollHeight, max) + "px";
   }, [input]);
 
-  // Close quick actions on outside click
   useEffect(() => {
     const onDocDown = (e) => {
       if (!quickActionsRef.current) return;
@@ -250,8 +256,7 @@ export default function Chat() {
     return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
-  // Quick Actions Handler
-  const handleQuickAction = (action) => {
+  const handleQuickAction = (action, files) => {
     setShowQuickActions(false);
     
     try {
@@ -259,8 +264,8 @@ export default function Chat() {
         case 'draw':
           window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "draw" } }));
           break;
-        case 'attach':
-          window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "attach" } }));
+        case 'file-upload':
+          handleFileUpload(files);
           break;
         case 'camera':
           window.dispatchEvent(new CustomEvent("interact:open", { detail: { type: "camera" } }));
@@ -273,7 +278,53 @@ export default function Chat() {
     }
   };
 
-  // Submit
+  const handleFileUpload = (files) => {
+    files.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (activeId) {
+            appendToActive({
+              role: "user",
+              content: `I've uploaded an image: ${file.name}. Please analyze this image.`,
+              attachments: [{
+                type: "image",
+                data: e.target.result,
+                filename: file.name,
+                timestamp: new Date().toISOString()
+              }]
+            });
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          addContextFile({
+            label: file.name,
+            content: e.target.result,
+            type: file.type,
+            size: file.size
+          });
+          
+          if (activeId) {
+            appendToActive({
+              role: "user",
+              content: `[File attached: ${file.name}]`,
+              attachments: [{
+                type: "file",
+                name: file.name,
+                content: e.target.result,
+                timestamp: new Date().toISOString()
+              }]
+            });
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+  };
+
   async function handleSubmit(e) {
     e.preventDefault();
     const text = input.trim();
@@ -283,23 +334,17 @@ export default function Chat() {
       if (authState.authenticated) {
         appendToActive({
           role: "assistant",
-          content:
-            "You've reached the 20-message limit for authenticated users. Upgrade to Premium for unlimited messaging!",
+          content: "You've reached the 20-message limit for authenticated users. Upgrade to Premium for unlimited messaging!",
         });
       } else {
         appendToActive({
           role: "assistant",
-          content:
-            "You've reached the 10-message limit for guest users. Please create an account to get 20 messages! Click 'Sign In/Create Account' in the top right.",
+          content: "You've reached the 10-message limit for guest users. Please create an account to get 20 messages! Click 'Sign In/Create Account' in the top right.",
         });
       }
       return;
     }
 
-    // Get the current message for attachments
-    const currentMessage = thread[thread.length - 1];
-    
-    // optimistic append
     const newMessage = { role: "user", content: text };
     appendToActive(newMessage);
     setInput("");
@@ -314,7 +359,6 @@ export default function Chat() {
           sessionId: activeId,
           message: text,
           projectId: authState.projectId,
-          attachments: currentMessage?.attachments || [],
           model: {
             label: sessionModel?.label,
             provider: sessionModel?.provider,
@@ -360,7 +404,6 @@ export default function Chat() {
     }
   }
 
-  // Empty state
   if (!activeId) {
     return (
       <div className="flex flex-col h-full font-['Poppins',sans-serif]">
@@ -398,22 +441,18 @@ export default function Chat() {
     );
   }
 
-  // Main chat
   return (
     <div className="flex flex-col h-full font-['Poppins',sans-serif]">
-      {/* Status line */}
       <div className="shrink-0 px-6 pt-2 text-xs text-slate-500 font-light">
         Using: <b className="font-medium">{sessionModel?.label || fallbackLabel}</b> → <code>{endpoint}</code> {getStatusText()}
       </div>
 
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-6 pt-2 pb-3 space-y-4">
         {thread.map((m) => {
           const isUser = m.role === "user";
           const timestamp = new Date(m.timestamp || Date.now());
           const timeAgo = formatTimeAgo(timestamp);
           
-          // Handle different ways model info might be stored
           let modelInfo = null;
           if (m.model) {
             if (typeof m.model === 'string') {
@@ -426,7 +465,6 @@ export default function Chat() {
           } else if (m.provider) {
             modelInfo = m.provider;
           } else if (!isUser) {
-            // Fallback to session model for assistant messages
             modelInfo = sessionModel?.label || 'AI';
           }
           
@@ -435,18 +473,22 @@ export default function Chat() {
               {isUser ? (
                 <div className="text-right">
                   <div className="text-slate-800 font-normal break-words overflow-wrap-anywhere">
-                    {/* Render images if they exist */}
                     {m.attachments?.some(att => att.type === "image") && (
-                      <div className="mb-3">
+                      <div className="mb-3 space-y-2">
                         {m.attachments
                           .filter(att => att.type === "image")
                           .map((att, idx) => (
-                            <img
-                              key={idx}
-                              src={att.data}
-                              alt="User drawing"
-                              className="max-w-full max-h-64 rounded-lg border border-slate-200 shadow-sm"
-                            />
+                            <div key={idx} className="relative">
+                              <img
+                                src={att.data}
+                                alt={att.filename || "User image"}
+                                className="max-w-full max-h-64 rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:opacity-90"
+                                onClick={() => window.open(att.data, '_blank')}
+                              />
+                              {att.filename && (
+                                <div className="text-xs text-gray-500 mt-1">{att.filename}</div>
+                              )}
+                            </div>
                           ))}
                       </div>
                     )}
@@ -501,10 +543,8 @@ export default function Chat() {
         {sending && <div className="inline-block brand-agent font-light">Thinking…</div>}
       </div>
 
-      {/* Enhanced Composer with Quick Actions */}
       <form onSubmit={handleSubmit} className="shrink-0 border-t bg-white/95 backdrop-blur px-4 py-3 pb-6">
         <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
-          {/* Quick Actions Button */}
           <div ref={quickActionsRef} className="relative">
             <button
               type="button"
@@ -524,7 +564,6 @@ export default function Chat() {
             )}
           </div>
 
-          {/* Text Input */}
           <div className="flex-1 rounded-2xl border border-slate-300 bg-white focus-within:ring-2 focus-within:ring-[#176A82] focus-within:border-[#176A82] transition-all">
             <textarea
               ref={taRef}
@@ -550,7 +589,6 @@ export default function Chat() {
             />
           </div>
 
-          {/* Send Button */}
           <button
             type="submit"
             disabled={sending || !input.trim() || hasHitLimit() || authState.loading}
