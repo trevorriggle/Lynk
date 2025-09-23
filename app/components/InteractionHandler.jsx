@@ -243,9 +243,11 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
     return null;
   };
 
-  // Get accurate canvas coordinates
+  // Get accurate canvas coordinates accounting for CSS scaling
   const getCanvasCoordinates = (e) => {
     const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -261,10 +263,10 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
     const targetLayers = layerIndex !== null ? [layers[layerIndex]] : [...layers].reverse();
 
     for (const layer of targetLayers) {
-      if (!layer.visible) continue;
+      if (!layer.visible || !layer.elements) continue;
 
       for (const element of [...layer.elements].reverse()) {
-        if (x >= element.x && x <= element.x + element.width &&
+        if (element && x >= element.x && x <= element.x + element.width &&
             y >= element.y && y <= element.y + element.height) {
           return { element, layer };
         }
@@ -704,11 +706,10 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
               className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
                 tool === 'select' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-300'
               }`}
-              title="Selection Tool"
+              title="Move/Resize Tool"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 10a8 8 0 018-8v8H2z"/>
-                <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z"/>
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z"/>
               </svg>
             </button>
 
@@ -719,20 +720,8 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
               }`}
               title="Brush Tool"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-              </svg>
-            </button>
-
-            <button
-              onClick={() => setTool('eraser')}
-              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                tool === 'eraser' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-300'
-              }`}
-              title="Eraser Tool"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M8.707 7.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4a1 1 0 00-1.414-1.414L11 7.586 8.707 7.293z"/>
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.71,4.63L19.37,3.29C19,2.9 18.35,2.9 17.96,3.29L9,12.25L11.75,15L20.71,6.04C21.1,5.65 21.1,5 20.71,4.63M7,14A3,3 0 0,0 4,17C4,18.31 2.84,19 2,19C2.92,20.22 4.5,21 6,21A4,4 0 0,0 10,17A3,3 0 0,0 7,14Z"/>
               </svg>
             </button>
 
@@ -750,8 +739,8 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
               className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-gray-300 cursor-pointer transition-colors"
               title="Upload Image"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M5,3C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H5M5,5H19V19H5V5Z"/>
               </svg>
             </label>
 
@@ -760,9 +749,8 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
               className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-gray-300 transition-colors"
               title="Clear Canvas"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd"/>
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 012 0v4a1 1 0 11-2 0V7zM12 7a1 1 0 012 0v4a1 1 0 11-2 0V7z" clipRule="evenodd"/>
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
               </svg>
             </button>
           </div>
@@ -773,8 +761,26 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
             <div>
               <h3 className="font-semibold text-gray-800 mb-3 text-sm uppercase tracking-wide">Tool Properties</h3>
 
-              {(tool === 'brush' || tool === 'eraser') && (
+              {tool === 'brush' && (
                 <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Brush Mode</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setTool('brush')}
+                        className="px-3 py-2 text-sm rounded border bg-[#176A82] text-white"
+                      >
+                        Paint
+                      </button>
+                      <button
+                        onClick={() => setTool('eraser')}
+                        className="px-3 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                      >
+                        Erase
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">
                       Size: {brushSize}px
@@ -787,23 +793,55 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                     />
                   </div>
 
-                  {tool === 'brush' && (
-                    <div>
-                      <label className="text-sm font-medium text-gray-700 mb-1 block">Color</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="color" value={brushColor}
-                          onChange={(e) => setBrushColor(e.target.value)}
-                          className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
-                        />
-                        <input
-                          type="text" value={brushColor}
-                          onChange={(e) => setBrushColor(e.target.value)}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono"
-                        />
-                      </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Color</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="color" value={brushColor}
+                        onChange={(e) => setBrushColor(e.target.value)}
+                        className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <input
+                        type="text" value={brushColor}
+                        onChange={(e) => setBrushColor(e.target.value)}
+                        className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono"
+                      />
                     </div>
-                  )}
+                  </div>
+                </div>
+              )}
+
+              {tool === 'eraser' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">Brush Mode</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setTool('brush')}
+                        className="px-3 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                      >
+                        Paint
+                      </button>
+                      <button
+                        onClick={() => setTool('eraser')}
+                        className="px-3 py-2 text-sm rounded border bg-[#176A82] text-white"
+                      >
+                        Erase
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">
+                      Size: {brushSize}px
+                    </label>
+                    <input
+                      type="range"
+                      min="1" max="100" value={brushSize}
+                      onChange={(e) => setBrushSize(Number(e.target.value))}
+                      className="w-full accent-[#176A82]"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -814,84 +852,78 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                 <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Layers</h3>
                 <button
                   onClick={addLayer}
-                  className="bg-[#176A82] text-white px-2 py-1 rounded text-xs hover:bg-[#155a6d] transition-colors"
+                  className="w-6 h-6 bg-[#176A82] text-white rounded flex items-center justify-center hover:bg-[#155a6d] transition-colors"
+                  title="Add Layer"
                 >
-                  + Add
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M2 6h4V2h4v4h4v4h-4v4H6v-4H2V6Z"/>
+                    <path d="M14 8h4v4h4v4h-4v4h-4v-4h-4v-4h4V8Z"/>
+                    <path d="M6 14h4v4H6v-4Z"/>
+                  </svg>
                 </button>
               </div>
 
-              <div className="space-y-1 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-48 overflow-y-auto">
                 {[...layers].reverse().map((layer, reverseIndex) => {
                   const index = layers.length - 1 - reverseIndex;
                   return (
                     <div
                       key={layer.id}
-                      className={`group p-2 rounded-lg border cursor-pointer transition-colors ${
+                      className={`group p-3 rounded-lg border cursor-pointer transition-colors ${
                         index === activeLayer
                           ? 'border-[#176A82] bg-[#176A82]/10'
                           : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                       }`}
                       onClick={() => setActiveLayer(index)}
                     >
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-2">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleLayerVisibility(index);
                           }}
-                          className="text-sm hover:bg-gray-200 rounded p-1"
+                          className="w-5 h-5 flex items-center justify-center hover:bg-gray-200 rounded"
+                          title={layer.visible ? "Hide layer" : "Show layer"}
                         >
-                          {layer.visible ? '👁️' : '🚫'}
-                        </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLayerLock(index);
-                          }}
-                          className="text-sm hover:bg-gray-200 rounded p-1"
-                        >
-                          {layer.locked ? '🔒' : '🔓'}
+                          {layer.visible ? (
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.09L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.76,7.13 11.37,7 12,7Z"/>
+                            </svg>
+                          )}
                         </button>
 
                         <span className="flex-1 text-sm font-medium truncate">
                           {layer.name}
                         </span>
 
-                        <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                        {layers.length > 1 && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              duplicateLayer(index);
+                              deleteLayer(index);
                             }}
-                            className="text-xs text-gray-500 hover:text-[#176A82]"
+                            className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Delete layer"
                           >
-                            📋
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                            </svg>
                           </button>
-                          {layers.length > 1 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteLayer(index);
-                              }}
-                              className="text-xs text-gray-500 hover:text-red-500"
-                            >
-                              🗑️
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
 
                       <div>
-                        <label className="text-xs text-gray-600 mb-1 block">
-                          Opacity: {Math.round(layer.opacity * 100)}%
-                        </label>
                         <input
                           type="range"
                           min="0" max="1" step="0.01" value={layer.opacity}
                           onChange={(e) => updateLayerOpacity(index, Number(e.target.value))}
                           className="w-full accent-[#176A82]"
                           onClick={(e) => e.stopPropagation()}
+                          title={`Opacity: ${Math.round(layer.opacity * 100)}%`}
                         />
                       </div>
                     </div>
@@ -908,6 +940,7 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                 <canvas
                   ref={previewCanvasRef}
                   className="absolute inset-0 pointer-events-none z-10"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
                 <canvas
                   ref={canvasRef}
@@ -915,9 +948,10 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseUp}
-                  className={`block w-full h-full object-contain ${
+                  className={`block max-w-full max-h-full ${
                     tool === 'select' ? 'cursor-default' : 'cursor-crosshair'
                   }`}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               </div>
             </div>
@@ -1174,41 +1208,19 @@ export default function InteractionHandler() {
   const handleDrawingSave = (data) => {
     if (!activeId) return;
 
-    // Handle the enhanced two-part message format
-    if (data.image && data.message) {
-      // First message: The user's message with image attachment
-      appendToActive({
-        role: "user",
-        content: data.message,
-        attachments: [{
-          type: "image",
-          data: data.image,
-          timestamp: new Date().toISOString()
-        }]
-      });
+    // Send single message with image attachment and user's message
+    const imageData = typeof data === 'string' ? data : data.image;
+    const message = data.message || "I've created an image. Please analyze what you see in this image.";
 
-      // Second message: Request for analysis (this creates the two-message format)
-      setTimeout(() => {
-        appendToActive({
-          role: "user",
-          content: "Please provide a detailed analysis of this image."
-        });
-      }, 100);
-    } else {
-      // Fallback for legacy format
-      const imageData = typeof data === 'string' ? data : data.image;
-      const message = data.message || "I've created an image. Please analyze what you see in this image.";
-
-      appendToActive({
-        role: "user",
-        content: message,
-        attachments: [{
-          type: "image",
-          data: imageData,
-          timestamp: new Date().toISOString()
-        }]
-      });
-    }
+    appendToActive({
+      role: "user",
+      content: message,
+      attachments: [{
+        type: "image",
+        data: imageData,
+        timestamp: new Date().toISOString()
+      }]
+    });
   };
 
   const handleFileSelect = (files) => {

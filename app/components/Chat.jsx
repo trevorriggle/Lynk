@@ -483,7 +483,17 @@ export default function Chat() {
                                 src={att.data}
                                 alt={att.filename || "Created with Lynk Image Editor"}
                                 className="max-w-full max-h-72 rounded-lg border border-slate-200 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-                                onClick={() => window.open(att.data, '_blank')}
+                                onClick={() => {
+                                  const newWindow = window.open('', '_blank');
+                                  newWindow.document.write(`
+                                    <html>
+                                      <head><title>Lynk Image</title></head>
+                                      <body style="margin:0;padding:20px;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;">
+                                        <img src="${att.data}" style="max-width:100%;max-height:100%;object-fit:contain;" />
+                                      </body>
+                                    </html>
+                                  `);
+                                }}
                               />
                               {att.filename && (
                                 <div className="text-xs text-gray-500 mt-1">{att.filename}</div>
