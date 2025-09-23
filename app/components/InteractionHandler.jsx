@@ -920,8 +920,6 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
               </div>
             </div>
           </div>
-            </div>
-          </div>
 
           {/* Canvas Area */}
           <div className="flex-1 flex flex-col bg-gray-50">
@@ -971,7 +969,7 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                   className="px-6 py-2 bg-[#176A82] text-white rounded-lg hover:bg-[#155a6d] font-medium transition-colors flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
+                    <path d="M10.894 2.553a1 1 0 0 0-1.788 0l-7 14a1 1 0 0 0 1.169 1.409l5-1.429A1 1 0 0 0 9 15.571V11a1 1 0 1 1 2 0v4.571a1 1 0 0 0 .725.962l5 1.428a1 1 0 0 0 1.17-1.408l-7-14z"/>
                   </svg>
                   Send to Chat
                 </button>
