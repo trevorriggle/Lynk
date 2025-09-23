@@ -1,0 +1,13 @@
+# .github/workflows/vercel-autodeploy.yml
+name: vercel-autodeploy
+on:
+  push:
+    branches: [ "92225" ]
+jobs:
+  fire-hook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel
+        run: curl -s -X POST "$DEPLOY_HOOK_URL"
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_92225 }}
