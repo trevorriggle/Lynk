@@ -33,10 +33,30 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
       const ctx = canvas.getContext('2d');
       const previewCtx = previewCanvas.getContext('2d');
 
-      canvas.width = 1000;
-      canvas.height = 700;
-      previewCanvas.width = 1000;
-      previewCanvas.height = 700;
+      // Set canvas actual dimensions
+      const containerWidth = canvas.parentElement.clientWidth - 32; // Account for padding
+      const containerHeight = canvas.parentElement.clientHeight - 32;
+      const aspectRatio = 4/3; // 4:3 aspect ratio
+
+      let canvasWidth, canvasHeight;
+      if (containerWidth / containerHeight > aspectRatio) {
+        canvasHeight = containerHeight;
+        canvasWidth = canvasHeight * aspectRatio;
+      } else {
+        canvasWidth = containerWidth;
+        canvasHeight = canvasWidth / aspectRatio;
+      }
+
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      previewCanvas.width = canvasWidth;
+      previewCanvas.height = canvasHeight;
+
+      // Set CSS dimensions to match
+      canvas.style.width = `${canvasWidth}px`;
+      canvas.style.height = `${canvasHeight}px`;
+      previewCanvas.style.width = `${canvasWidth}px`;
+      previewCanvas.style.height = `${canvasHeight}px`;
 
       const initialLayer = {
         id: Date.now(),
@@ -47,11 +67,11 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
         locked: false,
         elements: [] // Store drawable elements for manipulation
       };
-      initialLayer.canvas.width = 1000;
-      initialLayer.canvas.height = 700;
+      initialLayer.canvas.width = canvasWidth;
+      initialLayer.canvas.height = canvasHeight;
       const layerCtx = initialLayer.canvas.getContext('2d');
       layerCtx.fillStyle = 'white';
-      layerCtx.fillRect(0, 0, 1000, 700);
+      layerCtx.fillRect(0, 0, canvasWidth, canvasHeight);
 
       const initialState = [initialLayer];
       setLayers(initialState);
@@ -76,8 +96,9 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
 
   // Enhanced redraw function with selection handles
   const redrawCanvas = useCallback((layerList, ctx) => {
-    if (!ctx) return;
-    ctx.clearRect(0, 0, 1000, 700);
+    if (!ctx || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     layerList.forEach(layer => {
       if (layer.visible) {
@@ -699,34 +720,8 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
         
         {/* Main Content */}
         <div className="flex-1 flex">
-          {/* Left Sidebar - Tools */}
-          <div className="w-16 bg-gray-200 flex flex-col items-center py-4 space-y-2 border-r">
-            <button
-              onClick={() => setTool('select')}
-              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                tool === 'select' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-300'
-              }`}
-              title="Move/Resize Tool"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z"/>
-              </svg>
-            </button>
-
-            <button
-              onClick={() => setTool('brush')}
-              className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
-                tool === 'brush' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-300'
-              }`}
-              title="Brush Tool"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20.71,4.63L19.37,3.29C19,2.9 18.35,2.9 17.96,3.29L9,12.25L11.75,15L20.71,6.04C21.1,5.65 21.1,5 20.71,4.63M7,14A3,3 0 0,0 4,17C4,18.31 2.84,19 2,19C2.92,20.22 4.5,21 6,21A4,4 0 0,0 10,17A3,3 0 0,0 7,14Z"/>
-              </svg>
-            </button>
-
-            <div className="w-8 h-px bg-gray-400 my-2"></div>
-
+          {/* Left Panel - File Operations */}
+          <div className="w-16 bg-gray-200 flex flex-col items-center py-4 space-y-3 border-r">
             <input
               type="file"
               accept="image/*"
@@ -736,51 +731,76 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
             />
             <label
               htmlFor="image-upload"
-              className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-gray-300 cursor-pointer transition-colors"
+              className="w-12 h-12 rounded-lg flex items-center justify-center hover:bg-gray-300 cursor-pointer transition-colors bg-white shadow-sm"
               title="Upload Image"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M5,3C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3H5M5,5H19V19H5V5Z"/>
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+                <path d="M12,11L16,15H13V19H11V15H8L12,11Z"/>
               </svg>
             </label>
 
             <button
               onClick={clearCanvas}
-              className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-gray-300 transition-colors"
+              className="w-12 h-12 rounded-lg flex items-center justify-center hover:bg-red-100 transition-colors bg-white shadow-sm text-red-600"
               title="Clear Canvas"
             >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
               </svg>
             </button>
           </div>
 
-          {/* Properties Panel */}
-          <div className="w-64 bg-white p-4 space-y-4 border-r overflow-y-auto">
+          {/* Tools and Properties Panel */}
+          <div className="w-64 bg-white flex flex-col border-r">
+            {/* Tools Row */}
+            <div className="p-4 border-b">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setTool('brush')}
+                  className={`p-3 rounded-lg flex flex-col items-center justify-center transition-colors ${
+                    tool === 'brush' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-100 bg-gray-50'
+                  }`}
+                  title="Brush Tool"
+                >
+                  <svg className="w-5 h-5 mb-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M20.71,4.63L19.37,3.29C19,2.9 18.35,2.9 17.96,3.29L9,12.25L11.75,15L20.71,6.04C21.1,5.65 21.1,5 20.71,4.63M7,14A3,3 0 0,0 4,17C4,18.31 2.84,19 2,19C2.92,20.22 4.5,21 6,21A4,4 0 0,0 10,17A3,3 0 0,0 7,14Z"/>
+                  </svg>
+                  <span className="text-xs">Brush</span>
+                </button>
+
+                <button
+                  onClick={() => setTool('eraser')}
+                  className={`p-3 rounded-lg flex flex-col items-center justify-center transition-colors ${
+                    tool === 'eraser' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-100 bg-gray-50'
+                  }`}
+                  title="Eraser Tool"
+                >
+                  <svg className="w-5 h-5 mb-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M16.24,3.56L21.19,8.5C21.97,9.29 21.97,10.55 21.19,11.34L12,20.53C10.44,22.09 7.91,22.09 6.34,20.53L2.81,17C2.03,16.21 2.03,14.95 2.81,14.16L13.41,3.56C14.2,2.78 15.46,2.78 16.24,3.56M4.22,15.58L7.76,19.11C8.54,19.9 9.8,19.9 10.59,19.11L14.12,15.58L9.17,10.63L4.22,15.58Z"/>
+                  </svg>
+                  <span className="text-xs">Erase</span>
+                </button>
+
+                <button
+                  onClick={() => setTool('select')}
+                  className={`p-3 rounded-lg flex flex-col items-center justify-center transition-colors ${
+                    tool === 'select' ? 'bg-[#176A82] text-white' : 'hover:bg-gray-100 bg-gray-50'
+                  }`}
+                  title="Select Tool"
+                >
+                  <svg className="w-5 h-5 mb-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M2,2V11H6.5L12,5.5L18.5,12L13,17.5V22H22V13H17.5L12,18.5L5.5,12L11,6.5V2H2M4,4H9V7.5L4,12.5V4M15,13H20V20H15V16.5L20,11.5V20H15V13Z"/>
+                  </svg>
+                  <span className="text-xs">Select</span>
+                </button>
+              </div>
+            </div>
+
             {/* Tool Properties */}
-            <div>
-              <h3 className="font-semibold text-gray-800 mb-3 text-sm uppercase tracking-wide">Tool Properties</h3>
-
-              {tool === 'brush' && (
+            <div className="p-4 border-b">
+              {(tool === 'brush' || tool === 'eraser') && (
                 <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Brush Mode</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setTool('brush')}
-                        className="px-3 py-2 text-sm rounded border bg-[#176A82] text-white"
-                      >
-                        Paint
-                      </button>
-                      <button
-                        onClick={() => setTool('eraser')}
-                        className="px-3 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50"
-                      >
-                        Erase
-                      </button>
-                    </div>
-                  </div>
-
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">
                       Size: {brushSize}px
@@ -793,62 +813,30 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                     />
                   </div>
 
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">Color</label>
-                    <div className="flex gap-2">
-                      <input
-                        type="color" value={brushColor}
-                        onChange={(e) => setBrushColor(e.target.value)}
-                        className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
-                      />
-                      <input
-                        type="text" value={brushColor}
-                        onChange={(e) => setBrushColor(e.target.value)}
-                        className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono"
-                      />
+                  {tool === 'brush' && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Color</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color" value={brushColor}
+                          onChange={(e) => setBrushColor(e.target.value)}
+                          className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
+                        />
+                        <input
+                          type="text" value={brushColor}
+                          onChange={(e) => setBrushColor(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded font-mono"
+                        />
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {tool === 'eraser' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Brush Mode</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setTool('brush')}
-                        className="px-3 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50"
-                      >
-                        Paint
-                      </button>
-                      <button
-                        onClick={() => setTool('eraser')}
-                        className="px-3 py-2 text-sm rounded border bg-[#176A82] text-white"
-                      >
-                        Erase
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-1 block">
-                      Size: {brushSize}px
-                    </label>
-                    <input
-                      type="range"
-                      min="1" max="100" value={brushSize}
-                      onChange={(e) => setBrushSize(Number(e.target.value))}
-                      className="w-full accent-[#176A82]"
-                    />
-                  </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Layers Panel */}
-            <div>
-              <div className="flex justify-between items-center mb-3">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex justify-between items-center p-4 pb-2">
                 <h3 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Layers</h3>
                 <button
                   onClick={addLayer}
@@ -856,91 +844,92 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                   title="Add Layer"
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2 6h4V2h4v4h4v4h-4v4H6v-4H2V6Z"/>
-                    <path d="M14 8h4v4h4v4h-4v4h-4v-4h-4v-4h4V8Z"/>
-                    <path d="M6 14h4v4H6v-4Z"/>
+                    <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
                   </svg>
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {[...layers].reverse().map((layer, reverseIndex) => {
-                  const index = layers.length - 1 - reverseIndex;
-                  return (
-                    <div
-                      key={layer.id}
-                      className={`group p-3 rounded-lg border cursor-pointer transition-colors ${
-                        index === activeLayer
-                          ? 'border-[#176A82] bg-[#176A82]/10'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
-                      onClick={() => setActiveLayer(index)}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLayerVisibility(index);
-                          }}
-                          className="w-5 h-5 flex items-center justify-center hover:bg-gray-200 rounded"
-                          title={layer.visible ? "Hide layer" : "Show layer"}
-                        >
-                          {layer.visible ? (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/>
-                            </svg>
-                          ) : (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.09L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.76,7.13 11.37,7 12,7Z"/>
-                            </svg>
-                          )}
-                        </button>
-
-                        <span className="flex-1 text-sm font-medium truncate">
-                          {layer.name}
-                        </span>
-
-                        {layers.length > 1 && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-2">
+                  {[...layers].reverse().map((layer, reverseIndex) => {
+                    const index = layers.length - 1 - reverseIndex;
+                    return (
+                      <div
+                        key={layer.id}
+                        className={`group p-3 rounded-lg border cursor-pointer transition-colors ${
+                          index === activeLayer
+                            ? 'border-[#176A82] bg-[#176A82]/10'
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                        onClick={() => setActiveLayer(index)}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              deleteLayer(index);
+                              toggleLayerVisibility(index);
                             }}
-                            className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                            title="Delete layer"
+                            className="w-5 h-5 flex items-center justify-center hover:bg-gray-200 rounded"
+                            title={layer.visible ? "Hide layer" : "Show layer"}
                           >
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
-                            </svg>
+                            {layer.visible ? (
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/>
+                              </svg>
+                            ) : (
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.09L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.76,7.13 11.37,7 12,7Z"/>
+                              </svg>
+                            )}
                           </button>
-                        )}
-                      </div>
 
-                      <div>
-                        <input
-                          type="range"
-                          min="0" max="1" step="0.01" value={layer.opacity}
-                          onChange={(e) => updateLayerOpacity(index, Number(e.target.value))}
-                          className="w-full accent-[#176A82]"
-                          onClick={(e) => e.stopPropagation()}
-                          title={`Opacity: ${Math.round(layer.opacity * 100)}%`}
-                        />
+                          <span className="flex-1 text-sm font-medium truncate">
+                            {layer.name}
+                          </span>
+
+                          {layers.length > 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteLayer(index);
+                              }}
+                              className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                              title="Delete layer"
+                            >
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        <div>
+                          <input
+                            type="range"
+                            min="0" max="1" step="0.01" value={layer.opacity}
+                            onChange={(e) => updateLayerOpacity(index, Number(e.target.value))}
+                            className="w-full accent-[#176A82]"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Opacity: ${Math.round(layer.opacity * 100)}%`}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
+            </div>
+          </div>
             </div>
           </div>
 
           {/* Canvas Area */}
           <div className="flex-1 flex flex-col bg-gray-50">
-            <div className="flex-1 p-4 overflow-hidden">
-              <div className="relative w-full h-full bg-white rounded-lg border-2 border-gray-200 shadow-inner overflow-hidden">
+            <div className="flex-1 p-4">
+              <div className="relative w-full h-full bg-white rounded-lg border border-gray-300 flex items-center justify-center overflow-hidden">
                 <canvas
                   ref={previewCanvasRef}
-                  className="absolute inset-0 pointer-events-none z-10"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  className="absolute pointer-events-none z-10"
                 />
                 <canvas
                   ref={canvasRef}
@@ -948,10 +937,9 @@ function EnhancedDrawingCanvas({ isOpen, onClose, onSave }) {
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseUp}
-                  className={`block max-w-full max-h-full ${
+                  className={`block ${
                     tool === 'select' ? 'cursor-default' : 'cursor-crosshair'
                   }`}
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
               </div>
             </div>

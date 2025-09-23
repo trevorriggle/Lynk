@@ -236,6 +236,79 @@ export default function Chat() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [thread, sending]);
 
+  // Auto-send API request for user messages with attachments
+  useEffect(() => {
+    const lastMessage = thread[thread.length - 1];
+    if (lastMessage &&
+        lastMessage.role === "user" &&
+        lastMessage.attachments?.some(att => att.type === "image") &&
+        !sending &&
+        activeId) {
+
+      // Send the image message to the API
+      handleImageMessageSubmit(lastMessage);
+    }
+  }, [thread, sending, activeId]);
+
+  const handleImageMessageSubmit = async (imageMessage) => {
+    if (sending) return;
+
+    setSending(true);
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sessionId: activeId,
+          message: imageMessage.content,
+          attachments: imageMessage.attachments,
+          projectId: authState.projectId,
+          model: {
+            label: sessionModel?.label,
+            provider: sessionModel?.provider,
+            model: sessionModel?.model,
+          },
+        }),
+      });
+
+      let assistantText = "";
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+      if (res.ok && ct.includes("application/json")) {
+        const data = await res.json().catch(() => ({}));
+        assistantText = data?.text || "I can see your image, but I'm having trouble analyzing it right now.";
+        if (data?.inspector && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+        }
+        appendToActive({ role: "assistant", content: assistantText });
+      } else if (res.ok && res.body && ct.includes("text")) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          assistantText += decoder.decode(value, { stream: true });
+        }
+        appendToActive({ role: "assistant", content: assistantText || "I can see your image." });
+      } else if (res.ok) {
+        assistantText = await res.text();
+        appendToActive({ role: "assistant", content: assistantText || "I can see your image." });
+      } else {
+        let err = `Sorry, ${sessionModel?.label || fallbackLabel} endpoint returned ${res.status}.`;
+        try {
+          err = ct.includes("application/json") ? JSON.stringify(await res.json()) : await res.text();
+        } catch {}
+        appendToActive({ role: "assistant", content: `(error) ${err}` });
+      }
+    } catch (_e) {
+      appendToActive({ role: "assistant", content: `Couldn't reach ${endpoint}. Please try again.` });
+    } finally {
+      setSending(false);
+    }
+  };
+
   useEffect(() => {
     const el = taRef.current;
     if (!el) return;
