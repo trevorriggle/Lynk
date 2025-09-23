@@ -478,16 +478,21 @@ export default function Chat() {
                         {m.attachments
                           .filter(att => att.type === "image")
                           .map((att, idx) => (
-                            <div key={idx} className="relative">
+                            <div key={idx} className="relative group">
                               <img
                                 src={att.data}
-                                alt={att.filename || "User image"}
-                                className="max-w-full max-h-64 rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:opacity-90"
+                                alt={att.filename || "Created with Lynk Image Editor"}
+                                className="max-w-full max-h-72 rounded-lg border border-slate-200 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
                                 onClick={() => window.open(att.data, '_blank')}
                               />
                               {att.filename && (
                                 <div className="text-xs text-gray-500 mt-1">{att.filename}</div>
                               )}
+                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span className="bg-[#176A82] text-white px-2 py-1 rounded text-xs font-medium">
+                                  Click to enlarge
+                                </span>
+                              </div>
                             </div>
                           ))}
                       </div>
