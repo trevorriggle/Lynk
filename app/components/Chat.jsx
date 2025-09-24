@@ -144,6 +144,10 @@ export default function Chat() {
     guestMessageCount: s.guestMessageCount,
     addContextFile: s.addContextFile,
   }));
+
+  useEffect(() => {
+    console.log('Chat component - activeId:', activeId, 'activeSession exists:', !!sessions[activeId]);
+  }, [activeId, sessions]);
   
   const fallbackLabel = selectedModel?.label || "OpenAI";
 

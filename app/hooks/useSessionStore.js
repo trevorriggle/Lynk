@@ -291,16 +291,20 @@ export const useSessionStore = create(
             liveHistory: [], // Initialize empty snapshot history
             _lastSnapshotUserCount: 0, // Track snapshots per session
           };
-          
+
+          console.log('Creating session:', newSession);
+
           set((state) => ({
             sessions: { ...state.sessions, [id]: newSession },
             order: [id, ...state.order],
             activeId: id,
           }));
 
+          console.log('Session created and store updated');
+
           // Sync to database
           debouncedSync('save_session', newSession);
-          
+
           return id;
         },
 

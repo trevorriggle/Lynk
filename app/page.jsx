@@ -12,6 +12,7 @@ export default function Page() {
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [userFetched, setUserFetched] = useState(false);
 
   // Get session and model state from store
   const { activeId, order, sessions, createSession, selectSession, selectedModel, isLoading } = useSessionStore((s) => ({
@@ -34,6 +35,7 @@ export default function Page() {
           setCurrentUserId(j?.userId || null);
         }
       } catch {}
+      setUserFetched(true);
     };
     fetchUser();
   }, []);
@@ -66,10 +68,10 @@ export default function Page() {
     setActiveContext(ctx);
   };
 
-  // Initialize session logic - wait for loading to complete, then handle session selection
+  // Initialize session logic - wait for loading to complete AND user fetch, then handle session selection
   const booted = useRef(false);
   useEffect(() => {
-    if (isLoading) return; // Wait for data to load
+    if (isLoading || !userFetched) return; // Wait for data to load AND user fetch to complete
     if (booted.current) return; // Only run once
     booted.current = true;
 
@@ -77,14 +79,16 @@ export default function Page() {
 
     if (sessionKeys.length === 0) {
       // No sessions exist, create the first one
-      createSession(selectedModel, currentUserId);
+      const newSessionId = createSession(selectedModel, currentUserId);
+      console.log('Created initial session:', newSessionId, 'for user:', currentUserId);
     } else if (!activeId || !sessions[activeId]) {
       // Sessions exist but no active session, select the most recent
       const mostRecentId = order.length > 0 ? order[0] : sessionKeys[0];
       selectSession(mostRecentId);
+      console.log('Selected existing session:', mostRecentId);
     }
     // If activeId exists and session exists, do nothing
-  }, [isLoading, activeId, order, sessions, createSession, selectSession, selectedModel, currentUserId]);
+  }, [isLoading, userFetched, activeId, order, sessions, createSession, selectSession, selectedModel, currentUserId]);
 
   return (
     <div className="relative" style={{ height: "calc(100vh - var(--header-h))" }}>

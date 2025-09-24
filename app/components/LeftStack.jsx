@@ -265,15 +265,25 @@ export default function EnhancedLeftStack({ onActivate }) {
   }, []);
 
   const recent = useMemo(() => {
-    return order
+    const allSessions = order
       .map((id) => sessions[id])
-      .filter(Boolean)
-      .filter((session) => {
-        if (!authState.authenticated) {
-          return !session.userId;
-        }
-        return session.userId === authState.userId;
-      });
+      .filter(Boolean);
+
+    console.log('All sessions:', allSessions.map(s => ({ id: s.id, userId: s.userId, title: s.title })));
+    console.log('Auth state:', { authenticated: authState.authenticated, userId: authState.userId });
+
+    const filtered = allSessions.filter((session) => {
+      if (!authState.authenticated) {
+        // Guest user - show sessions with no userId
+        return !session.userId;
+      }
+      // Authenticated user - show sessions with matching userId
+      return session.userId === authState.userId;
+    });
+
+    console.log('Filtered sessions:', filtered.map(s => ({ id: s.id, userId: s.userId, title: s.title })));
+
+    return filtered;
   }, [order, sessions, authState.authenticated, authState.userId]);
 
   const handleFileUpload = (fileData) => {
@@ -292,10 +302,14 @@ export default function EnhancedLeftStack({ onActivate }) {
 
   const handleNewChat = () => {
     try {
-      const newSessionId = createSession(null, authState.authenticated ? authState.userId : null);
+      const userId = authState.authenticated ? authState.userId : null;
+      console.log('Creating new session with userId:', userId, 'authState:', authState);
+      const newSessionId = createSession(null, userId);
+      console.log('Created new session:', newSessionId);
       selectSession(newSessionId);
+      console.log('Selected new session:', newSessionId);
     } catch (error) {
-      // Silent fail
+      console.error('Failed to create new session:', error);
     }
   };
 
