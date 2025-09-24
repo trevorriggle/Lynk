@@ -494,7 +494,11 @@ export default function RightPanel() {
                         key={`${cmd.slug}-${i}`}
                         onClick={() => {
                           const { addCommand } = useSessionStore.getState();
-                          addCommand({ label: cmd.command || cmd.slug });
+                          addCommand({
+                            label: cmd.command || cmd.slug,
+                            content: `AI suggested: ${cmd.command || cmd.slug}`,
+                            source: 'smart-suggestion'
+                          });
                         }}
                         className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-lg hover:from-blue-50 hover:to-indigo-50 hover:border-blue-300 hover:text-blue-700 transition-all duration-200 shadow-sm hover:shadow"
                         title={`Send "${cmd.command || cmd.slug}"`}

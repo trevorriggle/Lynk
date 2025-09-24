@@ -279,8 +279,12 @@ export default function Chat() {
       if (res.ok && ct.includes("application/json")) {
         const data = await res.json().catch(() => ({}));
         assistantText = data?.text || "I can see your image, but I'm having trouble analyzing it right now.";
-        if (data?.inspector && typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+        if (typeof window !== "undefined") {
+          if (data?.inspector) {
+            window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+          }
+          // Dispatch full response for useSessionStore to capture snapshots
+          window.dispatchEvent(new CustomEvent("message:response", { detail: data }));
         }
         appendToActive({ role: "assistant", content: assistantText });
       } else if (res.ok && res.body && ct.includes("text")) {
@@ -446,8 +450,12 @@ export default function Chat() {
       if (res.ok && ct.includes("application/json")) {
         const data = await res.json().catch(() => ({}));
         assistantText = data?.text || "Okay.";
-        if (data?.inspector && typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+        if (typeof window !== "undefined") {
+          if (data?.inspector) {
+            window.dispatchEvent(new CustomEvent("inspector:update", { detail: data.inspector }));
+          }
+          // Dispatch full response for useSessionStore to capture snapshots
+          window.dispatchEvent(new CustomEvent("message:response", { detail: data }));
         }
         appendToActive({ role: "assistant", content: assistantText });
       } else if (res.ok && res.body && ct.includes("text")) {

@@ -13,11 +13,14 @@ export default function Page() {
   const [activeContext, setActiveContext] = useState(null);
 
   // Get session and model state from store
-  const { activeId, order, createSession, selectedModel } = useSessionStore((s) => ({
+  const { activeId, order, sessions, createSession, selectSession, selectedModel, isLoading } = useSessionStore((s) => ({
     activeId: s.activeId,
     order: s.order,
+    sessions: s.sessions,
     createSession: s.createSession,
+    selectSession: s.selectSession,
     selectedModel: s.selectedModel,
+    isLoading: s.isLoading,
   }));
 
   // Handle auth tokens from email verification
@@ -48,16 +51,25 @@ export default function Page() {
     setActiveContext(ctx);
   };
 
-  // Ensure at least one session on first load
+  // Initialize session logic - wait for loading to complete, then handle session selection
   const booted = useRef(false);
   useEffect(() => {
-    if (booted.current) return;
+    if (isLoading) return; // Wait for data to load
+    if (booted.current) return; // Only run once
     booted.current = true;
-    if (!activeId && order.length === 0) {
-      // Use the current selected model from store for initial session
+
+    const sessionKeys = Object.keys(sessions);
+
+    if (sessionKeys.length === 0) {
+      // No sessions exist, create the first one
       createSession(selectedModel);
+    } else if (!activeId || !sessions[activeId]) {
+      // Sessions exist but no active session, select the most recent
+      const mostRecentId = order.length > 0 ? order[0] : sessionKeys[0];
+      selectSession(mostRecentId);
     }
-  }, [activeId, order, createSession, selectedModel]);
+    // If activeId exists and session exists, do nothing
+  }, [isLoading, activeId, order, sessions, createSession, selectSession, selectedModel]);
 
   return (
     <div className="relative" style={{ height: "calc(100vh - var(--header-h))" }}>

@@ -197,6 +197,80 @@ export const useSessionStore = create(
       // Load initial data
       if (typeof window !== 'undefined') {
         setTimeout(checkAuthAndLoad, 100);
+
+        // Listen for message responses to capture snapshots and sync them
+        const handleMessageResponse = (event) => {
+          const data = event.detail;
+          const sessionId = data?.sessionMeta?.sessionId;
+
+          if (sessionId) {
+            const currentSessions = get().sessions;
+            if (currentSessions[sessionId]) {
+              let needsUpdate = false;
+              const updates = {};
+
+              // Capture snapshots
+              if (data?.inspector?.live_history) {
+                updates.liveHistory = data.inspector.live_history;
+                needsUpdate = true;
+              }
+
+              // Capture dynamic commands from topic tracking
+              if (data?.inspector?.commands) {
+                // Merge with existing commands, avoiding duplicates
+                const existingCommands = get().commands || [];
+                const newCommands = data.inspector.commands;
+
+                const mergedCommands = [...existingCommands];
+                newCommands.forEach(newCmd => {
+                  const exists = existingCommands.find(cmd =>
+                    cmd.slug === newCmd.slug || cmd.command === newCmd.command
+                  );
+                  if (!exists) {
+                    mergedCommands.push({
+                      key: newCmd.slug || genId(),
+                      label: newCmd.command || newCmd.slug,
+                      content: `Based on your conversation: ${newCmd.command || newCmd.slug}`,
+                      createdAt: newCmd.created_at || new Date().toISOString(),
+                      source: 'ai-generated',
+                      confidence: newCmd.confidence || 'medium',
+                    });
+                  }
+                });
+
+                if (mergedCommands.length > existingCommands.length) {
+                  set({ commands: mergedCommands });
+                  // Sync new commands
+                  const newCommandsOnly = mergedCommands.slice(existingCommands.length);
+                  newCommandsOnly.forEach(cmd => debouncedSync('save_command', cmd));
+                }
+              }
+
+              // Update session if needed
+              if (needsUpdate) {
+                const updatedSession = {
+                  ...currentSessions[sessionId],
+                  ...updates,
+                  updatedAt: new Date().toISOString(),
+                };
+
+                set((state) => ({
+                  sessions: {
+                    ...state.sessions,
+                    [sessionId]: updatedSession,
+                  },
+                }));
+
+                // Sync session updates to database
+                debouncedSync('save_session', updatedSession);
+              }
+            }
+          }
+        };
+
+        window.addEventListener('message:response', handleMessageResponse);
+
+        // Cleanup function will be handled by the store cleanup
       }
 
       return {
@@ -854,11 +928,11 @@ export const useSessionStore = create(
       };
     },
     {
-      name: "lynk-sessions-v4", // Updated version
-      version: 4,
+      name: "lynk-sessions-v2", // Use consistent versioning
+      version: 2,
       migrate: (persistedState, version) => {
         // Handle migration from older versions
-        if (version < 4) {
+        if (version < 2) {
           return {
             ...initialState,
             sessions: persistedState.sessions || {},
