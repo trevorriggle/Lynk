@@ -277,7 +277,7 @@ export const useSessionStore = create(
 
         // ==================== SESSION MANAGEMENT ====================
         
-        createSession: (model = null) => {
+        createSession: (model = null, userId = null) => {
           const id = genId();
           const sessionModel = model || get().selectedModel;
           const newSession = {
@@ -287,7 +287,7 @@ export const useSessionStore = create(
             model: sessionModel,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            userId: null, // Will be set by sync if authenticated
+            userId: userId, // Set immediately from caller
             liveHistory: [], // Initialize empty snapshot history
             _lastSnapshotUserCount: 0, // Track snapshots per session
           };

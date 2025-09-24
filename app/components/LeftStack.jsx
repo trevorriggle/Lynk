@@ -292,7 +292,7 @@ export default function EnhancedLeftStack({ onActivate }) {
 
   const handleNewChat = () => {
     try {
-      const newSessionId = createSession();
+      const newSessionId = createSession(null, authState.authenticated ? authState.userId : null);
       selectSession(newSessionId);
     } catch (error) {
       // Silent fail

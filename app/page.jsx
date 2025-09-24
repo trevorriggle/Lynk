@@ -11,6 +11,7 @@ export default function Page() {
   // UI state for panels - keep these as local state
   const [active, setActive] = useState(false);
   const [activeContext, setActiveContext] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   // Get session and model state from store
   const { activeId, order, sessions, createSession, selectSession, selectedModel, isLoading } = useSessionStore((s) => ({
@@ -22,6 +23,20 @@ export default function Page() {
     selectedModel: s.selectedModel,
     isLoading: s.isLoading,
   }));
+
+  // Get current user info
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          setCurrentUserId(j?.userId || null);
+        }
+      } catch {}
+    };
+    fetchUser();
+  }, []);
 
   // Handle auth tokens from email verification
   useEffect(() => {
@@ -62,14 +77,14 @@ export default function Page() {
 
     if (sessionKeys.length === 0) {
       // No sessions exist, create the first one
-      createSession(selectedModel);
+      createSession(selectedModel, currentUserId);
     } else if (!activeId || !sessions[activeId]) {
       // Sessions exist but no active session, select the most recent
       const mostRecentId = order.length > 0 ? order[0] : sessionKeys[0];
       selectSession(mostRecentId);
     }
     // If activeId exists and session exists, do nothing
-  }, [isLoading, activeId, order, sessions, createSession, selectSession, selectedModel]);
+  }, [isLoading, activeId, order, sessions, createSession, selectSession, selectedModel, currentUserId]);
 
   return (
     <div className="relative" style={{ height: "calc(100vh - var(--header-h))" }}>
