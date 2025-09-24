@@ -220,34 +220,45 @@ export default function EnhancedLeftStack({ onActivate }) {
         const r = await fetch("/api/me", { cache: "no-store" });
         if (r.ok) {
           const userData = await r.json();
-          const newAuthState = { 
-            loading: false, 
+          const newAuthState = {
+            loading: false,
             authenticated: !!userData?.userId,
             userId: userData?.userId || null
           };
-          
-          if (authState.authenticated !== newAuthState.authenticated || 
-              authState.userId !== newAuthState.userId) {
+
+          // Only clear sessions when switching between different authenticated users
+          // Don't clear when going from guest to authenticated (login) or authenticated to guest (logout)
+          if (authState.authenticated && newAuthState.authenticated &&
+              authState.userId !== newAuthState.userId &&
+              authState.userId !== null && newAuthState.userId !== null) {
             clearSessions?.();
           }
-          
+
           setAuthState(newAuthState);
         } else {
           const newAuthState = { loading: false, authenticated: false, userId: null };
-          
-          if (authState.authenticated !== newAuthState.authenticated) {
+
+          // Only clear sessions when switching between different authenticated users
+          // Don't clear when going from authenticated to guest (logout)
+          if (authState.authenticated && authState.userId !== null &&
+              newAuthState.authenticated && newAuthState.userId !== null &&
+              authState.userId !== newAuthState.userId) {
             clearSessions?.();
           }
-          
+
           setAuthState(newAuthState);
         }
       } catch {
         const newAuthState = { loading: false, authenticated: false, userId: null };
-        
-        if (authState.authenticated !== newAuthState.authenticated) {
+
+        // Only clear sessions when switching between different authenticated users
+        // Don't clear when going from authenticated to guest (error/logout)
+        if (authState.authenticated && authState.userId !== null &&
+            newAuthState.authenticated && newAuthState.userId !== null &&
+            authState.userId !== newAuthState.userId) {
           clearSessions?.();
         }
-        
+
         setAuthState(newAuthState);
       }
     })();

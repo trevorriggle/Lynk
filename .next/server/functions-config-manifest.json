@@ -1,1 +1,1 @@
-{"version":1,"functions":{"/api/auth/login":{},"/api/auth/logout":{},"/api/auth/send-magic":{},"/api/me":{},"/api/auth/finish":{},"/api/chat-storage":{},"/api/auth/signup":{},"/api/session":{}}}
+{"version":1,"functions":{"/api/auth/finish":{},"/api/auth/login":{},"/api/auth/logout":{},"/api/auth/send-magic":{},"/api/auth/signup":{},"/api/me":{},"/api/chat-storage":{},"/api/session":{}}}
