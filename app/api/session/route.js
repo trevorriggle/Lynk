@@ -383,6 +383,98 @@ function trackMessageTopics(session, message) {
   }
 }
 
+// ---------- Smart Suggestions Generation ----------
+async function generateSmartSuggestions(turns, fromTurn, toTurn) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return createFallbackSmartSuggestions(turns, fromTurn, toTurn);
+  }
+
+  try {
+    const relevantTurns = turns.slice(fromTurn - 1, toTurn);
+    const userMessages = relevantTurns.filter(t => t.role === "user").map(t => t.content).join("\n");
+
+    const client = new OpenAI({ apiKey: key });
+    const system = "Return *only* strict JSON. Generate 1-3 relevant command suggestions based on the topics discussed.";
+    const user = `Analyze user messages from turns ${fromTurn}-${toTurn} and suggest relevant commands.
+
+SCHEMA:
+{
+  "suggestions": [
+    {
+      "command": "specific topic or question",
+      "confidence": "high|medium|low",
+      "reason": "brief explanation why this is relevant"
+    }
+  ]
+}
+
+Generate commands that would be helpful follow-ups or deeper dives into topics mentioned. Examples:
+- If music instruments discussed: "music theory basics?"
+- If programming languages mentioned: "best practices comparison?"
+- If business strategy discussed: "implementation roadmap?"
+
+User Messages:
+${userMessages}`;
+
+    const response = await runWithTimeout(
+      client.chat.completions.create({
+        model: BACKGROUND_MODEL,
+        max_tokens: 150,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+      6000,
+      "smart-suggestions"
+    );
+
+    const raw = response?.choices?.[0]?.message?.content?.toString?.() || "{}";
+    const obj = JSON.parse(extractJson(raw));
+
+    return {
+      suggestions: Array.isArray(obj?.suggestions) ? obj.suggestions.slice(0, 3) : [],
+    };
+  } catch (error) {
+    console.error("Smart suggestions generation failed:", error);
+    return createFallbackSmartSuggestions(turns, fromTurn, toTurn);
+  }
+}
+
+function createFallbackSmartSuggestions(turns, fromTurn, toTurn) {
+  const relevantTurns = turns.slice(fromTurn - 1, toTurn);
+  const userMessages = relevantTurns.filter(t => t.role === "user").map(t => t.content).join(" ").toLowerCase();
+
+  const suggestions = [];
+
+  // Topic-based suggestion rules
+  const topicRules = {
+    "music theory?": /\b(trumpet|flute|organ|piano|guitar|drums|violin|music|instrument|melody|harmony|chord)\b/i,
+    "programming best practices?": /\b(javascript|python|react|code|function|api|debug|programming|typescript)\b/i,
+    "design principles?": /\b(ui|ux|design|layout|typography|visual|interface|component|styling)\b/i,
+    "data analysis tips?": /\b(data|sql|metrics|chart|analytics|database|visualization|statistics)\b/i,
+    "business strategy?": /\b(business|strategy|market|sales|revenue|pricing|roi|plan|growth)\b/i,
+    "ai/ml resources?": /\b(ai|machine learning|model|gpt|claude|neural|embedding|training)\b/i,
+    "project management?": /\b(project|agile|scrum|sprint|delivery|roadmap|timeline|management)\b/i,
+  };
+
+  for (const [command, regex] of Object.entries(topicRules)) {
+    if (regex.test(userMessages)) {
+      suggestions.push({
+        command: command,
+        confidence: "medium",
+        reason: "Based on topics discussed in recent messages"
+      });
+    }
+  }
+
+  return {
+    suggestions: suggestions.slice(0, 3)
+  };
+}
+
 // ---------- Enhanced Live Notes Generation ----------
 async function generateLiveNotes(turns, fromTurn, toTurn) {
   const key = process.env.OPENAI_API_KEY;
@@ -690,11 +782,24 @@ export async function POST(req) {
     }
 
     const monthlySnapshots = s.monthlyCounters[monthKey].snapshots || 0;
+    // Simplified snapshot logic - create snapshot every 5 user messages
+    const lastSnapshotCount = s._lastSnapshotUserCount || 0;
+    const shouldTriggerSnapshot = uCount >= 5 && Math.floor(uCount / 5) > Math.floor(lastSnapshotCount / 5);
+
+    console.log(`📊 Snapshot check for session ${sessionId}:`, {
+      uCount,
+      lastSnapshotCount,
+      currentSnapshotBucket: Math.floor(uCount / 5),
+      lastSnapshotBucket: Math.floor(lastSnapshotCount / 5),
+      shouldTriggerSnapshot,
+      isGuest: s.isGuest,
+      monthlySnapshots,
+      monthlyLimit: tierLimits.liveNotesPerMonth
+    });
+
     const canCreateSnapshot = !s.isGuest &&
       tierLimits.liveNotesPerMonth > monthlySnapshots &&
-      uCount >= 5 &&
-      uCount % 5 === 0 &&
-      uCount > (s._lastSnapshotUserCount || 0);
+      shouldTriggerSnapshot;
 
     const shouldCreateSnapshot = canCreateSnapshot;
 
@@ -721,9 +826,41 @@ export async function POST(req) {
         // Increment monthly snapshot counter
         s.monthlyCounters[monthKey].snapshots = monthlySnapshots + 1;
 
-        console.log(`✅ Created snapshot ${entry.id} for turns ${fromTurn}-${toTurn}. Total snapshots: ${s.liveHistory.length}, Monthly: ${s.monthlyCounters[monthKey].snapshots}/${tierLimits.liveNotesPerMonth}`);
+        console.log(`✅ Created snapshot ${entry.id} for session ${sessionId}, user turns ${fromTurn}-${toTurn}. Session snapshots: ${s.liveHistory.length}, Monthly: ${s.monthlyCounters[monthKey].snapshots}/${tierLimits.liveNotesPerMonth}`);
       } catch (error) {
         console.log("❌ Snapshot generation failed:", error.message);
+      }
+    }
+
+    // ---- Smart Suggestions (Authenticated users only, every 5 user turns) ----
+    if (shouldCreateSnapshot && tierLimits.commandSuggestions) {
+      const fromTurn = (s._lastSnapshotUserCount || 0) + 1;
+      const toTurn = uCount;
+
+      try {
+        const smartSuggestions = await generateSmartSuggestions(s.turns, fromTurn, toTurn);
+
+        if (smartSuggestions.suggestions && smartSuggestions.suggestions.length > 0) {
+          // Initialize commands array if it doesn't exist
+          if (!s.commands) s.commands = [];
+
+          // Add new smart suggestions to commands
+          smartSuggestions.suggestions.forEach(suggestion => {
+            s.commands.push({
+              slug: `smart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              command: suggestion.command,
+              created_at: new Date().toISOString(),
+              confidence: suggestion.confidence || "medium",
+              reason: suggestion.reason,
+              source: "smart-suggestion",
+              turns_range: `${fromTurn}-${toTurn}`,
+            });
+          });
+
+          console.log(`🧠 Generated ${smartSuggestions.suggestions.length} smart suggestions for session ${sessionId}, turns ${fromTurn}-${toTurn}`);
+        }
+      } catch (error) {
+        console.log("❌ Smart suggestions generation failed:", error.message);
       }
     }
 

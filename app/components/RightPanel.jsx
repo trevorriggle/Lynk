@@ -492,18 +492,25 @@ export default function RightPanel() {
               {commands?.length > 0 ? (
                 <div className="space-y-2">
                   <div className="text-xs text-slate-500 mb-3">
-                    Commands appear when topics are mentioned 4+ times
+                    Smart suggestions generated every 5 messages based on conversation topics
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {commands.slice(0, 6).map((cmd, i) => (
                       <button
                         key={`${cmd.slug}-${i}`}
                         onClick={() => {
-                          const { addCommand } = useSessionStore.getState();
+                          const { sendMessage, addCommand } = useSessionStore.getState();
+
+                          // Send the command as a message immediately
+                          const commandText = cmd.command || cmd.slug;
+                          sendMessage(commandText);
+
+                          // Also add it to the commands list in left stack for future use
                           addCommand({
-                            label: cmd.command || cmd.slug,
-                            content: `AI suggested: ${cmd.command || cmd.slug}`,
-                            source: 'smart-suggestion'
+                            label: commandText,
+                            content: `Smart suggestion: ${commandText}`,
+                            source: 'smart-suggestion',
+                            reason: cmd.reason || 'AI-generated suggestion'
                           });
                         }}
                         className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-lg hover:from-blue-50 hover:to-indigo-50 hover:border-blue-300 hover:text-blue-700 transition-all duration-200 shadow-sm hover:shadow"
@@ -524,7 +531,7 @@ export default function RightPanel() {
                     </div>
                     <p className="text-sm font-medium text-slate-700 mb-1">No suggestions yet</p>
                     <p className="text-xs text-slate-500">
-                      Smart command suggestions will appear when you discuss topics frequently.
+                      Smart command suggestions will appear automatically every 5 messages based on conversation topics.
                     </p>
                   </div>
                 </div>
