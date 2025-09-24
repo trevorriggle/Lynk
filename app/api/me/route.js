@@ -1,6 +1,8 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { getUserTier } from "../../../lib/database.js";
+
 const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -59,8 +61,8 @@ export async function GET(req) {
     const projects = projectResponse.ok ? await projectResponse.json() : [];
     const project = projects?.[0] || null;
 
-    // 4) Determine user tier (can be enhanced with database lookup later)
-    const userTier = userId ? "FREE_VERIFIED" : "FREE_GUEST"; // Default authenticated users to FREE_VERIFIED
+    // 4) Get user tier from database
+    const userTier = await getUserTier(userId);
 
     return Response.json({
       ok: true,

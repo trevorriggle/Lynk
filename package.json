@@ -4,7 +4,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start -p 3000"
+    "start": "next start -p 3000",
+    "migrate": "node scripts/migrate-and-cleanup.js all",
+    "migrate:only": "node scripts/migrate-and-cleanup.js migrate",
+    "cleanup": "node scripts/migrate-and-cleanup.js cleanup",
+    "stats": "node scripts/migrate-and-cleanup.js stats"
   },
   "dependencies": {
     "openai": "^4.56.0",
