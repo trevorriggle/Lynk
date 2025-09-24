@@ -194,7 +194,7 @@ export const useSessionStore = create(
               let needsUpdate = false;
               const updates = {};
 
-              // Capture snapshots
+              // Capture snapshots and store them with the session
               if (data?.inspector?.live_history) {
                 updates.liveHistory = data.inspector.live_history;
                 needsUpdate = true;
@@ -288,6 +288,8 @@ export const useSessionStore = create(
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             userId: null, // Will be set by sync if authenticated
+            liveHistory: [], // Initialize empty snapshot history
+            _lastSnapshotUserCount: 0, // Track snapshots per session
           };
           
           set((state) => ({

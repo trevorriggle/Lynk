@@ -113,7 +113,9 @@ export async function GET(req) {
         },
         createdAt: session.created_at,
         updatedAt: session.updated_at,
-        userId: session.user_id
+        userId: session.user_id,
+        liveHistory: session.live_history ? JSON.parse(session.live_history) : [],
+        _lastSnapshotUserCount: session.last_snapshot_user_count || 0
       };
       order.push(session.id);
     });
@@ -167,6 +169,8 @@ export async function POST(req) {
           title: data.title,
           model_provider: data.model?.provider,
           model_name: data.model?.model,
+          live_history: JSON.stringify(data.liveHistory || []),
+          last_snapshot_user_count: data._lastSnapshotUserCount || 0,
           updated_at: new Date().toISOString()
         };
 

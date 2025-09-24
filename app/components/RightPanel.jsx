@@ -132,14 +132,20 @@ export default function RightPanel() {
     setOpenSnapshots({});
   }, [activeId]);
 
-  // Memoize live history to prevent unnecessary re-renders
+  // Get live history from session store first, fallback to inspector
+  const currentSession = activeId ? sessions[activeId] : null;
   const liveHistory = useMemo(() => {
-    const historyAll = inspector?.live_history || [];
+    // Use session store data as primary source
+    const sessionHistory = currentSession?.liveHistory || [];
+    // Fallback to inspector data if session store is empty
+    const inspectorHistory = inspector?.live_history || [];
+
+    const historyAll = sessionHistory.length > 0 ? sessionHistory : inspectorHistory;
     return historyAll
       .slice()
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 4);
-  }, [inspector?.live_history]);
+  }, [currentSession?.liveHistory, inspector?.live_history]);
 
   // Auto-open ONLY newly created snapshots (not on first load/refresh)
   useEffect(() => {
