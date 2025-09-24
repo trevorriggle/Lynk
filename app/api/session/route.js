@@ -395,24 +395,24 @@ async function generateSmartSuggestions(turns, fromTurn, toTurn) {
     const userMessages = relevantTurns.filter(t => t.role === "user").map(t => t.content).join("\n");
 
     const client = new OpenAI({ apiKey: key });
-    const system = "Return *only* strict JSON. Generate 1-3 relevant command suggestions based on the topics discussed.";
-    const user = `Analyze user messages from turns ${fromTurn}-${toTurn} and suggest relevant commands.
+    const system = "Return *only* strict JSON. Generate exactly 3 compact command suggestions (2 words max, ending with ?)";
+    const user = `Analyze user messages from turns ${fromTurn}-${toTurn} and suggest 3 compact commands.
 
 SCHEMA:
 {
   "suggestions": [
     {
-      "command": "specific topic or question",
+      "command": "Word Word?",
       "confidence": "high|medium|low",
       "reason": "brief explanation why this is relevant"
     }
   ]
 }
 
-Generate commands that would be helpful follow-ups or deeper dives into topics mentioned. Examples:
-- If music instruments discussed: "music theory basics?"
-- If programming languages mentioned: "best practices comparison?"
-- If business strategy discussed: "implementation roadmap?"
+Generate exactly 3 compact commands (2 words maximum, ending with ?). Examples:
+- If music instruments discussed: "Music theory?", "Practice tips?", "Sheet music?"
+- If programming discussed: "Best practices?", "Debug strategies?", "Code review?"
+- If business discussed: "Market analysis?", "Growth strategies?", "Cost optimization?"
 
 User Messages:
 ${userMessages}`;
@@ -435,7 +435,10 @@ ${userMessages}`;
     const obj = JSON.parse(extractJson(raw));
 
     return {
-      suggestions: Array.isArray(obj?.suggestions) ? obj.suggestions.slice(0, 3) : [],
+      suggestions: Array.isArray(obj?.suggestions) ? obj.suggestions.slice(0, 3).map(s => ({
+        ...s,
+        command: s.command?.endsWith('?') ? s.command : `${s.command}?`
+      })) : [],
     };
   } catch (error) {
     console.error("Smart suggestions generation failed:", error);
@@ -449,15 +452,15 @@ function createFallbackSmartSuggestions(turns, fromTurn, toTurn) {
 
   const suggestions = [];
 
-  // Topic-based suggestion rules
+  // Topic-based suggestion rules (2 words max, ending with ?)
   const topicRules = {
-    "music theory?": /\b(trumpet|flute|organ|piano|guitar|drums|violin|music|instrument|melody|harmony|chord)\b/i,
-    "programming best practices?": /\b(javascript|python|react|code|function|api|debug|programming|typescript)\b/i,
-    "design principles?": /\b(ui|ux|design|layout|typography|visual|interface|component|styling)\b/i,
-    "data analysis tips?": /\b(data|sql|metrics|chart|analytics|database|visualization|statistics)\b/i,
-    "business strategy?": /\b(business|strategy|market|sales|revenue|pricing|roi|plan|growth)\b/i,
-    "ai/ml resources?": /\b(ai|machine learning|model|gpt|claude|neural|embedding|training)\b/i,
-    "project management?": /\b(project|agile|scrum|sprint|delivery|roadmap|timeline|management)\b/i,
+    "Music theory?": /\b(trumpet|flute|organ|piano|guitar|drums|violin|music|instrument|melody|harmony|chord)\b/i,
+    "Code review?": /\b(javascript|python|react|code|function|api|debug|programming|typescript)\b/i,
+    "Design tips?": /\b(ui|ux|design|layout|typography|visual|interface|component|styling)\b/i,
+    "Data insights?": /\b(data|sql|metrics|chart|analytics|database|visualization|statistics)\b/i,
+    "Growth strategies?": /\b(business|strategy|market|sales|revenue|pricing|roi|plan|growth)\b/i,
+    "AI resources?": /\b(ai|machine learning|model|gpt|claude|neural|embedding|training)\b/i,
+    "Project planning?": /\b(project|agile|scrum|sprint|delivery|roadmap|timeline|management)\b/i,
   };
 
   for (const [command, regex] of Object.entries(topicRules)) {

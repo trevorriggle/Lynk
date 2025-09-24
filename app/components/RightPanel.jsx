@@ -454,7 +454,7 @@ export default function RightPanel() {
 
         {/* Commands Section */}
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-slate-900">Smart Suggestions</h3>
             <span
               className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium border ${
@@ -466,6 +466,13 @@ export default function RightPanel() {
               {hasCommandsFeature ? commands?.length || 0 : "–"}
             </span>
           </div>
+
+          {/* Instructional note */}
+          {hasCommandsFeature && commands?.length > 0 && (
+            <div className="text-xs text-slate-500 mb-3 italic">
+              Click the command to add it to your command registry
+            </div>
+          )}
 
           {/* Guest user - Command suggestions locked */}
           {!hasCommandsFeature && (
@@ -499,13 +506,10 @@ export default function RightPanel() {
                       <button
                         key={`${cmd.slug}-${i}`}
                         onClick={() => {
-                          const { sendMessage, addCommand } = useSessionStore.getState();
+                          const { addCommand } = useSessionStore.getState();
 
-                          // Send the command as a message immediately
+                          // Only add it to the commands list in left stack
                           const commandText = cmd.command || cmd.slug;
-                          sendMessage(commandText);
-
-                          // Also add it to the commands list in left stack for future use
                           addCommand({
                             label: commandText,
                             content: `Smart suggestion: ${commandText}`,
