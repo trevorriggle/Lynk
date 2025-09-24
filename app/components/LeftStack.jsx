@@ -291,52 +291,20 @@ export default function EnhancedLeftStack({ onActivate }) {
     setShowFileUpload(false);
   };
 
-  const executeCommand = async (command) => {
-    const { activeId, appendToActive, guestMessageCount } = useSessionStore.getState();
-    if (!activeId) return;
+  const executeCommand = (command) => {
+    const { guestMessageCount } = useSessionStore.getState();
 
     // Hard stop for guest users at message limit
     if (!authState.authenticated && guestMessageCount >= 10) {
-      // Could show a toast/alert here if needed
       console.log("Guest message limit reached, command execution blocked");
       return;
     }
 
+    // Simply send the command as a regular message to the LLM
     const commandText = command.label || command.command;
-
-    // Send user message (appears in chat)
-    appendToActive({ role: "user", content: commandText });
-
-    // Generate fake assistant response (no LLM call, but consumes credit)
-    setTimeout(() => {
-      const fakeResponses = [
-        "I understand you're asking about that topic. Let me provide some insights...",
-        "That's a great question! Here's what I can share about that...",
-        "Based on your interest in this area, here are some thoughts...",
-        "Let me help you explore this topic further...",
-        "That's an interesting area to discuss. Here's my perspective..."
-      ];
-
-      const randomResponse = fakeResponses[Math.floor(Math.random() * fakeResponses.length)];
-
-      appendToActive({
-        role: "assistant",
-        content: randomResponse,
-        isFakeResponse: true // Mark as fake for potential different handling
-      });
-
-      // Trigger custom event to simulate message response (for credit consumption)
-      window.dispatchEvent(new CustomEvent('message:response', {
-        detail: {
-          text: randomResponse,
-          sessionMeta: {
-            sessionId: activeId,
-            isGuest: !authState.authenticated,
-            tier: authState.authenticated ? "FREE_VERIFIED" : "FREE_GUEST"
-          }
-        }
-      }));
-    }, 500); // Small delay to simulate response time
+    if (sendMessage) {
+      sendMessage(commandText);
+    }
   };
 
   const totalCommands = commands.length;
