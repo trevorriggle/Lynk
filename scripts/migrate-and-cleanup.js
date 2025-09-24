@@ -34,17 +34,52 @@ async function runMigration() {
   const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
 
   try {
-    // Split SQL by statement (crude but works for our migration)
-    const statements = migrationSQL
-      .split(/;\s*\n/)
-      .map(stmt => stmt.trim())
-      .filter(stmt => stmt.length > 0 && !stmt.startsWith('--'));
+    // Execute the full migration as a single query
+    const { error } = await supabase.rpc('exec_raw_sql', {
+      query: migrationSQL
+    });
 
-    for (const statement of statements) {
-      if (statement.trim()) {
-        const { error } = await supabase.rpc('exec_sql', { sql_query: statement });
-        if (error && !error.message.includes('already exists')) {
-          console.warn('⚠️  Migration statement warning:', error.message);
+    if (error) {
+      console.error('❌ Migration error:', error);
+      // Try alternative approach - create tables individually
+      console.log('🔄 Attempting alternative migration approach...');
+
+      // Create tables using Supabase client directly
+      const basicTables = [
+        `CREATE TABLE IF NOT EXISTS user_tiers (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id UUID NOT NULL UNIQUE,
+          tier TEXT NOT NULL DEFAULT 'FREE_VERIFIED' CHECK (tier IN ('FREE_GUEST', 'FREE_VERIFIED', 'PRO')),
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )`,
+        `CREATE TABLE IF NOT EXISTS lynk_sessions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          session_id TEXT NOT NULL UNIQUE,
+          user_id UUID,
+          title TEXT,
+          tier TEXT NOT NULL DEFAULT 'FREE_GUEST' CHECK (tier IN ('FREE_GUEST', 'FREE_VERIFIED', 'PRO')),
+          is_guest BOOLEAN NOT NULL DEFAULT true,
+          model_provider TEXT,
+          model_name TEXT,
+          topic_counts JSONB DEFAULT '{}'::jsonb,
+          last_snapshot_user_count INTEGER DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          expires_at TIMESTAMPTZ
+        )`
+      ];
+
+      for (const tableSQL of basicTables) {
+        try {
+          const { error: tableError } = await supabase.rpc('exec_raw_sql', {
+            query: tableSQL
+          });
+          if (tableError) {
+            console.warn('⚠️  Table creation warning:', tableError.message);
+          }
+        } catch (err) {
+          console.warn('⚠️  Individual table creation failed:', err.message);
         }
       }
     }
