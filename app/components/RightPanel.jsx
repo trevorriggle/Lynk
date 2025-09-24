@@ -1,4 +1,4 @@
-// components/RightPanel.jsx — Lynk branded session insights with stable collapsibles
+// components/RightPanel.jsx — Lynk branded session insights with tier-gated command suggestions
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
@@ -38,6 +38,7 @@ function CheckIcon({ className = "w-3.5 h-3.5" }) {
 export default function RightPanel() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, userId: null });
   const [inspector, setInspector] = useState(null);
+  const [sessionData, setSessionData] = useState(null);
   const [copied, setCopied] = useState("");
   
   // Use refs to prevent state changes from affecting collapsible state
@@ -74,7 +75,15 @@ export default function RightPanel() {
   // Accept app events
   useEffect(() => {
     const onUpdate = (e) => e?.detail && setInspector(e.detail);
-    const onResp = (e) => e?.detail?.inspector && setInspector(e.detail.inspector);
+    const onResp = (e) => {
+      if (e?.detail?.inspector) setInspector(e.detail.inspector);
+      if (e?.detail?.sessionMeta) {
+        setSessionData(prev => ({
+          ...prev,
+          tier: e.detail.sessionMeta.tier
+        }));
+      }
+    };
     window.addEventListener("inspector:update", onUpdate);
     window.addEventListener("message:response", onResp);
     return () => {
@@ -87,6 +96,7 @@ export default function RightPanel() {
   useEffect(() => {
     if (!activeId || auth.loading) {
       setInspector(null);
+      setSessionData(null);
       return;
     }
     let cancel = false;
@@ -100,6 +110,9 @@ export default function RightPanel() {
           const j = await r.json();
           if (j?.inspector) {
             setInspector(j.inspector);
+          }
+          if (j?.session) {
+            setSessionData(j.session);
           }
         }
       } catch {}
@@ -161,6 +174,9 @@ export default function RightPanel() {
 
   const commands = inspector?.commands || [];
   const badge = liveHistory.length;
+  const userTier = sessionData?.tier || (auth.authenticated ? "FREE_VERIFIED" : "FREE_GUEST");
+  const hasCommandsFeature = userTier === "FREE_VERIFIED" || userTier === "PRO";
+  const hasSnapshotsFeature = userTier === "FREE_VERIFIED" || userTier === "PRO";
 
   const currentThread = activeId ? (sessions[activeId]?.messages || []) : [];
   const threadUserCount = currentThread.filter((m) => m?.role === "user").length;
@@ -195,6 +211,32 @@ export default function RightPanel() {
     });
   };
 
+  const getTierColor = (tier) => {
+    switch(tier) {
+      case "FREE_GUEST":
+        return "bg-slate-500";
+      case "FREE_VERIFIED":
+        return "bg-emerald-500";
+      case "PRO":
+        return "bg-gradient-to-r from-teal-500 to-cyan-500";
+      default:
+        return "bg-slate-500";
+    }
+  };
+
+  const getTierLabel = (tier) => {
+    switch(tier) {
+      case "FREE_GUEST":
+        return "Guest";
+      case "FREE_VERIFIED":
+        return "Verified";
+      case "PRO":
+        return "Pro";
+      default:
+        return "Guest";
+    }
+  };
+
   // Render loading state
   if (auth.loading) {
     return (
@@ -216,11 +258,9 @@ export default function RightPanel() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-slate-900">Session Insights</h2>
             <div className="flex items-center gap-1.5">
-              <div className={`w-2 h-2 rounded-full ${
-                auth.authenticated ? "bg-emerald-500" : "bg-amber-500"
-              }`} />
+              <div className={`w-2 h-2 rounded-full ${getTierColor(userTier)}`} />
               <span className="text-xs text-slate-600 font-medium">
-                {auth.authenticated ? "Verified" : "Guest"}
+                {getTierLabel(userTier)}
               </span>
             </div>
           </div>
@@ -245,7 +285,7 @@ export default function RightPanel() {
           </div>
 
           {/* Guest State */}
-          {!auth.authenticated && (
+          {!hasSnapshotsFeature && (
             <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center mt-0.5">
@@ -256,7 +296,7 @@ export default function RightPanel() {
                 <div>
                   <p className="text-sm font-medium text-amber-800 mb-1">Sign in to unlock Live Notes</p>
                   <p className="text-xs text-amber-700">
-                    Get automatic conversation summaries and insights every 5 turns when you're signed in.
+                    Get 2 conversation summaries per month with email verification, or unlimited with Pro.
                   </p>
                 </div>
               </div>
@@ -264,7 +304,7 @@ export default function RightPanel() {
           )}
 
           {/* Empty State for Authenticated Users */}
-          {auth.authenticated && badge === 0 && (
+          {hasSnapshotsFeature && badge === 0 && (
             <div className="bg-gradient-to-br from-slate-50 to-gray-50 border border-slate-200 rounded-xl p-4">
               <div className="text-center">
                 <div className="w-12 h-12 bg-gradient-to-br from-teal-100 to-cyan-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -274,14 +314,19 @@ export default function RightPanel() {
                 </div>
                 <p className="text-sm font-medium text-slate-700 mb-1">No snapshots yet</p>
                 <p className="text-xs text-slate-500">
-                  Conversation summaries will appear automatically every 5 user messages.
+                  {userTier === "PRO"
+                    ? "Conversation summaries will appear automatically every 5 user messages."
+                    : userTier === "FREE_VERIFIED"
+                      ? "Get 2 conversation summaries per month. They'll appear every 5 messages."
+                      : "Conversation summaries will appear every 5 messages."
+                  }
                 </p>
               </div>
             </div>
           )}
 
           {/* Snapshots List */}
-          {auth.authenticated && badge > 0 && (
+          {hasSnapshotsFeature && badge > 0 && (
             <div className="space-y-3">
               {liveHistory.map((snapshot) => {
                 const id = getId(snapshot);
@@ -402,38 +447,81 @@ export default function RightPanel() {
         </div>
 
         {/* Commands Section */}
-        {commands?.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-slate-900">Suggested Commands</h3>
-              <span
-                className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium border"
-                style={{
-                  background: 'linear-gradient(to right, #f0f9ff, #eef2ff)',
-                  color: '#1a6b82',
-                  borderColor: '#1a6b82'
-                }}
-              >
-                {commands.length}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {commands.slice(0, 6).map((cmd, i) => (
-                <button
-                  key={`${cmd.slug}-${i}`}
-                  onClick={() => {
-                    const { addCommand } = useSessionStore.getState();
-                    addCommand({ label: cmd.command || cmd.slug });
-                  }}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-lg hover:from-teal-50 hover:to-cyan-50 hover:border-teal-300 hover:text-teal-700 transition-all duration-200 shadow-sm hover:shadow"
-                  title={`Send "${cmd.command || cmd.slug}"`}
-                >
-                  {cmd.command || cmd.slug}
-                </button>
-              ))}
-            </div>
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-slate-900">Smart Suggestions</h3>
+            <span
+              className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                commands?.length > 0 && hasCommandsFeature
+                  ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border-blue-200"
+                  : "bg-slate-100 text-slate-600 border-slate-200"
+              }`}
+            >
+              {hasCommandsFeature ? commands?.length || 0 : "–"}
+            </span>
           </div>
-        )}
+
+          {/* Guest user - Command suggestions locked */}
+          {!hasCommandsFeature && (
+            <div className="bg-gradient-to-br from-slate-50 to-gray-50 border border-slate-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center mt-0.5">
+                  <svg className="w-3 h-3 text-slate-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-800 mb-1">Sign in for Smart Suggestions</p>
+                  <p className="text-xs text-slate-600">
+                    Get personalized command suggestions based on your conversation topics. Sign up with email to unlock smart shortcuts.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BASIC/PRO users - Show commands or empty state */}
+          {hasCommandsFeature && (
+            <>
+              {commands?.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-500 mb-3">
+                    Commands appear when topics are mentioned 4+ times
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {commands.slice(0, 6).map((cmd, i) => (
+                      <button
+                        key={`${cmd.slug}-${i}`}
+                        onClick={() => {
+                          const { addCommand } = useSessionStore.getState();
+                          addCommand({ label: cmd.command || cmd.slug });
+                        }}
+                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-slate-700 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-lg hover:from-blue-50 hover:to-indigo-50 hover:border-blue-300 hover:text-blue-700 transition-all duration-200 shadow-sm hover:shadow"
+                        title={`Send "${cmd.command || cmd.slug}"`}
+                      >
+                        {cmd.command || cmd.slug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gradient-to-br from-slate-50 to-gray-50 border border-slate-200 rounded-xl p-4">
+                  <div className="text-center">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-slate-700 mb-1">No suggestions yet</p>
+                    <p className="text-xs text-slate-500">
+                      Smart command suggestions will appear when you discuss topics frequently.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </aside>
   );

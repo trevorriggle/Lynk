@@ -59,10 +59,14 @@ export async function GET(req) {
     const projects = projectResponse.ok ? await projectResponse.json() : [];
     const project = projects?.[0] || null;
 
-    return Response.json({ 
-      ok: true, 
-      userId, 
-      projectId: project?.id || null, 
+    // 4) Determine user tier (can be enhanced with database lookup later)
+    const userTier = userId ? "FREE_VERIFIED" : "FREE_GUEST"; // Default authenticated users to FREE_VERIFIED
+
+    return Response.json({
+      ok: true,
+      userId,
+      tier: userTier,
+      projectId: project?.id || null,
       project: {
         ...project,
         email: userEmail

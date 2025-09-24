@@ -28,17 +28,52 @@ function buildIdentitySystemPrompt({ appName, provider, modelName }) {
   ].join("\n");
 }
 
+// ---------- Tier Configuration ----------
+const TIER_LIMITS = {
+  FREE_GUEST: {
+    dailyMessages: 10,
+    outputTokens: 300,
+    visionRequestsPerMonth: 0,
+    liveNotesPerMonth: 0,
+    commandSuggestions: false,
+    permanentSessions: false,
+    sessionTTLHours: 24
+  },
+  FREE_VERIFIED: {
+    dailyMessages: 25,
+    outputTokens: 600,
+    visionRequestsPerMonth: 2,
+    liveNotesPerMonth: 2,
+    commandSuggestions: true,
+    permanentSessions: true,
+    sessionTTLHours: null // permanent
+  },
+  PRO: {
+    dailyMessages: Infinity,
+    outputTokens: 1200,
+    visionRequestsPerMonth: Infinity,
+    liveNotesPerMonth: Infinity,
+    commandSuggestions: true,
+    permanentSessions: true,
+    sessionTTLHours: null // permanent
+  }
+};
+
 // ---------- Budgets ----------
 const INPUT_TOKEN_BUDGET = 1200;
-const OUTPUT_TOKENS = 600;
-
 const LIVE_NOTES_BUDGET = 800;
 const LIVE_NOTES_TOKENS = 150;
 const BACKGROUND_MODEL = "gpt-4o-mini";
 const BACKGROUND_TEMP = 0.1;
 
 // ---------- Vision Processing ----------
-async function processImageWithVision(imageDataURL, message, provider, modelName) {
+async function processImageWithVision(imageDataURL, message, provider, modelName, tier) {
+  const limits = getTierLimits(tier);
+
+  // Check if tier allows vision requests
+  if (limits.visionRequestsPerMonth === 0) {
+    return "Vision analysis is available for verified email accounts and Pro users. Sign up or upgrade to analyze images.";
+  }
   try {
     if (provider === "openai") {
       const key = process.env.OPENAI_API_KEY;
@@ -51,7 +86,7 @@ async function processImageWithVision(imageDataURL, message, provider, modelName
       
       const response = await client.chat.completions.create({
         model: visionModel,
-        max_tokens: OUTPUT_TOKENS,
+        max_tokens: limits.outputTokens,
         temperature: 0.4,
         messages: [
           {
@@ -87,7 +122,7 @@ async function processImageWithVision(imageDataURL, message, provider, modelName
       
       const payload = {
         model: "claude-3-sonnet-20240229", // Use vision-capable model
-        max_tokens: OUTPUT_TOKENS,
+        max_tokens: limits.outputTokens,
         temperature: 0.4,
         messages: [
           {
@@ -213,10 +248,22 @@ async function getUserFromRequest(req) {
     });
     if (!r.ok) return null;
     const j = await r.json();
-    return j.userId || null;
+    return {
+      userId: j.userId || null,
+      tier: j.tier || "FREE"
+    };
   } catch {
     return null;
   }
+}
+
+function getUserTier(userInfo) {
+  if (!userInfo?.userId) return "FREE_GUEST";
+  return userInfo.tier || "FREE_VERIFIED"; // Default authenticated users to FREE_VERIFIED
+}
+
+function getTierLimits(tier) {
+  return TIER_LIMITS[tier] || TIER_LIMITS.FREE_GUEST;
 }
 
 const asText = (x) => (typeof x === "string" ? x : String(x ?? ""));
@@ -449,17 +496,18 @@ export async function OPTIONS() {
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get("sessionId");
-  const userId = await getUserFromRequest(req);
+  const userInfo = await getUserFromRequest(req);
+  const userTier = getUserTier(userInfo);
 
   if (!sessionId) {
     return Response.json(
-      { ok: true, sessions: SESSIONS.size, userId: userId || "guest" },
+      { ok: true, sessions: SESSIONS.size, userId: userInfo?.userId || "guest", tier: userTier },
       { headers: H }
     );
   }
 
-  if (userId) cleanupGuestSession(sessionId);
-  const s = getSession(sessionId, userId);
+  if (userInfo?.userId) cleanupGuestSession(sessionId);
+  const s = getSession(sessionId, userInfo?.userId);
 
   return Response.json(
     {
@@ -476,6 +524,7 @@ export async function GET(req) {
         isGuest: s.isGuest,
         userId: s.userId,
         createdAt: s.createdAt,
+        tier: userTier,
       },
     },
     { headers: H }
@@ -491,8 +540,10 @@ export async function POST(req) {
     let sessionId = asText(body?.sessionId || "");
     if (!sessionId) sessionId = crypto.randomUUID?.() || "sess_" + Math.random().toString(36).slice(2);
 
-    const userId = await getUserFromRequest(req);
-    if (userId) cleanupGuestSession(sessionId);
+    const userInfo = await getUserFromRequest(req);
+    const userTier = getUserTier(userInfo);
+    const tierLimits = getTierLimits(userTier);
+    if (userInfo?.userId) cleanupGuestSession(sessionId);
 
     const modelMeta = body?.model || {};
     const provider = asText(modelMeta?.provider || "anthropic");
@@ -516,7 +567,7 @@ export async function POST(req) {
       ? buildIdentitySystemPrompt({ appName: APP_NAME, provider, modelName })
       : null;
 
-    const s = getSession(sessionId, userId);
+    const s = getSession(sessionId, userInfo?.userId);
     s.turns.push({
       role: "user",
       content: message,
@@ -531,7 +582,7 @@ export async function POST(req) {
     if (hasImageAttachment) {
       // Use vision processing with the current provider
       const imageAttachment = attachments.find(att => att.type === "image");
-      assistantText = await processImageWithVision(imageAttachment.data, message, provider, modelName);
+      assistantText = await processImageWithVision(imageAttachment.data, message, provider, modelName, userTier);
     } else {
       // Regular text-only processing
       if (provider === "xai") {
@@ -545,7 +596,7 @@ export async function POST(req) {
           key,
           model: modelName,
           messages,
-          max_tokens: OUTPUT_TOKENS,
+          max_tokens: tierLimits.outputTokens,
           temperature: 0.4,
         });
       } else if (provider === "openai") {
@@ -557,7 +608,7 @@ export async function POST(req) {
           : buildOpenAIMessages(s.turns);
         const r = await client.chat.completions.create({
           model: modelName,
-          max_tokens: OUTPUT_TOKENS,
+          max_tokens: tierLimits.outputTokens,
           temperature: 0.4,
           messages,
         });
@@ -567,7 +618,7 @@ export async function POST(req) {
         if (!key) return new Response("ANTHROPIC_API_KEY missing", { status: 500, headers: H });
         const payload = {
           model: modelName,
-          max_tokens: OUTPUT_TOKENS,
+          max_tokens: tierLimits.outputTokens,
           temperature: 0.4,
           messages: buildAnthropicMessages(s.turns),
           ...(needsIdentity ? { system: systemIdentity } : {}),
@@ -603,7 +654,7 @@ export async function POST(req) {
         const history = buildGeminiHistory(s.turns);
         const result = await model.generateContent({
           contents: history,
-          generationConfig: { maxOutputTokens: OUTPUT_TOKENS, temperature: 0.4 },
+          generationConfig: { maxOutputTokens: tierLimits.outputTokens, temperature: 0.4 },
         });
         assistantText = result?.response?.text?.() || "Okay.";
       }
@@ -618,15 +669,34 @@ export async function POST(req) {
     });
     s.last = { provider, model: modelName };
 
-    trackMessageTopics(s, message);
+    // Track topics only if tier allows command suggestions
+    if (tierLimits.commandSuggestions) {
+      trackMessageTopics(s, message);
+    }
 
-    // ---- Snapshots (AUTH ONLY, EVERY 5 USER TURNS) ----
+    // ---- Snapshots (Tier-based limits, every 5 user turns) ----
     const uCount = userTurnCount(s.turns);
-    const shouldCreateSnapshot = 
-      !s.isGuest && 
-      uCount >= 5 && 
-      uCount % 5 === 0 && 
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const monthKey = `${currentYear}-${currentMonth}`;
+
+    // Initialize monthly counters if needed
+    if (!s.monthlyCounters) s.monthlyCounters = {};
+    if (!s.monthlyCounters[monthKey]) {
+      s.monthlyCounters[monthKey] = {
+        snapshots: 0,
+        visionRequests: 0
+      };
+    }
+
+    const monthlySnapshots = s.monthlyCounters[monthKey].snapshots || 0;
+    const canCreateSnapshot = !s.isGuest &&
+      tierLimits.liveNotesPerMonth > monthlySnapshots &&
+      uCount >= 5 &&
+      uCount % 5 === 0 &&
       uCount > (s._lastSnapshotUserCount || 0);
+
+    const shouldCreateSnapshot = canCreateSnapshot;
 
     if (shouldCreateSnapshot) {
       const fromTurn = (s._lastSnapshotUserCount || 0) + 1;
@@ -647,8 +717,11 @@ export async function POST(req) {
         if (!s.liveHistory) s.liveHistory = [];
         s.liveHistory.push(entry); // This ADDS to the array, doesn't replace
         s._lastSnapshotUserCount = uCount;
-        
-        console.log(`✅ Created snapshot ${entry.id} for turns ${fromTurn}-${toTurn}. Total snapshots: ${s.liveHistory.length}`);
+
+        // Increment monthly snapshot counter
+        s.monthlyCounters[monthKey].snapshots = monthlySnapshots + 1;
+
+        console.log(`✅ Created snapshot ${entry.id} for turns ${fromTurn}-${toTurn}. Total snapshots: ${s.liveHistory.length}, Monthly: ${s.monthlyCounters[monthKey].snapshots}/${tierLimits.liveNotesPerMonth}`);
       } catch (error) {
         console.log("❌ Snapshot generation failed:", error.message);
       }
@@ -665,6 +738,7 @@ export async function POST(req) {
         sessionMeta: {
           isGuest: s.isGuest,
           userId: s.userId,
+          tier: userTier,
           provider,
           model: modelName,
           userTurns: uCount,

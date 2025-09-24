@@ -3,11 +3,11 @@
   "/account/page": "app/account/page.js",
   "/api/auth/callback/page": "app/api/auth/callback/page.js",
   "/page": "app/page.js",
-  "/api/auth/send-magic/route": "app/api/auth/send-magic/route.js",
+  "/api/auth/logout/route": "app/api/auth/logout/route.js",
   "/api/auth/signup/route": "app/api/auth/signup/route.js",
+  "/api/auth/send-magic/route": "app/api/auth/send-magic/route.js",
   "/api/auth/login/route": "app/api/auth/login/route.js",
   "/api/me/route": "app/api/me/route.js",
-  "/api/auth/logout/route": "app/api/auth/logout/route.js",
   "/api/auth/finish/route": "app/api/auth/finish/route.js",
   "/api/chat-storage/route": "app/api/chat-storage/route.js",
   "/api/session/route": "app/api/session/route.js"

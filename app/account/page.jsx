@@ -35,7 +35,7 @@ function clearGuestSessionData() {
 }
 
 // Dashboard component for authenticated users
-function AccountDashboard({ userEmail, userId, onLogout }) {
+function AccountDashboard({ userEmail, userId, userTier, onLogout, onTierChange }) {
   const [stats, setStats] = useState({
     messagesUsed: 0,
     messagesLimit: 20,
@@ -62,9 +62,17 @@ function AccountDashboard({ userEmail, userId, onLogout }) {
           }
         });
 
+        // Set message limits based on tier
+        const dailyLimits = {
+          FREE_GUEST: 10,
+          FREE_VERIFIED: 25,
+          PRO: Infinity
+        };
+        const messageLimit = dailyLimits[userTier] || 25;
+
         setStats({
           messagesUsed: totalMessages,
-          messagesLimit: 20, // authenticated users get 20
+          messagesLimit: messageLimit,
           accountCreated: new Date().toLocaleDateString(), // placeholder
           totalSessions: sessionCount
         });
@@ -72,7 +80,7 @@ function AccountDashboard({ userEmail, userId, onLogout }) {
     } catch (e) {
       console.warn("Failed to load usage stats:", e);
     }
-  }, []);
+  }, [userTier]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8" style={{height: '100vh', overflowY: 'auto'}}>
@@ -84,6 +92,63 @@ function AccountDashboard({ userEmail, userId, onLogout }) {
             Manage your Lynk account and view usage statistics
           </p>
         </div>
+
+        {/* Upgrade to Pro Card - Only show for non-PRO users */}
+        {userTier !== "PRO" && (
+          <div className="bg-gradient-to-r from-teal-500 to-cyan-600 rounded-lg p-6 mb-6 text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold mb-2">Upgrade to Pro ($18/month)</h2>
+                <p className="text-teal-100 text-sm mb-4">
+                  Unlock unlimited conversations, vision, and live notes for maximum productivity.
+                </p>
+                <ul className="text-sm text-teal-100 space-y-1">
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-teal-200" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Unlimited messages & 1200 tokens per response
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-teal-200" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Unlimited vision analysis & live note snapshots
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-teal-200" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Smart suggestions & priority support
+                  </li>
+                </ul>
+              </div>
+              <div className="ml-6">
+                <button
+                  onClick={async () => {
+                    // Temporary upgrade for testing - will be replaced with payment flow
+                    if (confirm('Upgrade to Pro for testing? (This will simulate payment success)')) {
+                      try {
+                        // Update the parent component's auth state
+                        onTierChange("PRO");
+
+                        // In a real app, you'd update the database here
+                        alert('🎉 Successfully upgraded to Pro! (Test mode)');
+                      } catch (error) {
+                        console.error('Upgrade error:', error);
+                        alert('Upgrade failed. Please try again.');
+                        // Revert on error - no need since onTierChange wasn't called yet
+                      }
+                    }
+                  }}
+                  className="bg-white text-teal-600 font-semibold py-3 px-6 rounded-lg hover:bg-teal-50 transition-colors shadow-lg"
+                >
+                  Upgrade Now (Test)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Account Info Card */}
         <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -97,8 +162,14 @@ function AccountDashboard({ userEmail, userId, onLogout }) {
             
             <div className="flex justify-between items-center py-2 border-b border-gray-100">
               <span className="text-sm font-medium text-gray-700">Account Type</span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                Free Account
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                userTier === "PRO"
+                  ? "bg-gradient-to-r from-teal-100 to-cyan-100 text-teal-800"
+                  : userTier === "FREE_VERIFIED"
+                    ? "bg-green-100 text-green-800"
+                    : "bg-gray-100 text-gray-800"
+              }`}>
+                {userTier === "PRO" ? "Pro Account" : userTier === "FREE_VERIFIED" ? "Free Account (Verified)" : "Free Account (Guest)"}
               </span>
             </div>
             
@@ -122,19 +193,19 @@ function AccountDashboard({ userEmail, userId, onLogout }) {
             {/* Message Usage */}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium text-gray-700">Messages This Month</span>
+                <span className="text-sm font-medium text-gray-700">Messages Today</span>
                 <span className="text-sm text-gray-900">
-                  {stats.messagesUsed} / {stats.messagesLimit}
+                  {stats.messagesUsed} / {stats.messagesLimit === Infinity ? "∞" : stats.messagesLimit}
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
+                <div
                   className="bg-[#176A82] h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min((stats.messagesUsed / stats.messagesLimit) * 100, 100)}%` }}
+                  style={{ width: stats.messagesLimit === Infinity ? "100%" : `${Math.min((stats.messagesUsed / stats.messagesLimit) * 100, 100)}%` }}
                 ></div>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {stats.messagesLimit - stats.messagesUsed} messages remaining
+                {stats.messagesLimit === Infinity ? "Unlimited messages" : `${Math.max(0, stats.messagesLimit - stats.messagesUsed)} messages remaining today`}
               </p>
             </div>
 
@@ -382,6 +453,7 @@ export default function AccountPage() {
     authenticated: false,
     userId: null,
     userEmail: null,
+    userTier: null,
   });
 
   useEffect(() => {
@@ -401,6 +473,7 @@ export default function AccountPage() {
             authenticated: isAuthenticated,
             userId: data.userId,
             userEmail: data.project?.email || null,
+            userTier: data.tier || "FREE",
           });
           
           // If user is authenticated, clear any guest session data that might exist
@@ -413,6 +486,7 @@ export default function AccountPage() {
             authenticated: false,
             userId: null,
             userEmail: null,
+            userTier: "FREE",
           });
         }
       } catch (e) {
@@ -422,6 +496,7 @@ export default function AccountPage() {
           authenticated: false,
           userId: null,
           userEmail: null,
+          userTier: "FREE",
         });
       }
     };
@@ -459,11 +534,17 @@ export default function AccountPage() {
   }
 
   if (authState.authenticated) {
+    const handleTierChange = (newTier) => {
+      setAuthState(prev => ({ ...prev, userTier: newTier }));
+    };
+
     return (
-      <AccountDashboard 
+      <AccountDashboard
         userEmail={authState.userEmail}
         userId={authState.userId}
+        userTier={authState.userTier}
         onLogout={handleLogout}
+        onTierChange={handleTierChange}
       />
     );
   }
