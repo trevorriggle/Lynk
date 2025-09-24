@@ -87,20 +87,6 @@ const initialState = {
     }
   ],
   
-  projects: [
-    {
-      key: "carolina-research",
-      label: "Carolina Research",
-      description: "Academic research project for University of North Carolina",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      key: "graphic-design",
-      label: "Graphic Design",
-      description: "Creative design projects and visual content creation",
-      createdAt: new Date().toISOString(),
-    }
-  ],
   
   // Collaboration features
   sharedChats: {},
@@ -162,7 +148,6 @@ export const useSessionStore = create(
               contextFiles: data.contextFiles || get().contextFiles,
               behaviors: data.behaviors || get().behaviors,
               commands: data.commands || get().commands,
-              projects: data.projects || get().projects,
               lastSyncAt: new Date().toISOString(),
               isLoading: false,
             });
@@ -638,56 +623,6 @@ export const useSessionStore = create(
           }).catch(console.warn);
         },
 
-        // ==================== PROJECTS MANAGEMENT ====================
-        
-        addProject: (project) => {
-          const projectWithMetadata = {
-            key: project.key || genId(),
-            label: project.label || "Untitled Project",
-            description: project.description || "",
-            createdAt: new Date().toISOString(),
-            ...project,
-          };
-
-          set((state) => ({
-            projects: [...state.projects, projectWithMetadata],
-          }));
-
-          // Sync to database
-          debouncedSync('save_project', projectWithMetadata);
-        },
-
-        updateProject: (key, updates) => {
-          let updatedProject;
-          set((state) => {
-            const newProjects = state.projects.map(project => {
-              if (project.key === key) {
-                updatedProject = { ...project, ...updates, updatedAt: new Date().toISOString() };
-                return updatedProject;
-              }
-              return project;
-            });
-            
-            return { projects: newProjects };
-          });
-
-          // Sync to database
-          if (updatedProject) {
-            debouncedSync('save_project', updatedProject);
-          }
-        },
-
-        deleteProject: (key) => {
-          set((state) => ({
-            projects: state.projects.filter(project => project.key !== key),
-          }));
-
-          // Delete from database
-          fetch(`/api/chat-storage?type=project&key=${encodeURIComponent(key)}`, {
-            method: 'DELETE',
-            credentials: 'include',
-          }).catch(console.warn);
-        },
 
         // ==================== COLLABORATION FEATURES ====================
         
@@ -827,7 +762,6 @@ export const useSessionStore = create(
             contextFiles: state.contextFiles,
             behaviors: state.behaviors,
             commands: state.commands,
-            projects: state.projects,
             settings: state.settings,
             exportedAt: new Date().toISOString(),
           };
@@ -943,7 +877,6 @@ export const useSessionStore = create(
             contextFiles: persistedState.contextFiles || initialState.contextFiles,
             behaviors: persistedState.behaviors || initialState.behaviors,
             commands: persistedState.commands || initialState.commands,
-            projects: persistedState.projects || initialState.projects,
           };
         }
         return persistedState;

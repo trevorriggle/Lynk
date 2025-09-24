@@ -206,11 +206,9 @@ export default function EnhancedLeftStack({ onActivate }) {
     contextFiles = [],
     behaviors = [],
     commands = [],
-    projects = [],
     deleteContextFile,
     deleteBehavior,
     deleteCommand,
-    deleteProject,
     addContextFile,
     sendMessage,
     clearSessions,
@@ -373,22 +371,6 @@ export default function EnhancedLeftStack({ onActivate }) {
         )}
       </Section>
 
-      <Section title="Projects" badge={projects.length || null}>
-        {projects.map(project => (
-          <Row 
-            key={project.key}
-            label={project.label}
-            onClick={() => onActivate?.({ type: "project", key: project.key })}
-            onDelete={() => deleteProject(project.key)}
-            deletable
-          />
-        ))}
-        <Row 
-          label="+ New Project"
-          onClick={() => onActivate?.({ type: "project", key: "add-new" })} 
-          muted 
-        />
-      </Section>
 
       <Section title="Recent Chats" badge={recent.length || null} defaultOpen={false}>
         {!authState.authenticated && (

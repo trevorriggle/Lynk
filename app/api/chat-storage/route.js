@@ -65,13 +65,12 @@ export async function GET(req) {
     }
 
     // Fetch all user data in parallel
-    const [sessions, contextFiles, behaviors, commands, projects] = await Promise.all([
+    const [sessions, contextFiles, behaviors, commands] = await Promise.all([
       // Get sessions with their messages
       supabaseRequest(`/chat_sessions?user_id=eq.${userId}&order=updated_at.desc`),
       supabaseRequest(`/context_files?user_id=eq.${userId}&order=created_at.desc`),
       supabaseRequest(`/user_behaviors?user_id=eq.${userId}&order=created_at.desc`),
-      supabaseRequest(`/user_commands?user_id=eq.${userId}&order=created_at.desc`),
-      supabaseRequest(`/user_projects?user_id=eq.${userId}&order=created_at.desc`)
+      supabaseRequest(`/user_commands?user_id=eq.${userId}&order=created_at.desc`)
     ]);
 
     // Get messages for all sessions
@@ -141,12 +140,6 @@ export async function GET(req) {
         label: c.label,
         content: c.content,
         createdAt: c.created_at
-      })),
-      projects: projects.map(p => ({
-        key: p.key,
-        label: p.label,
-        description: p.description,
-        createdAt: p.created_at
       }))
     });
 
@@ -250,19 +243,6 @@ export async function POST(req) {
 
         return Response.json({ success: true });
 
-      case 'save_project':
-        await supabaseRequest('/user_projects', {
-          method: 'POST',
-          headers: { 'Prefer': 'resolution=merge-duplicates' },
-          body: JSON.stringify({
-            user_id: userId,
-            key: data.key,
-            label: data.label,
-            description: data.description
-          })
-        });
-
-        return Response.json({ success: true });
 
       default:
         return new Response("Invalid type", { status: 400 });
@@ -313,11 +293,6 @@ export async function DELETE(req) {
         });
         return Response.json({ success: true });
 
-      case 'project':
-        await supabaseRequest(`/user_projects?user_id=eq.${userId}&key=eq.${key}`, {
-          method: 'DELETE'
-        });
-        return Response.json({ success: true });
 
       default:
         return new Response("Invalid type", { status: 400 });

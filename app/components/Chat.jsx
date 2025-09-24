@@ -18,6 +18,35 @@ function formatTimeAgo(timestamp) {
   return timestamp.toLocaleDateString();
 }
 
+function highlightText(text, query, currentMatchIndex, totalMatches) {
+  if (!query || !text) return text;
+
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  let matchCount = 0;
+
+  return parts.map((part, index) => {
+    if (part.toLowerCase() === query.toLowerCase()) {
+      const isCurrentMatch = matchCount === currentMatchIndex;
+      matchCount++;
+      return (
+        <mark
+          key={index}
+          className={isCurrentMatch
+            ? "bg-orange-300 text-orange-900 px-1 rounded border-2 border-orange-500"
+            : "bg-yellow-200 text-yellow-900 px-1 rounded"
+          }
+          id={isCurrentMatch ? 'current-match' : undefined}
+        >
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
+
 function PlusIcon({ className = "h-5 w-5" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
@@ -127,6 +156,10 @@ export default function Chat() {
     error: null,
   });
 
+  const [highlightQuery, setHighlightQuery] = useState("");
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -193,6 +226,66 @@ export default function Chat() {
       cancelled = true;
     };
   }, []);
+
+  // Listen for search highlighting and navigation
+  useEffect(() => {
+    const handleHighlight = (e) => {
+      const query = e.detail.query;
+      setHighlightQuery(query);
+
+      if (query) {
+        // Count total matches in the current session
+        const session = sessions[activeId];
+        if (session) {
+          let matches = 0;
+          session.messages.forEach(msg => {
+            if (msg.content && msg.content.toLowerCase().includes(query.toLowerCase())) {
+              const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+              const found = msg.content.match(regex);
+              matches += found ? found.length : 0;
+            }
+          });
+          setTotalMatches(matches);
+          setCurrentMatchIndex(matches > 0 ? 0 : -1);
+        }
+      } else {
+        setTotalMatches(0);
+        setCurrentMatchIndex(0);
+      }
+
+      // Clear highlight after 10 seconds
+      setTimeout(() => setHighlightQuery(""), 10000);
+    };
+
+    const handleNavigateMatch = (e) => {
+      const direction = e.detail.direction;
+      if (totalMatches > 0) {
+        if (direction === 'next') {
+          setCurrentMatchIndex((prev) => (prev + 1) % totalMatches);
+        } else if (direction === 'prev') {
+          setCurrentMatchIndex((prev) => (prev - 1 + totalMatches) % totalMatches);
+        }
+      }
+    };
+
+    window.addEventListener("highlight-search", handleHighlight);
+    window.addEventListener("navigate-match", handleNavigateMatch);
+
+    return () => {
+      window.removeEventListener("highlight-search", handleHighlight);
+      window.removeEventListener("navigate-match", handleNavigateMatch);
+    };
+  }, [sessions, activeId, totalMatches]);
+
+  // Auto-scroll to current match
+  useEffect(() => {
+    if (currentMatchIndex >= 0) {
+      const currentMatch = document.getElementById('current-match');
+      if (currentMatch) {
+        currentMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [currentMatchIndex]);
 
   const thread = useMemo(
     () => (activeId ? sessions[activeId]?.messages || [] : []),
@@ -588,7 +681,7 @@ export default function Chat() {
                           ))}
                       </div>
                     )}
-                    {m.content}
+                    {highlightQuery ? highlightText(m.content, highlightQuery, currentMatchIndex, totalMatches) : m.content}
                   </div>
                   <div className="text-xs text-slate-500 mt-1 opacity-0 hover:opacity-100 transition-opacity">
                     {timeAgo}

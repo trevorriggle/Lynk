@@ -3,13 +3,6 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../hooks/useSessionStore";
 
-function ChevronDown({ className = "h-4 w-4" }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className={className}>
-      <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.28l3.71-3.05a.75.75 0 111.04 1.08l-4.23 3.48a.75.75 0 01-.96 0L5.21 8.31a.75.75 0 01.02-1.1z" />
-    </svg>
-  );
-}
 
 function Magnifier({ className = "h-4 w-4" }) {
   return (
@@ -55,6 +48,16 @@ export default function EnhancedTopBar() {
   // Get the store functions we need
   const createSession = useSessionStore((s) => s.createSession);
   const selectedModel = useSessionStore((s) => s.selectedModel);
+  const { sessions, selectSession, searchSessions } = useSessionStore((s) => ({
+    sessions: s.sessions,
+    selectSession: s.selectSession,
+    searchSessions: s.searchSessions,
+  }));
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [showResults, setShowResults] = useState(false);
 
   // Check authentication status
   const [authState, setAuthState] = useState({
@@ -90,6 +93,47 @@ export default function EnhancedTopBar() {
       }
     };
     checkAuth();
+  }, []);
+
+  // Search functionality
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+    if (query.trim().length > 0) {
+      const results = searchSessions(query);
+      setSearchResults(results.slice(0, 5)); // Limit to top 5 results
+      setShowResults(true);
+    } else {
+      setSearchResults([]);
+      setShowResults(false);
+    }
+  };
+
+  const handleSelectResult = (session) => {
+    selectSession(session.id);
+    setShowResults(false);
+
+    // Dispatch event to highlight search terms in the chat
+    if (searchQuery.trim()) {
+      window.dispatchEvent(new CustomEvent("highlight-search", {
+        detail: { query: searchQuery.trim() }
+      }));
+    }
+
+    // Don't clear query immediately so highlighting works
+    setTimeout(() => setSearchQuery(""), 100);
+  };
+
+  // Close search results on outside click
+  const searchWrapRef = useRef(null);
+  useEffect(() => {
+    const onDocDown = (e) => {
+      if (!searchWrapRef.current) return;
+      if (!searchWrapRef.current.contains(e.target)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
   }, []);
 
   // Interact dropdown state
@@ -139,8 +183,8 @@ export default function EnhancedTopBar() {
     <header className="sticky top-0 z-[100] w-full bg-[#E6E8EA]">
       <div className="mx-auto max-w-[1400px] px-4">
         <div className="flex h-14 items-center gap-3">
-          {/* LEFT: logo + workspace */}
-          <div className="flex items-center gap-4 shrink-0">
+          {/* LEFT: logo */}
+          <div className="flex items-center shrink-0">
             <Link href="/" className="flex items-center">
               <img
                 src="/lynk-logo.png"
@@ -149,22 +193,10 @@ export default function EnhancedTopBar() {
                 draggable="false"
               />
             </Link>
-
-            <div className="hidden items-center gap-2 sm:flex text-gray-600">
-              <span className="text-sm">Project</span>
-              <button
-                type="button"
-                aria-label="Select workspace"
-                className="inline-flex items-center gap-1 rounded-md bg-white/70 px-3 py-1 text-sm font-medium text-gray-700 ring-1 ring-black/10 hover:bg-white"
-              >
-                Workspace
-                <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
-              </button>
-            </div>
           </div>
 
           {/* CENTER: search */}
-          <div className="flex flex-1 min-w-0">
+          <div className="flex flex-1 min-w-0 relative" ref={searchWrapRef}>
             <label
               htmlFor="lynk-search"
               role="search"
@@ -175,10 +207,74 @@ export default function EnhancedTopBar() {
               <input
                 id="lynk-search"
                 type="text"
-                placeholder="Search files, chats, and commands..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search your chat history..."
                 className="w-full bg-transparent text-[15px] leading-6 text-gray-800 placeholder:font-medium focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    e.preventDefault();
+                    window.dispatchEvent(new CustomEvent("navigate-match", { detail: { direction: 'next' } }));
+                  }
+                }}
               />
+
+              {/* Navigation controls when search is active */}
+              {searchQuery.trim() && (
+                <div className="flex items-center gap-1 border-l border-gray-300 pl-3">
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent("navigate-match", { detail: { direction: 'prev' } }))}
+                    className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700"
+                    title="Previous match"
+                    type="button"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent("navigate-match", { detail: { direction: 'next' } }))}
+                    className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700"
+                    title="Next match"
+                    type="button"
+                  >
+                    ▼
+                  </button>
+                </div>
+              )}
             </label>
+
+            {/* Search Results Dropdown */}
+            {showResults && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 max-w-[720px] mt-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                <div className="p-2">
+                  <div className="text-xs font-medium text-gray-500 mb-2 px-2">
+                    Found in {searchResults.length} conversation{searchResults.length !== 1 ? 's' : ''}
+                  </div>
+                  {searchResults.map((session) => (
+                    <button
+                      key={session.id}
+                      onClick={() => handleSelectResult(session)}
+                      className="w-full text-left p-3 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
+                      <div className="font-medium text-sm text-gray-900 mb-1">
+                        {session.title || "Untitled Chat"}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {session.messages?.length || 0} messages • {new Date(session.createdAt).toLocaleDateString()}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* No Results */}
+            {showResults && searchQuery.trim().length > 0 && searchResults.length === 0 && (
+              <div className="absolute top-full left-0 right-0 max-w-[720px] mt-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  No matches found for "{searchQuery}"
+                </div>
+              </div>
+            )}
           </div>
 
           {/* RIGHT: actions */}

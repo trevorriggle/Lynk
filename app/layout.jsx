@@ -6,7 +6,7 @@ import InteractionHandler from "./components/InteractionHandler";
 
 export const metadata = { 
   title: "Lynk", 
-  description: "Multi-model AI workspace for seamless collaboration" 
+  description: "Multi-model AI chat with smart insights and productivity features" 
 };
 
 export default function RootLayout({ children }) {
