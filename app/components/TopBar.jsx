@@ -63,6 +63,7 @@ export default function EnhancedTopBar() {
   const [authState, setAuthState] = useState({
     loading: true,
     authenticated: false,
+    userId: null,
     userEmail: null,
   });
 
@@ -75,12 +76,14 @@ export default function EnhancedTopBar() {
           setAuthState({
             loading: false,
             authenticated: !!data.userId,
+            userId: data.userId || null,
             userEmail: data.project?.email || null,
           });
         } else {
           setAuthState({
             loading: false,
             authenticated: false,
+            userId: null,
             userEmail: null,
           });
         }
@@ -88,6 +91,7 @@ export default function EnhancedTopBar() {
         setAuthState({
           loading: false,
           authenticated: false,
+          userId: null,
           userEmail: null,
         });
       }
@@ -163,16 +167,20 @@ export default function EnhancedTopBar() {
   // Handle new chat creation - simplified and direct
   const handleNewChat = () => {
     try {
+      // Determine userId based on auth state
+      const userId = authState.authenticated ? authState.userId : null;
+      console.log('TopBar - Creating new session with userId:', userId, 'authState:', authState);
+
       // Create the new session - this automatically sets it as active
-      const sessionId = createSession(selectedModel);
-      
+      const sessionId = createSession(selectedModel, userId);
+
       // Dispatch custom event to notify other components
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("session:created", { 
+        window.dispatchEvent(new CustomEvent("session:created", {
           detail: { sessionId, model: selectedModel }
         }));
       }
-      
+
       console.log("New chat created:", sessionId);
     } catch (error) {
       console.error("Failed to create new chat:", error);
